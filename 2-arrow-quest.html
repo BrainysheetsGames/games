@@ -1,1 +1,1247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>🏹 Arrow Quest! (Math Edition)</title>
 
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800&display=swap');
+
+  :root {
+    --gold: #FFD700;
+    --ui-bg: rgba(20,40,10,0.85);
+    --ui-border: #aaee55;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #1a1a2e;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    font-family: 'Nunito', sans-serif;
+  }
+
+  #scale-root { position: fixed; inset: 0; width: 100%; height: 100%; }
+
+  /* Game is always 800x500 internally; JS scales wrapper */
+  #game-wrapper {
+    position: absolute;
+    width: 800px;
+    height: 500px;
+    transform-origin: top left;
+    will-change: transform;
+  }
+
+  #canvas {
+    border-radius: 16px;
+    border: 4px solid #aaee55;
+    box-shadow: 0 0 40px rgba(100,255,50,0.3), 0 0 80px rgba(0,0,0,0.5);
+    display: block;
+    touch-action: none;
+  }
+
+  /* ---- HUD ---- */
+  #ui-panel {
+    position: absolute;
+    top: 8px; left: 8px; right: 8px;
+    display: flex;
+    gap: 6px;
+    pointer-events: none;
+    flex-wrap: wrap;
+    z-index: 12;
+  }
+  .stat-box {
+    background: var(--ui-bg);
+    border: 2px solid var(--ui-border);
+    border-radius: 10px;
+    padding: 5px 10px;
+    color: white;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    text-shadow: 0 1px 3px black;
+  }
+  .stat-box .icon { font-size: 16px; }
+
+  /* ---- SHOP BUTTON ---- */
+  #shop-btn {
+    position: absolute;
+    bottom: 10px; right: 10px;
+    background: linear-gradient(135deg, #FFD700, #ff9900);
+    border: 3px solid #8B6914;
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 18px;
+    cursor: pointer;
+    color: #3a1a00;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+    z-index: 20;
+    min-width: 48px; min-height: 48px;
+  }
+  #shop-btn:active { opacity: 0.85; transform: scale(0.97); }
+
+  /* ---- SHOP OVERLAY ---- */
+  #shop-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    border-radius: 14px;
+    z-index: 40;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    touch-action: auto;
+  }
+  #shop-overlay.open { display: flex; }
+  #shop-panel {
+    background: linear-gradient(160deg, #1b3a0e, #2d5c1a);
+    border: 3px solid #aaee55;
+    border-radius: 18px;
+    padding: 18px 22px;
+    width: 460px;
+    color: white;
+    max-height: 460px;
+    overflow-y: auto;
+  }
+  #shop-panel h2 {
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 24px;
+    color: var(--gold);
+    text-align: center;
+    margin-bottom: 12px;
+    text-shadow: 0 0 10px rgba(255,215,0,0.5);
+  }
+  .shop-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .shop-item {
+    background: rgba(255,255,255,0.08);
+    border: 2px solid #5a9e3a;
+    border-radius: 12px;
+    padding: 12px 8px;
+    cursor: pointer;
+    text-align: center;
+    min-height: 48px;
+  }
+  .shop-item:active { background: rgba(255,255,255,0.22); }
+  .shop-item.maxed { opacity: 0.5; cursor: default; border-color: #888; }
+  .shop-item .item-icon { font-size: 26px; }
+  .shop-item .item-name { font-family: 'Fredoka One', sans-serif; font-size: 14px; margin: 3px 0 2px; }
+  .shop-item .item-desc { font-size: 11px; color: #aaddaa; }
+  .shop-item .item-cost { color: var(--gold); font-weight: 800; font-size: 13px; margin-top: 5px; }
+  #shop-gold-display {
+    text-align: center;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 17px;
+    color: var(--gold);
+    margin-bottom: 10px;
+  }
+  #close-shop-btn {
+    display: block;
+    margin: 0 auto;
+    background: #e74c3c;
+    border: 2px solid #a93226;
+    border-radius: 10px;
+    padding: 10px 28px;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 16px;
+    color: white;
+    cursor: pointer;
+    min-height: 48px;
+  }
+  #close-shop-btn:active { background: #c0392b; }
+
+  /* ---- INSTRUCTIONS ---- */
+  #instructions {
+    position: absolute;
+    bottom: -28px;
+    left: 0; right: 0;
+    color: #aaddaa;
+    font-size: 12px;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  /* ---- FULLSCREEN LAUNCH SCREEN ---- */
+  #launch-screen {
+    position: fixed;
+    inset: 0;
+    background: #1a1a2e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    z-index: 9999;
+    padding: 18px;
+  }
+  #launch-screen h1 {
+    font-family: 'Fredoka One', sans-serif;
+    font-size: clamp(32px, 8vw, 64px);
+    color: #aaee55;
+    text-shadow: 0 0 30px rgba(100,255,50,0.5), 0 4px 8px black;
+    letter-spacing: 2px;
+  }
+  #launch-screen p {
+    font-family: 'Nunito', sans-serif;
+    color: #aaddaa;
+    font-size: clamp(13px, 3vw, 18px);
+    text-align: center;
+    max-width: 520px;
+    line-height: 1.5;
+  }
+  .launch-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+  }
+  #mode-select {
+    background: rgba(0,0,0,0.25);
+    border: 2px solid rgba(170,238,85,0.4);
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: #eaffdd;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 16px;
+    outline: none;
+    min-width: 240px;
+  }
+
+  #fullscreen-btn {
+    background: linear-gradient(135deg, #aaee55, #55cc22);
+    border: 3px solid #3a7a10;
+    border-radius: 18px;
+    padding: 16px 36px;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: clamp(18px, 4.2vw, 26px);
+    color: #1a3a08;
+    cursor: pointer;
+    box-shadow: 0 6px 24px rgba(100,255,50,0.35), 0 2px 8px rgba(0,0,0,0.5);
+    transition: transform 0.1s, box-shadow 0.1s;
+    letter-spacing: 1px;
+  }
+  #fullscreen-btn:hover  { transform: scale(1.04); box-shadow: 0 8px 30px rgba(100,255,50,0.5); }
+  #fullscreen-btn:active { transform: scale(0.97); }
+
+  #no-fs-btn {
+    background: none;
+    border: 2px solid #555;
+    border-radius: 10px;
+    padding: 10px 28px;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 15px;
+    color: #888;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  #no-fs-btn:hover { color: #bbb; border-color: #888; }
+
+  /* ---- IN-GAME FULLSCREEN TOGGLE ---- */
+  #fs-toggle-btn {
+    position: absolute;
+    bottom: 10px; left: 10px;
+    background: rgba(0,0,0,0.5);
+    border: 2px solid #555;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 18px;
+    cursor: pointer;
+    color: white;
+    z-index: 20;
+    line-height: 1;
+    min-width: 38px; min-height: 38px;
+  }
+  #fs-toggle-btn:hover { background: rgba(0,0,0,0.75); border-color: #aaa; }
+
+  /* ---- VIRTUAL JOYSTICK (fixed bottom-left) ---- */
+  #joystick-zone {
+    display: none;
+    position: absolute;
+    width: 140px; height: 140px;
+    left: 16px;
+    bottom: 16px;
+    pointer-events: none;
+    z-index: 18;
+  }
+  #joystick-base {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.10);
+    border: 3px solid rgba(255,255,255,0.30);
+  }
+  #joystick-knob {
+    position: absolute;
+    width: 54px; height: 54px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.50);
+    border: 3px solid rgba(255,255,255,0.80);
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+  }
+
+  /* ---- MATH OVERLAY ---- */
+  #math-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.86);
+    z-index: 60;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+    touch-action: auto;
+    padding: 14px;
+  }
+  #math-card {
+    width: min(520px, 92vw);
+    background: rgba(15, 25, 40, 0.92);
+    border: 2px solid rgba(170,238,85,0.45);
+    border-radius: 16px;
+    padding: 16px;
+    color: white;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+    text-align: center;
+  }
+  #math-title {
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 22px;
+    color: #aaee55;
+    text-shadow: 0 0 18px rgba(100,255,50,0.25);
+    margin-bottom: 6px;
+  }
+  #math-question {
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 30px;
+    margin: 10px 0 10px;
+  }
+  #math-sub {
+    font-size: 12px;
+    color: rgba(210, 240, 210, 0.75);
+    margin-top: 2px;
+  }
+  #math-answers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .ans-btn {
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(170,238,85,0.35);
+    border-radius: 14px;
+    padding: 12px 10px;
+    font-family: 'Fredoka One', sans-serif;
+    font-size: 22px;
+    color: white;
+    cursor: pointer;
+    min-height: 54px;
+  }
+  .ans-btn:active { transform: scale(0.98); opacity: 0.9; }
+  #math-hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+  }
+</style>
+</head>
+
+<body>
+<!-- ===== LAUNCH SCREEN ===== -->
+<div id="launch-screen">
+  <h1>🏹 Arrow Quest!</h1>
+  <p>
+    Defeat monsters… but earn gold ONLY by solving math.<br/>
+    Touch: fixed thumbstick bottom-left. Tap anywhere else to shoot.
+  </p>
+
+  <div class="launch-row">
+    <select id="mode-select" aria-label="Math mode">
+      <option value="add">Addition (0–12)</option>
+      <option value="sub">Subtraction (0–12)</option>
+      <option value="mul">Multiplication (0–12)</option>
+      <option value="div">Division (÷ facts to 12)</option>
+    </select>
+  </div>
+
+  <div class="launch-row">
+    <button id="fullscreen-btn">▶ Play Full Screen</button>
+    <button id="no-fs-btn">Play in window instead</button>
+  </div>
+
+  <p style="opacity:0.85; max-width:540px;">
+    Gold 💰 comes from correct answers after monster defeats.
+    Animals give food 🍖 (no popups).
+  </p>
+</div>
+
+<div id="scale-root">
+  <div id="game-wrapper">
+    <canvas id="canvas" width="800" height="500"></canvas>
+
+    <div id="ui-panel">
+      <div class="stat-box"><span class="icon">❤️</span><span id="hp-val">100/100</span></div>
+      <div class="stat-box"><span class="icon">🍖</span><span id="food-val">0</span></div>
+      <div class="stat-box"><span class="icon">💰</span><span id="gold-val">0</span></div>
+      <div class="stat-box"><span class="icon">⭐</span>Lvl <span id="lvl-val">1</span></div>
+      <div class="stat-box"><span class="icon">🧠</span><span id="mode-val">ADD</span></div>
+    </div>
+
+    <button id="shop-btn">🛒 Shop</button>
+
+    <!-- Fixed thumbstick bottom-left -->
+    <div id="joystick-zone">
+      <div id="joystick-base"></div>
+      <div id="joystick-knob"></div>
+    </div>
+
+    <button id="fs-toggle-btn" title="Toggle fullscreen">⛶</button>
+
+    <!-- Math overlay -->
+    <div id="math-overlay">
+      <div id="math-card">
+        <div id="math-title">Earn Gold 💰</div>
+        <div id="math-question">8 + 4 = ?</div>
+        <div id="math-sub">Solve to get coins for upgrades.</div>
+
+        <div id="math-answers">
+          <button class="ans-btn" data-i="0">10</button>
+          <button class="ans-btn" data-i="1">12</button>
+          <button class="ans-btn" data-i="2">14</button>
+          <button class="ans-btn" data-i="3">16</button>
+        </div>
+
+        <div id="math-hint">Tap the correct answer.</div>
+      </div>
+    </div>
+
+    <!-- Shop -->
+    <div id="shop-overlay">
+      <div id="shop-panel">
+        <h2>🛒 Upgrade Shop!</h2>
+        <div id="shop-gold-display">💰 Gold: <span id="shop-gold">0</span></div>
+        <div class="shop-grid" id="shop-grid"></div>
+        <button id="close-shop-btn">❌ Close Shop</button>
+      </div>
+    </div>
+
+    <p id="instructions">Desktop: WASD/Arrows move • Click to shoot • Shop upgrades</p>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ===== roundRect polyfill (older Safari safety) =====
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r, y);
+      this.arcTo(x+w, y, x+w, y+h, r);
+      this.arcTo(x+w, y+h, x, y+h, r);
+      this.arcTo(x, y+h, x, y, r);
+      this.arcTo(x, y, x+w, y, r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  // =====================================================================
+  //  FULLSCREEN LAUNCH SCREEN (graceful on iOS)
+  // =====================================================================
+  const launchScreen = document.getElementById('launch-screen');
+
+  function enterFullscreen() {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    try { if (req) req.call(el); } catch(e) {}
+  }
+  function exitFullscreen() {
+    const ex = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen || document.msExitFullscreen;
+    try { if (ex) ex.call(document); } catch(e) {}
+  }
+  function isFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+  }
+
+  document.getElementById('fullscreen-btn').addEventListener('click', () => {
+    math.mode = document.getElementById('mode-select').value;
+    updateModeHUD();
+    launchScreen.style.display = 'none';
+    enterFullscreen();
+    applyScale();
+  });
+
+  document.getElementById('no-fs-btn').addEventListener('click', () => {
+    math.mode = document.getElementById('mode-select').value;
+    updateModeHUD();
+    launchScreen.style.display = 'none';
+    applyScale();
+  });
+
+  document.getElementById('fs-toggle-btn').addEventListener('click', () => {
+    if (isFullscreen()) exitFullscreen();
+    else enterFullscreen();
+  });
+
+  function onFsChange() {
+    document.getElementById('fs-toggle-btn').textContent = isFullscreen() ? '✕' : '⛶';
+    applyScale();
+  }
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+  document.addEventListener('mozfullscreenchange', onFsChange);
+  document.addEventListener('MSFullscreenChange', onFsChange);
+
+  // =====================================================================
+  //  RESPONSIVE SCALING (fixed for iPad visualViewport)
+  // =====================================================================
+  const GAME_W = 800, GAME_H = 500;
+  const wrapper = document.getElementById('game-wrapper');
+
+  function viewportSize(){
+    const vv = window.visualViewport;
+    if (vv) return { w: vv.width, h: vv.height };
+    return { w: window.innerWidth, h: window.innerHeight };
+  }
+
+  function applyScale() {
+    const { w: availW, h: availH } = viewportSize();
+    const usableH = Math.max(200, availH - 30);
+    const scale = Math.min(availW / GAME_W, usableH / GAME_H);
+    const left  = (availW  - GAME_W * scale) / 2;
+    const top   = (usableH - GAME_H * scale) / 2;
+
+    wrapper.style.transform = `translate(${left}px, ${top}px) scale(${scale})`;
+    wrapper._scale = scale;
+  }
+  applyScale();
+  window.addEventListener('resize', applyScale, { passive:true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyScale, { passive:true });
+    window.visualViewport.addEventListener('scroll', applyScale, { passive:true });
+  }
+
+  // =====================================================================
+  //  CANVAS + coordinate mapping (correct under scale)
+  // =====================================================================
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  function toCanvas(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const x = (clientX - rect.left) * (GAME_W / rect.width);
+    const y = (clientY - rect.top)  * (GAME_H / rect.height);
+    return { x, y };
+  }
+
+  // =====================================================================
+  //  TOUCH DETECTION (shows joystick)
+  // =====================================================================
+  let isTouch = false;
+  window.addEventListener('touchstart', () => {
+    isTouch = true;
+    document.getElementById('joystick-zone').style.display = 'block';
+    document.getElementById('instructions').textContent =
+      'iPad: thumbstick bottom-left = move • tap anywhere else = shoot • shop upgrades';
+  }, { once:true, passive:true });
+
+  // =====================================================================
+  //  GAME STATE
+  // =====================================================================
+  const state = {
+    hp:100, maxHp:100,
+    food:0,
+    gold:0,            // ONLY from math
+    level:1, xp:0,
+    arrowDmg:20, arrowSpeed:10,
+    moveSpeed:3, fireRate:400,
+    lastShot:0,
+  };
+
+  // Upgrades: spend gold (from math)
+  const upgrades = [
+    { id:'bow',    name:'Better Bow',   icon:'🏹', desc:'More arrow damage!', cost:30, maxLevel:5, level:0, apply:()=>{ state.arrowDmg  +=10; } },
+    { id:'boots',  name:'Fast Boots',   icon:'👟', desc:'Move faster!',       cost:25, maxLevel:4, level:0, apply:()=>{ state.moveSpeed +=0.8; } },
+    { id:'quiver', name:'Quick Quiver', icon:'🪶', desc:'Shoot faster!',      cost:35, maxLevel:4, level:0, apply:()=>{ state.fireRate = Math.max(120, state.fireRate-70); } },
+    { id:'shield', name:'Magic Shield', icon:'🛡️', desc:'More hearts!',       cost:40, maxLevel:4, level:0, apply:()=>{ state.maxHp+=30; state.hp=Math.min(state.hp+30,state.maxHp); } },
+  ];
+
+  // =====================================================================
+  //  MATH ENGINE (facts to 12, 4 modes)
+  // =====================================================================
+  const math = {
+    mode: 'add',        // add, sub, mul, div
+    active: false,
+    ans: 0,
+    question: '',
+    reward: 20,         // gold per correct
+    lastKeys: []
+  };
+
+  function updateModeHUD(){
+    const el = document.getElementById('mode-val');
+    el.textContent = (math.mode === 'add') ? 'ADD'
+                 : (math.mode === 'sub') ? 'SUB'
+                 : (math.mode === 'mul') ? 'MUL'
+                 : 'DIV';
+  }
+
+  function makeMathQuestion(){
+    // anti-repeat a bit
+    for (let tries=0; tries<40; tries++){
+      let a = Math.floor(Math.random()*13);
+      let b = Math.floor(Math.random()*13);
+      let text = '';
+      let ans = 0;
+
+      if (math.mode === 'add'){
+        ans = a + b;
+        text = `${a} + ${b} = ?`;
+      } else if (math.mode === 'sub'){
+        const big = Math.max(a,b), small = Math.min(a,b);
+        ans = big - small;
+        text = `${big} − ${small} = ?`;
+      } else if (math.mode === 'mul'){
+        ans = a * b;
+        text = `${a} × ${b} = ?`;
+      } else { // div (whole-number)
+        const divisor = Math.floor(Math.random()*12) + 1;
+        const quotient = Math.floor(Math.random()*13);
+        const dividend = divisor * quotient;
+        ans = quotient;
+        text = `${dividend} ÷ ${divisor} = ?`;
+        a = dividend; b = divisor; // for key
+      }
+
+      const key = `${math.mode}|${a}|${b}|${ans}`;
+      if (!math.lastKeys.includes(key)){
+        math.lastKeys.push(key);
+        if (math.lastKeys.length > 18) math.lastKeys.shift();
+        math.ans = ans;
+        math.question = text;
+        return;
+      }
+    }
+
+    // fallback
+    math.ans = 10;
+    math.question = '8 + 2 = ?';
+  }
+
+  function buildAnswers(correct){
+    const set = new Set([correct]);
+    while (set.size < 4){
+      const bump = Math.floor(Math.random()*13) - 6; // [-6..6]
+      const v = Math.max(0, Math.min(144, correct + bump));
+      set.add(v);
+    }
+    const arr = [...set];
+    for(let i=arr.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]] = [arr[j],arr[i]];
+    }
+    return arr;
+  }
+
+  const mathOverlay = document.getElementById('math-overlay');
+  const mathQuestionEl = document.getElementById('math-question');
+  const ansButtons = [...document.querySelectorAll('.ans-btn')];
+
+  function openMathChallenge(){
+    if (math.active) return;
+    math.active = true;
+
+    makeMathQuestion();
+    mathQuestionEl.textContent = math.question;
+    const answers = buildAnswers(math.ans);
+    ansButtons.forEach((btn, i) => btn.textContent = answers[i]);
+
+    mathOverlay.style.display = 'flex';
+  }
+
+  function closeMathChallenge(){
+    mathOverlay.style.display = 'none';
+    math.active = false;
+  }
+
+  ansButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const picked = Number(btn.textContent);
+      if (picked === math.ans){
+        state.gold += math.reward;
+        updateHUD();
+      }
+      closeMathChallenge();
+    });
+  });
+
+  // =====================================================================
+  //  PLAYER
+  // =====================================================================
+  const player = { x:400, y:300, vx:0, vy:0, facing:1 };
+
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.key]=true;
+    if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+  }, { passive:false });
+  window.addEventListener('keyup', e => { keys[e.key]=false; }, { passive:true });
+
+  // =====================================================================
+  //  FIXED THUMBSTICK bottom-left; everywhere else = shoot
+  // =====================================================================
+  const joystickZone = document.getElementById('joystick-zone');
+  const joystickKnob = document.getElementById('joystick-knob');
+  const JS_R = 60; // knob max travel radius
+  const joy = { active:false, id:null, dx:0, dy:0 };
+
+  // joystick center in CANVAS coordinates (matches fixed DOM placement)
+  // left 16px bottom 16px; zone 140x140; center is (16+70, 500-(16+70)) in canvas
+  const JOY_CX = 16 + 70;
+  const JOY_CY = GAME_H - (16 + 70);
+  const JOY_TOUCH_BOX = { x0: 0, y0: GAME_H - 220, x1: 220, y1: GAME_H }; // bottom-left box = move
+
+  function setKnob(dx, dy){
+    const dist = Math.hypot(dx,dy);
+    let nx = dx, ny = dy;
+    if (dist > JS_R){
+      nx = (dx/dist)*JS_R;
+      ny = (dy/dist)*JS_R;
+    }
+    joy.dx = nx / JS_R;
+    joy.dy = ny / JS_R;
+    joystickKnob.style.transform =
+      `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
+  }
+
+  function resetKnob(){
+    joy.dx = 0; joy.dy = 0;
+    joystickKnob.style.transform = 'translate(-50%,-50%)';
+  }
+
+  // =====================================================================
+  //  MOUSE (desktop) - click shoots anywhere
+  // =====================================================================
+  let mouseX=400, mouseY=250;
+  canvas.addEventListener('mousemove', e => {
+    const pos = toCanvas(e.clientX, e.clientY);
+    mouseX=pos.x; mouseY=pos.y;
+  }, { passive:true });
+  canvas.addEventListener('click', e => {
+    if (math.active) return;
+    const pos = toCanvas(e.clientX, e.clientY);
+    shoot(pos.x, pos.y);
+  }, { passive:true });
+
+  // =====================================================================
+  //  TOUCH (iPad): bottom-left thumbstick; everywhere else shoots
+  // =====================================================================
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (math.active) return;
+
+    for (const t of e.changedTouches){
+      const pos = toCanvas(t.clientX, t.clientY);
+
+      const inJoy = (pos.x >= JOY_TOUCH_BOX.x0 && pos.x <= JOY_TOUCH_BOX.x1 &&
+                     pos.y >= JOY_TOUCH_BOX.y0 && pos.y <= JOY_TOUCH_BOX.y1);
+
+      if (inJoy && !joy.active){
+        joy.active = true;
+        joy.id = t.identifier;
+        setKnob(pos.x - JOY_CX, pos.y - JOY_CY);
+      } else {
+        shoot(pos.x, pos.y);
+      }
+    }
+  }, { passive:false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!joy.active) return;
+
+    for (const t of e.changedTouches){
+      if (t.identifier !== joy.id) continue;
+      const pos = toCanvas(t.clientX, t.clientY);
+      setKnob(pos.x - JOY_CX, pos.y - JOY_CY);
+    }
+  }, { passive:false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches){
+      if (t.identifier !== joy.id) continue;
+      joy.active = false;
+      joy.id = null;
+      resetKnob();
+    }
+  }, { passive:false });
+
+  canvas.addEventListener('touchcancel', e => {
+    e.preventDefault();
+    joy.active = false;
+    joy.id = null;
+    resetKnob();
+  }, { passive:false });
+
+  // iOS double-tap zoom protection
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 250) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive:false });
+
+  // =====================================================================
+  //  WORLD
+  // =====================================================================
+  const WORLD_W=1600, WORLD_H=1000;
+  let camX=0, camY=0;
+
+  const trees=[];
+  for(let i=0;i<40;i++) trees.push({ x:Math.random()*WORLD_W, y:Math.random()*WORLD_H, size:30+Math.random()*30, type:Math.random()>0.5?0:1 });
+  const rocks=[];
+  for(let i=0;i<20;i++) rocks.push({ x:Math.random()*WORLD_W, y:Math.random()*WORLD_H, r:12+Math.random()*18 });
+
+  // =====================================================================
+  //  ARROWS
+  // =====================================================================
+  const arrows=[];
+  function shoot(mx,my) {
+    const now=Date.now();
+    if(now-state.lastShot < state.fireRate) return;
+    state.lastShot=now;
+
+    const wx=mx+camX, wy=my+camY;
+    const dx=wx-player.x, dy=wy-player.y;
+    const len=Math.sqrt(dx*dx+dy*dy)||1;
+
+    arrows.push({
+      x:player.x, y:player.y,
+      vx:(dx/len)*state.arrowSpeed, vy:(dy/len)*state.arrowSpeed,
+      life:80,
+      angle:Math.atan2(dy,dx)
+    });
+    player.facing=dx>0?1:-1;
+  }
+
+  // =====================================================================
+  //  ENTITIES (animals give food; monsters trigger math for gold)
+  // =====================================================================
+  const entities=[];
+  let spawnTimer=0;
+  const SPAWN_INTERVAL=200;
+
+  const ANIMAL_TYPES=[
+    { name:'Deer',   icon:'🦌', hp:40,  color:'#c8a070', reward:'food', foodAmt:3, speed:1.2, size:26, flee:true,  dmg:0  },
+    { name:'Rabbit', icon:'🐰', hp:15,  color:'#e8e0d0', reward:'food', foodAmt:1, speed:1.8, size:18, flee:true,  dmg:0  },
+    { name:'Turkey', icon:'🦃', hp:25,  color:'#a0704a', reward:'food', foodAmt:2, speed:1.0, size:22, flee:true,  dmg:0  },
+  ];
+  const MONSTER_TYPES=[
+    { name:'Slime',  icon:'🟢', hp:30,  color:'#55cc44', reward:'math', speed:1.0, size:22, flee:false, dmg:8  },
+    { name:'Goblin', icon:'👺', hp:60,  color:'#ee6622', reward:'math', speed:1.4, size:26, flee:false, dmg:14 },
+    { name:'Ogre',   icon:'👹', hp:120, color:'#aa3300', reward:'math', speed:0.8, size:34, flee:false, dmg:22 },
+    { name:'Dragon', icon:'🐉', hp:250, color:'#880000', reward:'math', speed:1.2, size:42, flee:false, dmg:35 },
+  ];
+
+  function spawnEntity() {
+    const edge=Math.floor(Math.random()*4);
+    let ex,ey;
+    if(edge===0){ex=camX+Math.random()*800;ey=camY-40;}
+    else if(edge===1){ex=camX+840;ey=camY+Math.random()*500;}
+    else if(edge===2){ex=camX+Math.random()*800;ey=camY+540;}
+    else{ex=camX-40;ey=camY+Math.random()*500;}
+
+    ex=Math.max(20,Math.min(WORLD_W-20,ex));
+    ey=Math.max(20,Math.min(WORLD_H-20,ey));
+
+    const monsterChance=0.22+state.level*0.08;
+    let td;
+    if(Math.random()<monsterChance){
+      const pool=MONSTER_TYPES
+        .filter(m=>m.name!=='Dragon'||state.level>=4)
+        .filter(m=>m.name!=='Ogre'||state.level>=3)
+        .filter(m=>m.name!=='Goblin'||state.level>=2);
+      td=pool[Math.floor(Math.random()*pool.length)];
+    } else {
+      td=ANIMAL_TYPES[Math.floor(Math.random()*ANIMAL_TYPES.length)];
+    }
+    entities.push({ x:ex, y:ey, hp:td.hp, maxHp:td.hp, ...td, vx:0, vy:0, hitFlash:0 });
+  }
+
+  // =====================================================================
+  //  PARTICLES & FLOATIES (NO POPUP BOXES)
+  // =====================================================================
+  const particles=[];
+  function spawnParticles(x,y,color,count=8){
+    for(let i=0;i<count;i++){
+      const a=Math.random()*Math.PI*2,spd=1+Math.random()*4;
+      particles.push({x,y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:40,maxLife:40,color,size:4+Math.random()*6});
+    }
+  }
+  const floaties=[];
+  function spawnFloatie(x,y,text,color='#FFD700'){
+    floaties.push({x,y,text,color,life:70,maxLife:70});
+  }
+
+  // =====================================================================
+  //  HUD
+  // =====================================================================
+  function updateHUD(){
+    document.getElementById('hp-val').textContent   = state.hp+'/'+state.maxHp;
+    document.getElementById('food-val').textContent = state.food;
+    document.getElementById('gold-val').textContent = state.gold;
+    document.getElementById('lvl-val').textContent  = state.level;
+  }
+
+  // =====================================================================
+  //  SHOP
+  // =====================================================================
+  document.getElementById('shop-btn').addEventListener('click', openShop);
+  document.getElementById('close-shop-btn').addEventListener('click', closeShop);
+
+  function openShop(){
+    if (math.active) return;
+    document.getElementById('shop-overlay').classList.add('open');
+    renderShop();
+  }
+  function closeShop(){
+    document.getElementById('shop-overlay').classList.remove('open');
+  }
+  function renderShop(){
+    document.getElementById('shop-gold').textContent=state.gold;
+    const grid=document.getElementById('shop-grid'); grid.innerHTML='';
+    upgrades.forEach(u=>{
+      const maxed=u.level>=u.maxLevel;
+      const cost=u.cost+u.level*Math.floor(u.cost*0.5);
+      const div=document.createElement('div');
+      div.className='shop-item'+(maxed?' maxed':'');
+      div.innerHTML=`
+        <div class="item-icon">${u.icon}</div>
+        <div class="item-name">${u.name}</div>
+        <div class="item-desc">${u.desc} (${u.level}/${u.maxLevel})</div>
+        <div class="item-cost">${maxed?'MAXED ✅':'💰 '+cost+' gold'}</div>
+      `;
+      if(!maxed) div.addEventListener('click',()=>buyUpgrade(u,cost));
+      grid.appendChild(div);
+    });
+  }
+  function buyUpgrade(u,cost){
+    if(state.gold<cost) return;
+    state.gold-=cost; u.level++; u.apply();
+    renderShop(); updateHUD();
+  }
+
+  // =====================================================================
+  //  DRAW HELPERS
+  // =====================================================================
+  function drawPlayer(sx,sy){
+    const t=Date.now()/1000;
+    const moving=player.vx!==0||player.vy!==0;
+    const bobY=Math.sin(t*6)*(moving?2:0);
+
+    ctx.save(); ctx.translate(sx,sy+bobY); ctx.scale(player.facing,1);
+
+    ctx.fillStyle='#3a7bd5'; ctx.beginPath(); ctx.roundRect(-11,-16,22,20,5); ctx.fill();
+    ctx.fillStyle='#f5c99b'; ctx.beginPath(); ctx.arc(0,-22,10,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#7a4b1c'; ctx.beginPath(); ctx.arc(0,-28,10,Math.PI,0); ctx.fill();
+
+    ctx.fillStyle='#222';
+    ctx.beginPath(); ctx.arc(3,-23,2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-3,-23,2,0,Math.PI*2); ctx.fill();
+
+    const legSwing=Math.sin(t*8)*(moving?6:0);
+    ctx.fillStyle='#2c4a8c';
+    ctx.fillRect(-9,4,8,14+legSwing*0.3);
+    ctx.fillRect(1,4,8,14-legSwing*0.3);
+
+    ctx.strokeStyle='#8B4513'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(13,-8,12,-Math.PI/2.5,Math.PI/2.5); ctx.stroke();
+    ctx.strokeStyle='#ddd'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(13,-12); ctx.lineTo(13,4); ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawEntity(e,sx,sy){
+    ctx.save(); ctx.translate(sx,sy);
+
+    ctx.fillStyle='rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(0,e.size/2+2,e.size*0.7,6,0,0,Math.PI*2); ctx.fill();
+
+    ctx.font=e.size+'px serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    if(e.hitFlash>0){ ctx.globalAlpha=0.5; ctx.filter='brightness(3)'; }
+    ctx.fillText(e.icon,0,0);
+    ctx.globalAlpha=1; ctx.filter='none';
+
+    if(e.hp<e.maxHp){
+      const bw=Math.max(e.size*1.2,36),bh=7,by=-e.size/2-14;
+      ctx.fillStyle='#333'; ctx.beginPath(); ctx.roundRect(-bw/2,by,bw,bh,3); ctx.fill();
+      const frac=e.hp/e.maxHp;
+      ctx.fillStyle=frac>0.5?'#4CAF50':frac>0.25?'#FFC107':'#f44336';
+      ctx.beginPath(); ctx.roundRect(-bw/2,by,bw*frac,bh,3); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawArrow(a){
+    const sx=a.x-camX,sy=a.y-camY;
+    ctx.save(); ctx.translate(sx,sy); ctx.rotate(a.angle);
+    ctx.strokeStyle='#8B4513'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(-12,0); ctx.lineTo(12,0); ctx.stroke();
+    ctx.fillStyle='#aaa'; ctx.beginPath(); ctx.moveTo(12,0); ctx.lineTo(8,-4); ctx.lineTo(8,4); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBackground(){
+    const grad=ctx.createLinearGradient(0,0,0,500);
+    grad.addColorStop(0,'#87CEEB'); grad.addColorStop(1,'#c8f09a');
+    ctx.fillStyle=grad; ctx.fillRect(0,0,800,500);
+
+    const ts=60,ox=camX%ts,oy=camY%ts;
+    for(let x=-ts;x<=800+ts;x+=ts){
+      for(let y=-ts;y<=500+ts;y+=ts){
+        const wx=Math.floor((x+camX)/ts),wy=Math.floor((y+camY)/ts);
+        const seed=(wx*73856093)^(wy*19349663);
+        const shade=60+(((seed*2654435769)&0xff)%20);
+        ctx.fillStyle=`rgb(${shade+10},${shade+40},${shade})`;
+        ctx.fillRect(x-ox,y-oy,ts,ts);
+      }
+    }
+
+    rocks.forEach(r=>{
+      const rx=r.x-camX,ry=r.y-camY;
+      if(rx<-50||rx>850||ry<-50||ry>550) return;
+      ctx.fillStyle='#888'; ctx.beginPath(); ctx.ellipse(rx,ry,r.r,r.r*0.6,0.3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#aaa'; ctx.beginPath(); ctx.ellipse(rx-r.r*0.2,ry-r.r*0.15,r.r*0.4,r.r*0.25,0.3,0,Math.PI*2); ctx.fill();
+    });
+
+    trees.forEach(t=>{
+      const tx=t.x-camX,ty=t.y-camY;
+      if(tx<-80||tx>880||ty<-80||ty>580) return;
+      ctx.fillStyle='#7a4b1c'; ctx.fillRect(tx-6,ty-t.size*0.3,12,t.size*0.5);
+      if(t.type===0){
+        ctx.fillStyle='#2d7a1a'; ctx.beginPath(); ctx.arc(tx,ty-t.size*0.4,t.size*0.5,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#3a9a22'; ctx.beginPath(); ctx.arc(tx-t.size*0.15,ty-t.size*0.55,t.size*0.35,0,Math.PI*2); ctx.fill();
+      } else {
+        ctx.fillStyle='#2d7a1a'; ctx.beginPath(); ctx.moveTo(tx,ty-t.size*0.9); ctx.lineTo(tx+t.size*0.5,ty); ctx.lineTo(tx-t.size*0.5,ty); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#3a9a22'; ctx.beginPath(); ctx.moveTo(tx,ty-t.size*1.1); ctx.lineTo(tx+t.size*0.4,ty-t.size*0.3); ctx.lineTo(tx-t.size*0.4,ty-t.size*0.3); ctx.closePath(); ctx.fill();
+      }
+    });
+  }
+
+  // =====================================================================
+  //  GAME LOOP
+  // =====================================================================
+  let gameOver=false,frame=0,damageFlash=0;
+
+  function update(){
+    if(gameOver) return;
+    if (math.active) return; // freeze world during math overlay
+    if (document.getElementById('shop-overlay').classList.contains('open')) return;
+
+    frame++;
+
+    // Movement from keyboard + joystick (normalized)
+    let dx=0,dy=0;
+    if(keys['ArrowLeft'] ||keys['a']||keys['A']) dx-=1;
+    if(keys['ArrowRight']||keys['d']||keys['D']) dx+=1;
+    if(keys['ArrowUp']   ||keys['w']||keys['W']) dy-=1;
+    if(keys['ArrowDown'] ||keys['s']||keys['S']) dy+=1;
+
+    if(joy.active){ dx+=joy.dx; dy+=joy.dy; }
+    const dlen=Math.sqrt(dx*dx+dy*dy);
+    if(dlen>1){ dx/=dlen; dy/=dlen; }
+
+    player.vx=dx*state.moveSpeed; player.vy=dy*state.moveSpeed;
+    player.x=Math.max(20,Math.min(WORLD_W-20,player.x+player.vx));
+    player.y=Math.max(20,Math.min(WORLD_H-20,player.y+player.vy));
+    if(dx!==0) player.facing=dx>0?1:-1;
+
+    camX=Math.max(0,Math.min(WORLD_W-800,player.x-400));
+    camY=Math.max(0,Math.min(WORLD_H-500,player.y-250));
+
+    spawnTimer++;
+    if(spawnTimer>=SPAWN_INTERVAL){ spawnTimer=0; if(entities.length<12+state.level*2) spawnEntity(); }
+
+    entities.forEach(e=>{
+      const pdx=player.x-e.x,pdy=player.y-e.y;
+      const dist=Math.sqrt(pdx*pdx+pdy*pdy) || 1;
+
+      if(e.flee){
+        if(dist<200){ e.vx-=(pdx/dist)*e.speed*0.15; e.vy-=(pdy/dist)*e.speed*0.15; }
+        else if(frame%60===0){ e.vx=(Math.random()-0.5)*e.speed*1.5; e.vy=(Math.random()-0.5)*e.speed*1.5; }
+        e.vx*=0.92; e.vy*=0.92;
+      } else {
+        if(dist>10){ e.vx=(pdx/dist)*e.speed; e.vy=(pdy/dist)*e.speed; }
+        if(dist<30 && frame%60===0){
+          state.hp-=e.dmg; damageFlash=15;
+          if(state.hp<=0){ state.hp=0; triggerGameOver(); }
+          updateHUD();
+        }
+      }
+
+      e.x=Math.max(10,Math.min(WORLD_W-10,e.x+e.vx));
+      e.y=Math.max(10,Math.min(WORLD_H-10,e.y+e.vy));
+      if(e.hitFlash>0) e.hitFlash--;
+    });
+
+    // arrows
+    for(let i=arrows.length-1;i>=0;i--){
+      const a=arrows[i];
+      a.x+=a.vx; a.y+=a.vy; a.life--;
+      if(a.life<=0){ arrows.splice(i,1); continue; }
+
+      let hit=false;
+      for(let j=entities.length-1;j>=0;j--){
+        const e=entities[j];
+        if(Math.sqrt((a.x-e.x)**2+(a.y-e.y)**2)<e.size*0.65){
+          e.hp-=state.arrowDmg; e.hitFlash=8;
+          spawnParticles(a.x-camX,a.y-camY,e.color,6);
+
+          if(e.hp<=0){
+            // kill rewards:
+            if(e.reward==='food'){
+              state.food+=e.foodAmt;
+              spawnFloatie(e.x,e.y,'+'+e.foodAmt+' 🍖','#ff9944');
+              spawnParticles(e.x-camX,e.y-camY,'#c8a070',14);
+            } else {
+              // monsters trigger math for gold
+              spawnParticles(e.x-camX,e.y-camY,'#FFD700',14);
+              openMathChallenge();
+            }
+
+            state.xp += (e.reward==='math' ? 12 : (e.foodAmt*4));
+            if(state.xp>=state.level*80){
+              state.level++;
+              state.xp=0;
+            }
+
+            entities.splice(j,1);
+            updateHUD();
+          }
+
+          hit=true;
+          break;
+        }
+      }
+      if(hit) arrows.splice(i,1);
+    }
+
+    // particles
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i];
+      p.x+=p.vx; p.y+=p.vy; p.vy+=0.1;
+      p.life--;
+      if(p.life<=0) particles.splice(i,1);
+    }
+
+    // floaties
+    for(let i=floaties.length-1;i>=0;i--){
+      const f=floaties[i];
+      f.y-=1.2; f.life--;
+      if(f.life<=0) floaties.splice(i,1);
+    }
+
+    if(damageFlash>0) damageFlash--;
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,800,500);
+    drawBackground();
+
+    const sorted=[...entities].sort((a,b)=>a.y-b.y);
+    sorted.filter(e=>e.y<player.y).forEach(e=>drawEntity(e,e.x-camX,e.y-camY));
+    drawPlayer(player.x-camX,player.y-camY);
+    sorted.filter(e=>e.y>=player.y).forEach(e=>drawEntity(e,e.x-camX,e.y-camY));
+
+    arrows.forEach(drawArrow);
+
+    particles.forEach(p=>{
+      const alpha=p.life/p.maxLife;
+      ctx.globalAlpha=alpha; ctx.fillStyle=p.color;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.size*(0.5+alpha*0.5),0,Math.PI*2); ctx.fill();
+      ctx.globalAlpha=1;
+    });
+
+    floaties.forEach(f=>{
+      const alpha=f.life/f.maxLife;
+      ctx.globalAlpha=alpha;
+      ctx.font='bold 18px Fredoka One, sans-serif';
+      ctx.textAlign='center';
+      ctx.fillStyle=f.color;
+      ctx.strokeStyle='rgba(0,0,0,0.5)';
+      ctx.lineWidth=3;
+      ctx.strokeText(f.text,f.x-camX,f.y-camY);
+      ctx.fillText(f.text,f.x-camX,f.y-camY);
+      ctx.globalAlpha=1;
+    });
+
+    if(damageFlash>0){
+      ctx.fillStyle=`rgba(255,0,0,${damageFlash/15*0.35})`;
+      ctx.fillRect(0,0,800,500);
+    }
+
+    // HP bar
+    const bw=180,bh=12,bx=310,by=476;
+    ctx.fillStyle='#333'; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,4); ctx.fill();
+    const hf=state.hp/state.maxHp;
+    const hg=ctx.createLinearGradient(bx,0,bx+bw,0);
+    hg.addColorStop(0,'#e74c3c'); hg.addColorStop(1,'#ff6b6b');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.roundRect(bx,by,bw*hf,bh,4); ctx.fill();
+    ctx.strokeStyle='#aaa'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,4); ctx.stroke();
+
+    // aim line desktop only
+    if(!isTouch && !math.active){
+      ctx.strokeStyle='rgba(255,255,0,0.25)'; ctx.lineWidth=1; ctx.setLineDash([6,6]);
+      ctx.beginPath();
+      ctx.moveTo(player.x-camX,player.y-camY);
+      ctx.lineTo(mouseX,mouseY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle='rgba(255,255,0,0.7)';
+      ctx.beginPath(); ctx.arc(mouseX,mouseY,5,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='white'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(mouseX,mouseY,8,0,Math.PI*2); ctx.stroke();
+    }
+
+    if(gameOver){
+      ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,800,500);
+      ctx.fillStyle='#ff4444'; ctx.font='bold 52px Fredoka One, sans-serif'; ctx.textAlign='center';
+      ctx.fillText('Game Over! 💀',400,200);
+      ctx.fillStyle='white'; ctx.font='26px Fredoka One, sans-serif';
+      ctx.fillText('Food: '+state.food+' 🍖   Gold: '+state.gold+' 💰',400,258);
+      ctx.font='20px Nunito, sans-serif'; ctx.fillStyle='#aaffaa';
+      ctx.fillText('Refresh the page to play again!',400,305);
+    }
+  }
+
+  function triggerGameOver(){ gameOver=true; }
+
+  function loop(){ update(); draw(); requestAnimationFrame(loop); }
+
+  // start world
+  for(let i=0;i<6;i++) spawnEntity();
+  updateModeHUD();
+  updateHUD();
+  loop();
+
+})();
+</script>
+</body>
+</html>
