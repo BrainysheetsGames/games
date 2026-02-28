@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Math Invaders</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: 'Press Start 2P', monospace;
+  color: #fff;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#ui {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 9px;
+  color: #0f0;
+  text-shadow: 0 0 8px #0f0;
+  flex-shrink: 0;
+}
+
+#canvasWrap {
+  width: 100%;
+  max-width: 480px;
+  flex-shrink: 0;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 2px solid #0f0;
+  box-shadow: 0 0 30px #0f04;
+}
+
+#questionBar {
+  width: 100%;
+  max-width: 480px;
+  background: #001100;
+  border: 2px solid #0f0;
+  border-top: none;
+  padding: 10px 12px;
+  text-align: center;
+  font-size: 10px;
+  color: #0f0;
+  text-shadow: 0 0 8px #0f0;
+  flex-shrink: 0;
+}
+
+#msg {
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+  font-size: 8px;
+  color: #ff0;
+  height: 22px;
+  padding: 3px;
+  text-shadow: 0 0 6px #ff0;
+  flex-shrink: 0;
+}
+
+/* ── TOUCH CONTROLS ── */
+#touchControls {
+  display: none;
+  width: 100%;
+  max-width: 480px;
+  padding: 10px 16px 16px;
+  flex-shrink: 0;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.touchBtn {
+  background: #001a00;
+  border: 2px solid #0f0;
+  border-radius: 8px;
+  color: #0f0;
+  font-family: 'Press Start 2P', monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 0 12px #0f04;
+}
+
+.touchBtn.pressed {
+  background: #003300;
+  box-shadow: 0 0 20px #0f08;
+}
+
+#btnLeft  { width: 90px; height: 80px; font-size: 24px; }
+#btnRight { width: 90px; height: 80px; font-size: 24px; }
+#btnFire  {
+  flex: 1;
+  height: 80px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  border-color: #0ff;
+  color: #0ff;
+  box-shadow: 0 0 12px #0ff4;
+}
+#btnFire.pressed { background: #001a1a; box-shadow: 0 0 20px #0ff8; }
+
+/* ── OVERLAY ── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #000d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  z-index: 10;
+  padding: 20px;
+}
+
+.overlay h1 {
+  font-size: clamp(18px, 6vw, 28px);
+  color: #0f0;
+  text-shadow: 0 0 20px #0f0;
+  letter-spacing: 4px;
+  text-align: center;
+}
+
+.pixbtn {
+  background: none;
+  border: 2px solid #0f0;
+  color: #0f0;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  padding: 14px 32px;
+  cursor: pointer;
+  text-shadow: 0 0 8px #0f0;
+  animation: blink 1s step-end infinite;
+  -webkit-tap-highlight-color: transparent;
+}
+.pixbtn:active { background: #0f02; }
+
+@keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <span>SCORE: <span id="score">0</span></span>
+  <span>MATH INVADERS</span>
+  <span>LIVES: <span id="lives">3</span></span>
+</div>
+
+<div id="canvasWrap">
+  <canvas id="c" width="480" height="400"></canvas>
+</div>
+
+<div id="questionBar">Solve: <span id="qtext">?</span></div>
+<div id="msg"></div>
+
+<div id="touchControls">
+  <button class="touchBtn" id="btnLeft">◀</button>
+  <button class="touchBtn" id="btnFire">🔥 FIRE</button>
+  <button class="touchBtn" id="btnRight">▶</button>
+</div>
+
+<div class="overlay" id="ov">
+  <h1>MATH INVADERS</h1>
+  <div style="font-size:8px;color:#aaa;text-align:center;line-height:2.2">
+    Shoot the alien carrying<br>the correct answer!<br>Wrong shots cost a life!
+  </div>
+  <div style="font-size:7px;color:#555;text-align:center;line-height:2">
+    ← → MOVE &nbsp;|&nbsp; SPACE FIRE<br>
+    (touch buttons on iPad)
+  </div>
+  <button class="pixbtn" onclick="startGame()">PLAY</button>
+</div>
+
+<script>
+// ── Canvas ──
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 480, H = 400;
+
+// ── Detect touch → show on-screen controls ──
+if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+  document.getElementById('touchControls').style.display = 'flex';
+}
+
+// ── State ──
+let score, lives, player, question, aliens, bullets, alienBullets, particles;
+let gameRunning = false, frameCount = 0, shootCooldown = 0, level = 1, msgTimer = 0;
+const keys = {};
+
+const stars = Array.from({ length: 80 }, () => ({
+  x: Math.random() * W, y: Math.random() * H, s: Math.random() + .3
+}));
+
+// ── Keyboard ──
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space') e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ── Touch buttons ──
+// Each button sets a virtual key while held
+function bindBtn(id, code) {
+  const btn = document.getElementById(id);
+
+  const press = e => {
+    e.preventDefault();
+    keys[code] = true;
+    btn.classList.add('pressed');
+  };
+  const release = e => {
+    e.preventDefault();
+    keys[code] = false;
+    btn.classList.remove('pressed');
+  };
+
+  btn.addEventListener('touchstart',  press,   { passive: false });
+  btn.addEventListener('touchend',    release, { passive: false });
+  btn.addEventListener('touchcancel', release, { passive: false });
+  // mouse fallback (lets you test on desktop too)
+  btn.addEventListener('mousedown',  () => { keys[code] = true;  btn.classList.add('pressed'); });
+  btn.addEventListener('mouseup',    () => { keys[code] = false; btn.classList.remove('pressed'); });
+  btn.addEventListener('mouseleave', () => { keys[code] = false; btn.classList.remove('pressed'); });
+}
+
+bindBtn('btnLeft',  'ArrowLeft');
+bindBtn('btnRight', 'ArrowRight');
+bindBtn('btnFire',  'Space');
+
+// ── Math ──
+function genQ() {
+  const ops = ['+', '-', '×'];
+  const op  = ops[Math.floor(Math.random() * ops.length)];
+  let a, b, ans;
+  if (op === '+')      { a = Math.floor(Math.random()*20)+1; b = Math.floor(Math.random()*20)+1; ans = a+b; }
+  else if (op === '-') { a = Math.floor(Math.random()*20)+10; b = Math.floor(Math.random()*a)+1; ans = a-b; }
+  else                 { a = Math.floor(Math.random()*10)+1; b = Math.floor(Math.random()*10)+1; ans = a*b; }
+  return { text: `${a} ${op} ${b} = ?`, answer: ans };
+}
+
+function genWrong(correct) {
+  const w = new Set();
+  while (w.size < 2) {
+    const v = correct + Math.floor(Math.random()*10) - 5;
+    if (v !== correct && v > 0) w.add(v);
+  }
+  return [...w];
+}
+
+// ── Wave ──
+function spawnWave() {
+  aliens = [];
+  question = genQ();
+  document.getElementById('qtext').textContent = question.text;
+
+  const wrongs  = genWrong(question.answer);
+  const answers = [question.answer, ...wrongs];
+  for (let i = answers.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [answers[i], answers[j]] = [answers[j], answers[i]];
+  }
+
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 8; col++) {
+      aliens.push({
+        x: 50+col*50, y: 50+row*45,
+        dir: 1, speed: .5+level*.1,
+        answer: col < 3 ? answers[0] : col < 6 ? answers[1] : answers[2],
+        type: row, alive: true, flashTimer: 0
+      });
+    }
+  }
+}
+
+// ── Helpers ──
+function shoot() {
+  if (shootCooldown > 0) return;
+  bullets.push({ x: player.x, y: player.y-10, vy: -9 });
+  shootCooldown = 18;
+}
+
+function explode(x, y, color, n = 12) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random()*Math.PI*2, sp = Math.random()*4+1;
+    particles.push({ x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp, life: 30, color });
+  }
+}
+
+function showMsg(text, color = '#ff0') {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.style.color  = color;
+  msgTimer = 80;
+}
+
+// ── Update ──
+function update() {
+  frameCount++;
+  if (shootCooldown > 0) shootCooldown--;
+  if (msgTimer > 0) { msgTimer--; if (!msgTimer) document.getElementById('msg').textContent = ''; }
+
+  if (keys['ArrowLeft'])  player.x = Math.max(20, player.x - 4.5);
+  if (keys['ArrowRight']) player.x = Math.min(W-20, player.x + 4.5);
+  if (keys['Space']) shoot();
+
+  // march aliens
+  let edge = false;
+  const alive = aliens.filter(a => a.alive);
+  alive.forEach(a => { a.x += a.dir*a.speed; if (a.x > W-25 || a.x < 25) edge = true; });
+  if (edge) alive.forEach(a => { a.dir *= -1; a.y += 12; });
+
+  // alien fires
+  if (frameCount % Math.max(60-level*5, 20) === 0 && alive.length) {
+    const s = alive[Math.floor(Math.random()*alive.length)];
+    alienBullets.push({ x: s.x, y: s.y+14, vy: 3+level*.3 });
+  }
+
+  bullets      = bullets.filter(b => { b.y += b.vy; return b.y > -10; });
+  alienBullets = alienBullets.filter(b => { b.y += b.vy; return b.y < H+10; });
+
+  // player bullet → alien
+  for (let bi = bullets.length-1; bi >= 0; bi--) {
+    const b = bullets[bi];
+    for (const a of aliens) {
+      if (!a.alive) continue;
+      if (Math.abs(b.x-a.x) < 20 && Math.abs(b.y-a.y) < 16) {
+        bullets.splice(bi, 1);
+        if (a.answer === question.answer) {
+          a.alive = false;
+          score += 100*level;
+          explode(a.x, a.y, '#0f0', 16);
+          showMsg('CORRECT! +'+100*level, '#0f0');
+          document.getElementById('score').textContent = score;
+          setTimeout(() => { if (gameRunning) spawnWave(); }, 1200);
+        } else {
+          a.flashTimer = 20;
+          explode(a.x, a.y, '#f00', 8);
+          showMsg('WRONG ALIEN!  -1 LIFE', '#f44');
+          lives--;
+          document.getElementById('lives').textContent = lives;
+          if (lives <= 0) { endGame(); return; }
+        }
+        break;
+      }
+    }
+  }
+
+  // alien bullet → player
+  for (let bi = alienBullets.length-1; bi >= 0; bi--) {
+    const b = alienBullets[bi];
+    if (Math.abs(b.x-player.x) < 16 && Math.abs(b.y-player.y) < 12) {
+      alienBullets.splice(bi, 1);
+      explode(player.x, player.y, '#08f');
+      lives--;
+      document.getElementById('lives').textContent = lives;
+      if (lives <= 0) { endGame(); return; }
+    }
+  }
+
+  if (alive.some(a => a.y > H-60)) { endGame(); return; }
+
+  particles = particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life--; return p.life > 0; });
+}
+
+// ── Draw ──
+function drawAlien(a) {
+  ctx.save();
+  ctx.translate(a.x, a.y);
+  if (a.flashTimer > 0) { ctx.globalAlpha = .5+.5*Math.sin(a.flashTimer*.8); a.flashTimer--; }
+  const c = ['#f44','#f80','#ff0'][a.type];
+  ctx.shadowBlur = 8; ctx.shadowColor = c; ctx.fillStyle = c;
+  ctx.fillRect(-12,-10,24,16);
+  ctx.fillRect(-16,-6,6,10); ctx.fillRect(10,-6,6,10);
+  ctx.fillRect(-8,-16,6,8);  ctx.fillRect(2,-16,6,8);
+  ctx.fillStyle = '#000'; ctx.fillRect(-8,-6,5,6); ctx.fillRect(3,-6,5,6);
+  ctx.fillStyle = '#fff'; ctx.font = '6px Press Start 2P'; ctx.textAlign = 'center'; ctx.shadowBlur = 0;
+  ctx.fillText(a.answer, 0, 10);
+  ctx.restore();
+}
+
+function draw() {
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+  stars.forEach(s => { ctx.fillStyle='#fff4'; ctx.beginPath(); ctx.arc(s.x,s.y,s.s,0,Math.PI*2); ctx.fill(); });
+  ctx.fillStyle = '#0f0'; ctx.fillRect(0,H-4,W,4);
+
+  // player
+  ctx.save(); ctx.translate(player.x, player.y);
+  ctx.shadowBlur = 14; ctx.shadowColor = '#0f0'; ctx.fillStyle = '#0f0';
+  ctx.fillRect(-15,-8,30,14); ctx.fillRect(-6,-18,12,12);
+  ctx.fillStyle = '#0f08'; ctx.fillRect(-22,-4,8,8); ctx.fillRect(14,-4,8,8);
+  ctx.restore();
+
+  aliens.forEach(a => { if (a.alive) drawAlien(a); });
+  bullets.forEach(b => { ctx.fillStyle='#0ff'; ctx.shadowBlur=8; ctx.shadowColor='#0ff'; ctx.fillRect(b.x-2,b.y-6,4,12); });
+  alienBullets.forEach(b => { ctx.fillStyle='#f40'; ctx.shadowBlur=6; ctx.shadowColor='#f40'; ctx.fillRect(b.x-2,b.y-5,4,10); });
+  particles.forEach(p => { ctx.globalAlpha=p.life/30; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,2,0,Math.PI*2); ctx.fill(); });
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+}
+
+// ── Loop ──
+function loop() {
+  if (!gameRunning) return;
+  update(); draw();
+  requestAnimationFrame(loop);
+}
+
+// ── Start / End ──
+function startGame() {
+  document.getElementById('ov').style.display = 'none';
+  score = 0; lives = 3; level = 1; frameCount = 0; gameRunning = true;
+  bullets = []; alienBullets = []; particles = [];
+  player = { x: 240, y: 370 };
+  document.getElementById('score').textContent = 0;
+  document.getElementById('lives').textContent = 3;
+  spawnWave(); loop();
+}
+
+function endGame() {
+  gameRunning = false;
+  const ov = document.getElementById('ov');
+  ov.innerHTML = `
+    <h1 style="color:#f44">GAME OVER</h1>
+    <div style="font-size:9px;color:#0f0;margin-top:4px">SCORE: ${score}</div>
+    <button class="pixbtn" onclick="startGame()">RETRY</button>`;
+  ov.style.display = 'flex';
+}
+
+// ── Idle stars before game starts ──
+(function idle() {
+  if (gameRunning) return;
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+  stars.forEach(s => { ctx.fillStyle='#fff6'; ctx.beginPath(); ctx.arc(s.x,s.y,s.s,0,Math.PI*2); ctx.fill(); });
+  requestAnimationFrame(idle);
+})();
+</script>
+</body>
+</html>
