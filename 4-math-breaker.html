@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Math Breaker</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Press Start 2P',monospace}
+canvas{box-shadow:0 0 30px #f0a4}
+#ui{width:480px;display:flex;justify-content:space-between;padding:8px 4px;font-size:8px;color:#f0a;text-shadow:0 0 8px #f0a}
+#qbar{width:480px;background:#1a001a;border:2px solid #f0a;padding:10px;text-align:center;font-size:10px;color:#f0a;margin-top:4px}
+#status{width:480px;text-align:center;font-size:8px;color:#ff0;height:20px;padding:2px}
+.overlay{position:fixed;inset:0;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:10}
+.overlay h1{font-size:26px;color:#f0a;text-shadow:0 0 20px #f0a}
+.pixbtn{background:none;border:2px solid #f0a;color:#f0a;font-family:'Press Start 2P',monospace;font-size:10px;padding:11px 24px;cursor:pointer;animation:blink 1s step-end infinite}
+.pixbtn:hover{background:#f0a2}
+@keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div id="ui"><span>SCORE: <span id="score">0</span></span><span>MATH BREAKER</span><span>BALLS: <span id="lives">3</span></span></div>
+<canvas id="c" width="480" height="420"></canvas>
+<div id="qbar">Break bricks to reach target sum: <b id="target" style="color:#ff0">?</b> &nbsp;|&nbsp; Running total: <b id="runsum" style="color:#0f0">0</b></div>
+<div id="status"></div>
+
+<div class="overlay" id="ov">
+  <h1>MATH BREAKER</h1>
+  <div style="font-size:7px;color:#aaa;text-align:center;line-height:2.2">Break the numbered bricks!<br>Your running total must equal the target.<br>OVERSHOOT = lose a ball!</div>
+  <div style="font-size:7px;color:#888">MOUSE or ← → keys to move paddle</div>
+  <button class="pixbtn" onclick="startGame()">BREAK IT!</button>
+</div>
+
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const W=480,H=420;
+let score=0,lives=3,gameRunning=false,frameCount=0;
+let paddle,ball,bricks,particles,target,runSum=0,launched=false;
+let keys={};
+
+const BW=72,BH=28,COLS=6,ROWS=4,BPAD=4;
+const BOFFX=(W-COLS*(BW+BPAD)+BPAD)/2,BOFFY=60;
+
+function genLevel(){
+  // pick target as sum of some subset
+  bricks=[];
+  const vals=[];
+  let tgt=0;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const v=Math.floor(Math.random()*12)+1;
+    vals.push(v);
+  }
+  // target = sum of first COLS bricks (one full row worth)
+  // actually pick target = sum of 4-6 random bricks
+  const chosen=vals.sort(()=>Math.random()-.5).slice(0,Math.floor(Math.random()*3)+4);
+  tgt=chosen.reduce((a,b)=>a+b,0);
+  target=tgt;
+  document.getElementById('target').textContent=target;
+
+  const colors=['#f44','#f84','#ff0','#0f4'];
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    bricks.push({
+      x:BOFFX+c*(BW+BPAD),y:BOFFY+r*(BH+BPAD),
+      w:BW,h:BH,val:vals[r*COLS+c],
+      alive:true,color:colors[r]
+    });
+  }
+}
+
+function setStatus(txt,color='#ff0'){
+  const el=document.getElementById('status');el.textContent=txt;el.style.color=color;
+}
+
+function startGame(){
+  document.getElementById('ov').style.display='none';
+  score=0;lives=3;frameCount=0;gameRunning=true;particles=[];runSum=0;launched=false;
+  document.getElementById('score').textContent=0;document.getElementById('lives').textContent=3;
+  document.getElementById('runsum').textContent=0;
+  paddle={x:W/2,y:H-28,w:80,h=12};
+  ball={x:W/2,y:H-44,vx:3,vy:-4,r:7};
+  genLevel();
+  loop();
+}
+
+document.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='Space'&&!launched){launched=true;}});
+document.addEventListener('keyup',e=>keys[e.code]=false);
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  paddle.x=e.clientX-rect.left;
+});
+canvas.addEventListener('click',()=>{if(!launched)launched=true;});
+
+function explode(x,y,color,n=10){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2,sp=Math.random()*5+1;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:30,color});
+  }
+}
+
+function update(){
+  frameCount++;
+  if(keys['ArrowLeft'])paddle.x-=6;
+  if(keys['ArrowRight'])paddle.x+=6;
+  paddle.x=Math.max(paddle.w/2,Math.min(W-paddle.w/2,paddle.x));
+
+  if(!launched){ball.x=paddle.x;return;}
+
+  ball.x+=ball.vx;ball.y+=ball.vy;
+
+  // walls
+  if(ball.x<ball.r){ball.x=ball.r;ball.vx*=-1;}
+  if(ball.x>W-ball.r){ball.x=W-ball.r;ball.vx*=-1;}
+  if(ball.y<ball.r){ball.y=ball.r;ball.vy*=-1;}
+
+  // paddle
+  if(ball.y+ball.r>paddle.y-paddle.h/2&&ball.y<paddle.y+paddle.h/2&&
+     ball.x>paddle.x-paddle.w/2&&ball.x<paddle.x+paddle.w/2&&ball.vy>0){
+    ball.vy*=-1;
+    ball.vx+=(ball.x-(paddle.x))*.08;
+    ball.y=paddle.y-paddle.h/2-ball.r;
+  }
+
+  // lost ball
+  if(ball.y>H+20){
+    lives--;document.getElementById('lives').textContent=lives;
+    if(lives<=0){endGame();return;}
+    launched=false;ball.x=paddle.x;ball.y=paddle.y-30;ball.vx=3;ball.vy=-4;
+    setStatus('Ball lost! -1 BALL','#f44');
+  }
+
+  // bricks
+  bricks.forEach(b=>{
+    if(!b.alive)return;
+    if(ball.x+ball.r>b.x&&ball.x-ball.r<b.x+b.w&&ball.y+ball.r>b.y&&ball.y-ball.r<b.y+b.h){
+      b.alive=false;
+      explode(b.x+b.w/2,b.y+b.h/2,b.color);
+      // bounce
+      const fromLeft=Math.abs(ball.x-(b.x+b.w)),fromRight=Math.abs(ball.x-b.x);
+      const fromTop=Math.abs(ball.y-(b.y+b.h)),fromBot=Math.abs(ball.y-b.y);
+      const min=Math.min(fromLeft,fromRight,fromTop,fromBot);
+      if(min===fromTop||min===fromBot)ball.vy*=-1;else ball.vx*=-1;
+
+      runSum+=b.val;document.getElementById('runsum').textContent=runSum;
+      score+=b.val*10;document.getElementById('score').textContent=score;
+
+      if(runSum===target){
+        setStatus('🎉 PERFECT! +500 BONUS','#0f0');
+        score+=500;document.getElementById('score').textContent=score;
+        setTimeout(()=>{
+          if(gameRunning){runSum=0;document.getElementById('runsum').textContent=0;genLevel();launched=false;ball.x=paddle.x;ball.y=paddle.y-30;}
+        },1200);
+      } else if(runSum>target){
+        setStatus(`OVERSHOT! (${runSum}>${target}) -1 BALL`,'#f44');
+        lives--;document.getElementById('lives').textContent=lives;
+        // reset sum, respawn bricks
+        if(lives<=0){endGame();return;}
+        runSum=0;document.getElementById('runsum').textContent=0;
+        setTimeout(()=>{if(gameRunning){genLevel();launched=false;ball.x=paddle.x;ball.y=paddle.y-30;}},1000);
+      }
+    }
+  });
+
+  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.life--;return p.life>0;});
+}
+
+function draw(){
+  // bg gradient
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#12001a');g.addColorStop(1,'#000');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+
+  // bricks
+  bricks.forEach(b=>{
+    if(!b.alive)return;
+    ctx.save();
+    ctx.fillStyle=b.color;ctx.shadowBlur=6;ctx.shadowColor=b.color;
+    ctx.fillRect(b.x,b.y,b.w,b.h);
+    ctx.fillStyle='#0003';ctx.fillRect(b.x,b.y,b.w,4);
+    ctx.strokeStyle='#fff2';ctx.strokeRect(b.x+1,b.y+1,b.w-2,b.h-2);
+    ctx.fillStyle='#000';ctx.font='8px Press Start 2P';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowBlur=0;ctx.fillText('+'+b.val,b.x+b.w/2,b.y+b.h/2);
+    ctx.restore();
+  });
+
+  // paddle
+  ctx.save();
+  ctx.fillStyle='#f0a';ctx.shadowBlur=14;ctx.shadowColor='#f0a';
+  ctx.beginPath();ctx.roundRect(paddle.x-paddle.w/2,paddle.y-paddle.h/2,paddle.w,paddle.h,5);ctx.fill();
+  ctx.restore();
+
+  // ball
+  ctx.save();ctx.fillStyle='#fff';ctx.shadowBlur=18;ctx.shadowColor='#f0a';
+  ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+
+  // launch hint
+  if(!launched){
+    ctx.fillStyle='#ff08';ctx.font='7px Press Start 2P';ctx.textAlign='center';
+    ctx.fillText('CLICK or SPACE to launch',W/2,H-60);
+  }
+
+  particles.forEach(p=>{ctx.globalAlpha=p.life/30;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fill();});
+  ctx.globalAlpha=1;
+}
+
+function loop(){if(!gameRunning)return;update();draw();requestAnimationFrame(loop);}
+function endGame(){
+  gameRunning=false;
+  const ov=document.getElementById('ov');
+  ov.innerHTML=`<h1 style="color:#f44">GAME OVER</h1><div style="font-size:9px;color:#f0a">SCORE: ${score}</div><button class="pixbtn" onclick="startGame()">RETRY</button>`;
+  ov.style.display='flex';
+}
+</script>
+</body>
+</html>

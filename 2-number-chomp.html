@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Number Chomp</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:'Press Start 2P',monospace;color:#fff}
+canvas{box-shadow:0 0 30px #00f8}
+#ui{width:480px;display:flex;justify-content:space-between;padding:8px 4px;font-size:8px;color:#ff0;text-shadow:0 0 8px #ff0}
+#qbar{width:480px;background:#000033;border:2px solid #00f;padding:10px;text-align:center;font-size:10px;color:#88f;margin-top:4px}
+#target{color:#ff0;font-size:12px}
+#collected{color:#0ff;font-size:9px;margin-top:4px}
+.overlay{position:fixed;inset:0;background:#000e;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:10}
+.overlay h1{font-size:26px;color:#ff0;text-shadow:0 0 20px #ff0}
+.pixbtn{background:none;border:2px solid #ff0;color:#ff0;font-family:'Press Start 2P',monospace;font-size:10px;padding:11px 24px;cursor:pointer;animation:blink 1s step-end infinite}
+.pixbtn:hover{background:#ff02}
+@keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div id="ui"><span>SCORE: <span id="score">0</span></span><span>NUMBER CHOMP</span><span>LIVES: <span id="lives">3</span></span></div>
+<canvas id="c" width="480" height="480"></canvas>
+<div id="qbar">
+  <div>Eat the numbers that sum to: <span id="target">?</span></div>
+  <div id="collected">Collected: [ ] = <span id="runsum">0</span></div>
+</div>
+
+<div class="overlay" id="ov">
+  <h1>NUMBER CHOMP</h1>
+  <div style="font-size:7px;color:#aaa;text-align:center;line-height:2.2">Eat numbers that ADD UP to the target!<br>Avoid ghosts & wrong sums!<br>WASD or Arrow keys to move</div>
+  <button class="pixbtn" onclick="startGame()">CHOMP!</button>
+</div>
+
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const TILE=32,COLS=15,ROWS=15,W=480,H=480;
+
+// Simple maze: 0=path, 1=wall
+const baseMaze=[
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1],
+  [1,0,1,1,0,0,1,0,1,0,0,1,1,0,1],
+  [1,0,1,0,0,0,0,0,0,0,0,0,1,0,1],
+  [1,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+  [1,0,1,0,0,0,1,0,1,0,0,0,1,0,1],
+  [1,0,1,0,0,1,1,0,1,1,0,0,1,0,1],
+  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+  [1,0,1,0,0,1,1,0,1,1,0,0,1,0,1],
+  [1,0,1,0,0,0,1,0,1,0,0,0,1,0,1],
+  [1,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+  [1,0,1,0,0,0,0,0,0,0,0,0,1,0,1],
+  [1,0,1,1,0,0,1,0,1,0,0,1,1,0,1],
+  [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+];
+
+let maze,dots,player,ghosts,score=0,lives=3,gameRunning=false;
+let target,collected=[],runSum=0,frameCount=0;
+let playerDead=false,deadTimer=0;
+
+function getOpenCells(){
+  const cells=[];
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)if(maze[r][c]===0)cells.push({r,c});
+  return cells;
+}
+
+function genTargetAndDots(cells){
+  // pick 3 random addends summing to target
+  const picks=[];
+  let remaining=cells.filter(c=>true);
+  // shuffle cells
+  remaining.sort(()=>Math.random()-.5);
+  const a=Math.floor(Math.random()*9)+1;
+  const b=Math.floor(Math.random()*9)+1;
+  const c2=Math.floor(Math.random()*9)+1;
+  target=a+b+c2;
+  document.getElementById('target').textContent=target;
+  // assign numbers to random path cells (dots)
+  const numbers=[a,b,c2];
+  const dotCells=remaining.slice(0,3);
+  // fill rest with random wrong numbers (distractors)
+  dots=[];
+  dotCells.forEach((cell,i)=>{
+    dots.push({r:cell.r,c:cell.c,val:numbers[i],correct:true,eaten:false});
+  });
+  const usedCells=new Set(dotCells.map(c=>`${c.r},${c.c}`));
+  // add distractors
+  remaining.slice(3,18).forEach(cell=>{
+    if(usedCells.has(`${cell.r},${cell.c}`))return;
+    const distractor=Math.floor(Math.random()*15)+1;
+    dots.push({r:cell.r,c:cell.c,val:distractor,correct:false,eaten:false});
+  });
+}
+
+function startGame(){
+  document.getElementById('ov').style.display='none';
+  maze=baseMaze.map(r=>[...r]);
+  score=0;lives=3;frameCount=0;gameRunning=true;collected=[];runSum=0;playerDead=false;
+  document.getElementById('score').textContent=0;document.getElementById('lives').textContent=3;
+  document.getElementById('runsum').textContent=0;document.getElementById('collected').textContent='Collected: [] = 0';
+  const open=getOpenCells();
+  genTargetAndDots(open);
+  player={r:7,c:7,x:7*TILE+TILE/2,y:7*TILE+TILE/2,dir:{r:0,c:0},nextDir:{r:0,c:-1},mouth:0,mouthDir:1};
+  ghosts=[
+    {r:1,c:1,x:1*TILE+TILE/2,y:1*TILE+TILE/2,color:'#f44',dir:{r:0,c:1},speed:1.5},
+    {r:1,c:13,x:13*TILE+TILE/2,y:1*TILE+TILE/2,color:'#f8a',dir:{r:0,c:-1},speed:1.5},
+    {r:13,c:1,x:1*TILE+TILE/2,y:13*TILE+TILE/2,color:'#a4f',dir:{r:1,c:0},speed:1.5},
+    {r:13,c:13,x:13*TILE+TILE/2,y:13*TILE+TILE/2,color:'#4ff',dir:{r:-1,c:0},speed:1.5},
+  ];
+  loop();
+}
+
+document.addEventListener('keydown',e=>{
+  const map={'ArrowUp':{r:-1,c:0},'ArrowDown':{r:1,c:0},'ArrowLeft':{r:0,c:-1},'ArrowRight':{r:0,c:1},
+             'KeyW':{r:-1,c:0},'KeyS':{r:1,c:0},'KeyA':{r:0,c:-1},'KeyD':{r:0,c:1}};
+  if(map[e.code]){player.nextDir=map[e.code];e.preventDefault();}
+});
+
+function canMove(r,c){return r>=0&&r<ROWS&&c>=0&&c<COLS&&maze[r][c]===0;}
+
+function movePlayer(){
+  // try nextDir first
+  const nr=player.r+player.nextDir.r,nc=player.c+player.nextDir.c;
+  if(canMove(nr,nc))player.dir=player.nextDir;
+  const mr=player.r+player.dir.r,mc=player.c+player.dir.c;
+  if(canMove(mr,mc)){
+    player.r=mr;player.c=mc;
+    player.x=player.c*TILE+TILE/2;player.y=player.r*TILE+TILE/2;
+  }
+  player.mouth+=.18*player.mouthDir;
+  if(player.mouth>.5||player.mouth<.05)player.mouthDir*=-1;
+  // eat dot
+  dots.forEach(d=>{
+    if(!d.eaten&&d.r===player.r&&d.c===player.c){
+      d.eaten=true;
+      if(d.correct){
+        collected.push(d.val);runSum+=d.val;
+        document.getElementById('collected').textContent=`Collected: [${collected.join('+')}] = ${runSum}`;
+        score+=50;document.getElementById('score').textContent=score;
+        if(runSum===target){
+          score+=500;document.getElementById('score').textContent=score;
+          setTimeout(()=>{if(gameRunning)newRound();},800);
+        } else if(runSum>target){
+          // overshot
+          runSum=0;collected=[];
+          dots.forEach(dd=>{dd.eaten=false;});
+          document.getElementById('collected').textContent='Too much! Reset';
+          setTimeout(()=>{document.getElementById('collected').textContent=`Collected: [] = 0`;},800);
+        }
+      } else {
+        // wrong number
+        lives--;document.getElementById('lives').textContent=lives;
+        document.getElementById('collected').textContent='WRONG NUMBER! -1 LIFE';
+        setTimeout(()=>{if(gameRunning)document.getElementById('collected').textContent=`Collected: [${collected.join('+')}] = ${runSum}`;},800);
+        if(lives<=0)endGame();
+      }
+    }
+  });
+}
+
+function moveGhosts(){
+  ghosts.forEach(g=>{
+    const dirs=[{r:-1,c:0},{r:1,c:0},{r:0,c:-1},{r:0,c:1}];
+    // try current dir first, else pick random open
+    const nr=g.r+g.dir.r,nc=g.c+g.dir.c;
+    if(canMove(nr,nc)&&Math.random()>.2){g.r=nr;g.c=nc;}
+    else{
+      const open=dirs.filter(d=>canMove(g.r+d.r,g.c+d.c));
+      if(open.length){g.dir=open[Math.floor(Math.random()*open.length)];g.r+=g.dir.r;g.c+=g.dir.c;}
+    }
+    g.x=g.c*TILE+TILE/2;g.y=g.r*TILE+TILE/2;
+    // collision with player
+    if(g.r===player.r&&g.c===player.c){
+      lives--;document.getElementById('lives').textContent=lives;
+      playerDead=true;deadTimer=60;
+      if(lives<=0){setTimeout(()=>endGame(),800);}
+      else{setTimeout(()=>{playerDead=false;player.r=7;player.c=7;},1000);}
+    }
+  });
+}
+
+function newRound(){
+  collected=[];runSum=0;
+  const open=getOpenCells();
+  genTargetAndDots(open);
+  document.getElementById('collected').textContent='Collected: [] = 0';
+}
+
+function update(){
+  frameCount++;
+  if(playerDead){deadTimer--;return;}
+  if(frameCount%8===0)movePlayer();
+  if(frameCount%12===0)moveGhosts();
+}
+
+function draw(){
+  ctx.fillStyle='#000033';ctx.fillRect(0,0,W,H);
+  // maze
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(maze[r][c]===1){
+      ctx.fillStyle='#0000aa';ctx.fillRect(c*TILE,r*TILE,TILE,TILE);
+      ctx.strokeStyle='#4444ff';ctx.strokeRect(c*TILE+1,r*TILE+1,TILE-2,TILE-2);
+    }
+  }
+  // dots
+  dots.forEach(d=>{
+    if(d.eaten)return;
+    ctx.save();ctx.translate(d.c*TILE+TILE/2,d.r*TILE+TILE/2);
+    ctx.shadowBlur=8;ctx.shadowColor=d.correct?'#ff0':'#f44';
+    ctx.fillStyle=d.correct?'#ff0':'#f886';
+    ctx.beginPath();ctx.arc(0,0,TILE*.38,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#000';ctx.font='bold 10px Press Start 2P';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowBlur=0;ctx.fillText(d.val,0,1);
+    ctx.restore();
+  });
+  // player
+  if(!playerDead||Math.floor(frameCount/8)%2===0){
+    ctx.save();ctx.translate(player.x,player.y);
+    const angle=Math.atan2(player.dir.r,player.dir.c)||0;
+    ctx.rotate(angle);
+    ctx.fillStyle='#ff0';ctx.shadowBlur=12;ctx.shadowColor='#ff0';
+    ctx.beginPath();ctx.moveTo(0,0);
+    ctx.arc(0,0,TILE*.42,player.mouth*Math.PI,(2-player.mouth)*Math.PI);
+    ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+  // ghosts
+  ghosts.forEach(g=>{
+    ctx.save();ctx.translate(g.x,g.y);
+    const r=TILE*.42;
+    ctx.fillStyle=g.color;ctx.shadowBlur=10;ctx.shadowColor=g.color;
+    ctx.beginPath();ctx.arc(0,-r*.2,r,Math.PI,0);
+    ctx.lineTo(r,r*.7);ctx.lineTo(r*.67,r*.4);ctx.lineTo(r*.33,r*.7);ctx.lineTo(0,r*.4);ctx.lineTo(-r*.33,r*.7);ctx.lineTo(-r*.67,r*.4);ctx.lineTo(-r,r*.7);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(-r*.3,-r*.2,r*.2,0,Math.PI*2);ctx.arc(r*.3,-r*.2,r*.2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#00f';ctx.beginPath();ctx.arc(-r*.25,-r*.2,r*.1,0,Math.PI*2);ctx.arc(r*.35,-r*.2,r*.1,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  });
+}
+
+function loop(){if(!gameRunning)return;update();draw();requestAnimationFrame(loop);}
+
+function endGame(){
+  gameRunning=false;
+  const ov=document.getElementById('ov');
+  ov.innerHTML=`<h1 style="color:#f44">GAME OVER</h1><div style="font-size:9px;color:#ff0">SCORE: ${score}</div><button class="pixbtn" onclick="startGame()">RETRY</button>`;
+  ov.style.display='flex';
+}
+</script>
+</body>
+</html>
