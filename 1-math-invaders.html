@@ -27,7 +27,7 @@ body{background:var(--dark);font-family:'Press Start 2P',monospace;color:#fff;di
 .start-btn:disabled{opacity:.3;animation:none;cursor:default}
 .start-btn:not(:disabled):active{background:#001a00}
 @keyframes blink{50%{opacity:0}}
-#gameScreen{justify-content:flex-start;padding:0;gap:0}
+#gameScreen{justify-content:flex-start;padding:0;gap:0;height:100vh;height:100dvh}
 #hud{width:100%;max-width:520px;display:flex;align-items:center;justify-content:space-between;padding:5px 10px;font-size:7px;flex-shrink:0;gap:6px}
 #hudLeft{display:flex;flex-direction:column;gap:3px;min-width:80px}
 #hudScore{color:var(--yellow);font-size:8px;text-shadow:0 0 8px var(--yellow)}
@@ -43,13 +43,13 @@ body{background:var(--dark);font-family:'Press Start 2P',monospace;color:#fff;di
 .b-rf{color:#ff0;border-color:#ff0}.b-sh{color:#0af;border-color:#0af}.b-ws{color:#b4f;border-color:#b4f}
 .b-sp{color:#0f8;border-color:#0f8}.b-tw{color:#f80;border-color:#f80}.b-cl{color:#f4f;border-color:#f4f}
 .b-lz{color:#f44;border-color:#f44}.b-mg{color:#0af;border-color:#0af}
-#canvasWrap{width:100%;max-width:520px;flex-shrink:0;position:relative}
-canvas{display:block;width:100%;height:auto}
-#touchControls{display:none;width:100%;max-width:520px;padding:8px 14px 12px;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0}
+#canvasWrap{width:100%;max-width:520px;flex:1;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
+canvas{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
+#touchControls{display:none;width:100%;max-width:520px;padding:6px 14px 8px;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0}
 .tBtn{background:#001a00;border:2px solid var(--green);border-radius:8px;color:var(--green);font-family:'Press Start 2P',monospace;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent;flex-shrink:0}
 .tBtn.pressed{background:#003300;box-shadow:0 0 20px #00ff8855}
-#tLeft,#tRight{width:78px;height:66px;font-size:22px}
-#tFire{flex:1;height:66px;font-size:9px;border-color:#0ff;color:#0ff}
+#tLeft,#tRight{width:70px;height:54px;font-size:20px}
+#tFire{flex:1;height:54px;font-size:8px;border-color:#0ff;color:#0ff}
 #tFire.pressed{background:#001a1a}
 #mathScreen{background:radial-gradient(ellipse at 50% 40%,#001a2a 0%,var(--dark) 80%);justify-content:flex-start;padding-top:16px;gap:0}
 #mathHeader{text-align:center;margin-bottom:12px}
