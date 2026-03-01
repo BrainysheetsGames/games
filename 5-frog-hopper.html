@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Grid Hopper: Math River</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1e293b;
+            font-family: 'Fredoka One', cursive;
+            touch-action: none; /* Prevents pull-to-refresh on mobile */
+            user-select: none;
+        }
+        #game-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+        }
+        .ui-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .hud {
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            z-index: 10;
+        }
+        .rule-board {
+            background: #fde047;
+            border: 4px solid #ca8a04;
+            border-radius: 12px;
+            padding: 10px 20px;
+            text-align: center;
+            box-shadow: 0 8px 0 #a16207, 0 15px 20px rgba(0,0,0,0.3);
+            transform: translateY(0);
+            transition: transform 0.2s;
+        }
+        .rule-board.bump {
+            transform: translateY(10px);
+        }
+        .score-board {
+            background: rgba(255, 255, 255, 0.9);
+            border: 4px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 10px 20px;
+            font-size: 1.5rem;
+            color: #334155;
+            box-shadow: 0 4px 0 #94a3b8;
+        }
+        
+        /* Mobile Controls */
+        .mobile-controls {
+            padding: 1rem;
+            padding-bottom: 2rem;
+            display: grid;
+            grid-template-areas: 
+                ". up ."
+                "left down right";
+            gap: 10px;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        .d-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 3px solid rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(4px);
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            color: white;
+            box-shadow: 0 4px 0 rgba(255,255,255,0.3);
+        }
+        .d-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 transparent;
+            background: rgba(255, 255, 255, 0.4);
+        }
+        .btn-up { grid-area: up; }
+        .btn-down { grid-area: down; }
+        .btn-left { grid-area: left; }
+        .btn-right { grid-area: right; }
+
+        /* Screens */
+        .screen {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 50;
+        }
+        .btn-primary {
+            background: #4ade80;
+            border: none;
+            border-bottom: 6px solid #16a34a;
+            color: white;
+            font-family: 'Fredoka One', cursive;
+            font-size: 2rem;
+            padding: 1rem 3rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.1s;
+            margin-top: 2rem;
+            text-shadow: 2px 2px 0 rgba(0,0,0,0.2);
+        }
+        .btn-primary:active {
+            transform: translateY(6px);
+            border-bottom-width: 0px;
+            margin-bottom: 6px;
+        }
+        .hidden { display: none !important; }
+        
+        /* Educational text */
+        .edu-feedback {
+            background: white;
+            color: #ef4444;
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 4px solid #ef4444;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            max-width: 90%;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="game-canvas"></canvas>
+
+    <div class="ui-layer">
+        <div id="hud" class="hud hidden">
+            <div class="score-board">
+                Score: <span id="score-display">0</span>
+            </div>
+            <div id="rule-board" class="rule-board">
+                <div class="text-sm text-yellow-800">HOP ON</div>
+                <div id="target-display" class="text-3xl text-red-600">EVENS</div>
+            </div>
+        </div>
+
+        <div id="mobile-controls" class="mobile-controls hidden md:hidden">
+            <div class="d-btn btn-up" id="btn-up">▲</div>
+            <div class="d-btn btn-left" id="btn-left">◀</div>
+            <div class="d-btn btn-down" id="btn-down">▼</div>
+            <div class="d-btn btn-right" id="btn-right">▶</div>
+        </div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="screen">
+        <h1 class="text-6xl md:text-8xl text-green-400 mb-2 drop-shadow-[0_5px_5px_rgba(0,0,0,0.5)] text-center">GRID<br>HOPPER</h1>
+        <p class="text-xl text-white mb-8 text-center max-w-sm">Hop across the river, but only step on the correct numbers! Don't fall behind!</p>
+        <button id="start-btn" class="btn-primary">PLAY</button>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over-screen" class="screen hidden">
+        <h2 class="text-5xl text-red-400 mb-4 drop-shadow-md">SPLASH!</h2>
+        
+        <!-- Educational Feedback -->
+        <div id="edu-feedback" class="edu-feedback hidden">
+            Oops! 7 is an ODD number!
+        </div>
+
+        <p class="text-2xl text-white mb-6">Rows Hopped: <span id="final-score" class="text-yellow-400">0</span></p>
+        <button id="restart-btn" class="btn-primary bg-yellow-400 border-yellow-600 text-yellow-900">TRY AGAIN</button>
+    </div>
+
+<script>
+/**
+ * GRID HOPPER - Game Logic
+ */
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+
+// UI Elements
+const uiLayers = {
+    start: document.getElementById('start-screen'),
+    gameOver: document.getElementById('game-over-screen'),
+    hud: document.getElementById('hud'),
+    controls: document.getElementById('mobile-controls')
+};
+const displays = {
+    score: document.getElementById('score-display'),
+    finalScore: document.getElementById('final-score'),
+    target: document.getElementById('target-display'),
+    ruleBoard: document.getElementById('rule-board'),
+    eduFeedback: document.getElementById('edu-feedback')
+};
+
+// Game Constants
+const COLS = 7; // Number of columns in the grid
+let TILE_SIZE = 0;
+
+// Game State
+let isPlaying = false;
+let animationId;
+let lastTime = 0;
+let score = 0;
+let maxRowReached = 0;
+let currentTarget = 'even'; // 'even' or 'odd'
+let cameraY = 0; // Pixel offset of the camera
+let scrollSpeed = 0;
+
+// Entities
+let lanes = [];
+let particles = [];
+
+const frog = {
+    logicalX: 3, // Grid column (0 to COLS-1)
+    logicalY: 0, // Grid row (starts at 0, increases as we go "forward"/up)
+    visualX: 0,  // Pixel coordinate
+    visualY: 0,
+    width: 0,
+    height: 0,
+    isJumping: false,
+    jumpProgress: 0,
+    jumpDuration: 150, // ms
+    startX: 0, startY: 0,
+    targetX: 0, targetY: 0,
+    state: 'alive', // 'alive', 'drowning', 'dead'
+    ridingLog: null
+};
+
+// Resize & Setup
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    // Calculate tile size to fit 7 columns, bounded to a reasonable max
+    TILE_SIZE = Math.min(canvas.width / COLS, 100);
+    
+    if(!isPlaying && lanes.length === 0) {
+        frog.visualX = frog.logicalX * TILE_SIZE + TILE_SIZE/2;
+        frog.visualY = canvas.height - TILE_SIZE * 2;
+    }
+}
+window.addEventListener('resize', resize);
+
+let sectionRules = { 0: 'even' };
+
+function getRuleForSection(section) {
+    if (sectionRules[section]) return sectionRules[section];
+    
+    let prevRule = getRuleForSection(section - 1);
+    // Allow switching rules after the first couple of sections
+    if (section >= 2 && Math.random() > 0.5) {
+        sectionRules[section] = prevRule === 'even' ? 'odd' : 'even';
+    } else {
+        sectionRules[section] = prevRule;
+    }
+    return sectionRules[section];
+}
+
+function updateRuleDisplay() {
+    displays.target.innerText = currentTarget.toUpperCase() + "S";
+    displays.target.className = currentTarget === 'even' ? 'text-3xl text-red-600' : 'text-3xl text-purple-600';
+    
+    // Bump animation
+    displays.ruleBoard.classList.add('bump');
+    setTimeout(() => displays.ruleBoard.classList.remove('bump'), 200);
+}
+
+// Map Generation
+class Lane {
+    constructor(row, type) {
+        this.row = row;
+        this.y = -row * TILE_SIZE; // Screen coordinate base
+        this.type = type; // 'grass' or 'water'
+        this.logs = [];
+        
+        // Alternate direction based on the row number instead of being random
+        this.direction = row % 2 === 0 ? 1 : -1;
+        
+        this.speed = (Math.random() * 1.2 + 0.8) * (row > 20 ? 1.5 : 1.0); // Speed scales up slightly
+        
+        if (this.type === 'water') {
+            this.generateLogs();
+        }
+    }
+
+    generateLogs() {
+        const numLogs = Math.floor(Math.random() * 2) + 2; // 2 or 3 logs
+        const laneWidth = COLS * TILE_SIZE;
+        const logWidthTiles = Math.floor(Math.random() * 2) + 1.5; // 1.5 to 2.5 tiles wide
+        const logWidth = logWidthTiles * TILE_SIZE;
+        const spacing = laneWidth / numLogs;
+
+        // Rule for this specific row's section (groups of 8)
+        const laneRule = getRuleForSection(Math.floor(this.row / 8));
+
+        // Ensure at least one correct answer is spawned per row
+        let hasCorrect = false;
+
+        for (let i = 0; i < numLogs; i++) {
+            let n;
+            let isCorrectLog = false;
+            
+            if (!hasCorrect && i === numLogs - 1) {
+                // Force a correct answer on the last log if we don't have one
+                isCorrectLog = true;
+            } else {
+                isCorrectLog = Math.random() > 0.4; // 60% chance to be the correct answer
+            }
+
+            if (isCorrectLog) {
+                hasCorrect = true;
+                do { n = Math.floor(Math.random() * 50) + 1; } 
+                while ((laneRule === 'even' && n % 2 !== 0) || (laneRule === 'odd' && n % 2 === 0));
+            } else {
+                do { n = Math.floor(Math.random() * 50) + 1; } 
+                while ((laneRule === 'even' && n % 2 === 0) || (laneRule === 'odd' && n % 2 !== 0));
+            }
+
+            this.logs.push({
+                x: i * spacing + (Math.random() * spacing/2),
+                width: logWidth,
+                number: n,
+                isEven: n % 2 === 0
+            });
+        }
+    }
+
+    update(dt) {
+        if (this.type === 'water') {
+            this.logs.forEach(log => {
+                log.x += this.speed * this.direction * (dt / 16);
+                
+                // Wrap around logic
+                if (this.direction === 1 && log.x > COLS * TILE_SIZE) {
+                    log.x = -log.width;
+                } else if (this.direction === -1 && log.x < -log.width) {
+                    log.x = COLS * TILE_SIZE;
+                }
+            });
+        }
+    }
+
+    draw(ctxOffset) {
+        const startX = ctxOffset;
+        
+        // Draw Lane Background
+        ctx.fillStyle = this.type === 'grass' ? '#4ade80' : '#38bdf8';
+        ctx.fillRect(startX, this.y, COLS * TILE_SIZE, TILE_SIZE);
+        
+        // Grass detailing
+        if (this.type === 'grass') {
+            ctx.fillStyle = '#22c55e';
+            ctx.fillRect(startX, this.y, COLS * TILE_SIZE, 5); // top edge
+            
+            // Random grass blades
+            ctx.fillStyle = '#16a34a';
+            for(let i=0; i<5; i++) {
+                ctx.fillRect(startX + ((this.row * 17 + i * 40) % (COLS*TILE_SIZE)), this.y + 10, 8, 15);
+            }
+        }
+
+        // Water detailing & Logs
+        if (this.type === 'water') {
+            // Flow lines
+            ctx.fillStyle = '#7dd3fc';
+            ctx.fillRect(startX + (((Date.now()/50 * this.direction) % 100) - 50), this.y + TILE_SIZE/2, COLS * TILE_SIZE + 100, 4);
+            
+            this.logs.forEach(log => {
+                const logDrawX = startX + log.x;
+
+                // Draw Log Shadow
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                ctx.beginPath();
+                ctx.roundRect(logDrawX + 4, this.y + 14, log.width, TILE_SIZE - 20, 10);
+                ctx.fill();
+
+                // Draw Log Main
+                ctx.fillStyle = '#78350f'; // Dark brown
+                ctx.beginPath();
+                ctx.roundRect(logDrawX, this.y + 10, log.width, TILE_SIZE - 20, 10);
+                ctx.fill();
+                
+                // Log top (lighter)
+                ctx.fillStyle = '#92400e';
+                ctx.beginPath();
+                ctx.roundRect(logDrawX, this.y + 6, log.width, TILE_SIZE - 24, 10);
+                ctx.fill();
+
+                // Number
+                ctx.fillStyle = 'white';
+                ctx.font = `bold ${TILE_SIZE * 0.4}px 'Fredoka One'`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                ctx.shadowBlur = 4;
+                ctx.fillText(log.number, logDrawX + log.width/2, this.y + TILE_SIZE/2 - 2);
+                ctx.shadowBlur = 0; // reset
+            });
+        }
+    }
+}
+
+function ensureLanes() {
+    const highestRow = lanes.length > 0 ? lanes[lanes.length - 1].row : -1;
+    const targetRow = frog.logicalY + 20; // Keep 20 rows generated ahead
+
+    for (let r = highestRow + 1; r <= targetRow; r++) {
+        let type = 'water';
+        if (r < 3 || r % 8 === 0 || r % 8 === 1) { // Safe zones at start and every 8 rows
+            type = 'grass';
+        }
+        lanes.push(new Lane(r, type));
+    }
+    
+    // Clean up old lanes behind camera
+    lanes = lanes.filter(lane => lane.y > cameraY - canvas.height - TILE_SIZE*2);
+}
+
+// Particle System
+function createSplash(x, y) {
+    for (let i = 0; i < 20; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 10,
+            vy: (Math.random() - 1.0) * 10, // Mostly upwards
+            size: Math.random() * 8 + 4,
+            life: 1.0,
+            color: Math.random() > 0.5 ? '#e0f2fe' : '#38bdf8'
+        });
+    }
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.5; // Gravity
+        p.life -= 0.03 * (dt/16);
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function drawParticles(ctxOffset) {
+    particles.forEach(p => {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.beginPath();
+        ctx.arc(ctxOffset + p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    ctx.globalAlpha = 1.0;
+}
+
+// Input Handling
+function handleInput(dx, dy) {
+    if (!isPlaying || frog.state !== 'alive' || frog.isJumping) return;
+
+    // Calculate target based on CURRENT visual position to prevent diagonal snapping
+    let nextTargetX = frog.visualX + (dx * TILE_SIZE);
+    
+    // Prevent jumping entirely out of the river bounds
+    if (nextTargetX < 0 || nextTargetX > COLS * TILE_SIZE) return;
+    
+    // Prevent moving backwards too far (off camera)
+    if (dy < 0 && (frog.logicalY + dy) * -TILE_SIZE > cameraY + canvas.height - TILE_SIZE*2) return;
+
+    // We no longer snap to logicalX horizontally, allowing smooth log riding
+    frog.logicalY += dy;
+    
+    // Setup Jump Animation
+    frog.isJumping = true;
+    frog.jumpProgress = 0;
+    frog.startX = frog.visualX;
+    frog.startY = frog.visualY;
+    
+    // Target pixel coordinates (clamp to stay within walls)
+    const minX = TILE_SIZE * 0.3;
+    const maxX = (COLS * TILE_SIZE) - (TILE_SIZE * 0.3);
+    frog.targetX = Math.max(minX, Math.min(maxX, nextTargetX));
+    
+    frog.targetY = -frog.logicalY * TILE_SIZE + TILE_SIZE/2;
+    
+    frog.ridingLog = null; // Detach from log while jumping
+}
+
+window.addEventListener('keydown', (e) => {
+    switch(e.key) {
+        case 'ArrowUp': case 'w': case 'W': handleInput(0, 1); break;
+        case 'ArrowDown': case 's': case 'S': handleInput(0, -1); break;
+        case 'ArrowLeft': case 'a': case 'A': handleInput(-1, 0); break;
+        case 'ArrowRight': case 'd': case 'D': handleInput(1, 0); break;
+    }
+});
+
+// Mobile Controls mapping
+document.getElementById('btn-up').addEventListener('touchstart', (e)=>{ e.preventDefault(); handleInput(0, 1);});
+document.getElementById('btn-down').addEventListener('touchstart', (e)=>{ e.preventDefault(); handleInput(0, -1);});
+document.getElementById('btn-left').addEventListener('touchstart', (e)=>{ e.preventDefault(); handleInput(-1, 0);});
+document.getElementById('btn-right').addEventListener('touchstart', (e)=>{ e.preventDefault(); handleInput(1, 0);});
+// Allow click for testing on desktop browser dev tools
+document.getElementById('btn-up').addEventListener('click', ()=>handleInput(0, 1));
+document.getElementById('btn-down').addEventListener('click', ()=>handleInput(0, -1));
+document.getElementById('btn-left').addEventListener('click', ()=>handleInput(-1, 0));
+document.getElementById('btn-right').addEventListener('click', ()=>handleInput(1, 0));
+
+// Game Loop
+function checkCollisions() {
+    if (frog.isJumping || frog.state !== 'alive') return;
+
+    const currentLane = lanes.find(l => l.row === frog.logicalY);
+    if (!currentLane) return;
+
+    if (currentLane.type === 'water') {
+        let landedOnLog = null;
+        
+        // Find if we are standing on a log
+        for (let log of currentLane.logs) {
+            // Frog's physical center must be within the log's width
+            // (Added a forgiveness margin so you don't slide off easily)
+            const margin = TILE_SIZE * 0.2; 
+            if (frog.visualX > log.x - margin && frog.visualX < log.x + log.width + margin) {
+                landedOnLog = log;
+                break;
+            }
+        }
+
+        if (landedOnLog) {
+            // We are on a log! Check Math!
+            const isCorrect = (currentTarget === 'even' && landedOnLog.isEven) || (currentTarget === 'odd' && !landedOnLog.isEven);
+            
+            if (isCorrect) {
+                // Safe! Ride the log.
+                frog.ridingLog = landedOnLog;
+                frog.visualX += currentLane.speed * currentLane.direction; // Move with log
+                
+                // If log carries us off screen boundaries, we die
+                if (frog.visualX < 0 || frog.visualX > COLS * TILE_SIZE) {
+                    die("You floated away!");
+                }
+            } else {
+                // WRONG NUMBER! Sink!
+                die(`Oops! ${landedOnLog.number} is an ${landedOnLog.isEven ? 'EVEN' : 'ODD'} number!`);
+            }
+        } else {
+            // Missed a log entirely, fell in water
+            die("Splash! You missed the log!");
+        }
+    }
+}
+
+function die(reasonMsg) {
+    if (frog.state !== 'alive') return;
+    frog.state = 'drowning';
+    createSplash(frog.visualX, frog.visualY);
+    
+    // Show Feedback
+    displays.eduFeedback.innerText = reasonMsg;
+    displays.eduFeedback.classList.remove('hidden');
+
+    setTimeout(() => {
+        isPlaying = false;
+        uiLayers.gameOver.classList.remove('hidden');
+        uiLayers.hud.classList.add('hidden');
+        uiLayers.controls.classList.add('hidden');
+        displays.finalScore.innerText = score;
+    }, 1000);
+}
+
+function updateGame(dt) {
+    if (!isPlaying) return;
+
+    // Update Lanes (moves logs)
+    lanes.forEach(l => l.update(dt));
+
+    // Update Frog Jump Animation
+    if (frog.isJumping) {
+        frog.jumpProgress += dt;
+        let t = Math.min(frog.jumpProgress / frog.jumpDuration, 1);
+        
+        // Arc interpolation
+        frog.visualX = frog.startX + (frog.targetX - frog.startX) * t;
+        frog.visualY = frog.startY + (frog.targetY - frog.startY) * t;
+        
+        // Squash and stretch visual sizing
+        let arc = Math.sin(t * Math.PI);
+        frog.width = TILE_SIZE * 0.6 - (arc * TILE_SIZE * 0.1); // Gets thinner mid-air
+        frog.height = TILE_SIZE * 0.6 + (arc * TILE_SIZE * 0.2); // Gets taller mid-air
+        frog.visualY -= arc * TILE_SIZE * 0.8; // Hop height
+
+        if (t >= 1) {
+            frog.isJumping = false;
+            frog.width = TILE_SIZE * 0.6;
+            frog.height = TILE_SIZE * 0.6;
+            
+            // Score tracking
+            if (frog.logicalY > maxRowReached) {
+                maxRowReached = frog.logicalY;
+                score++;
+                displays.score.innerText = score;
+                ensureLanes(); // generate new lanes ahead
+            }
+
+            // Update rule if we entered a new section
+            const currentSection = Math.floor(frog.logicalY / 8);
+            const newRule = getRuleForSection(currentSection);
+            if (newRule !== currentTarget) {
+                currentTarget = newRule;
+                updateRuleDisplay();
+            }
+        }
+    } else {
+        // Not jumping, resting sizes
+        frog.width = TILE_SIZE * 0.6;
+        frog.height = TILE_SIZE * 0.6;
+    }
+
+    // Camera follow (keep frog slightly below the middle of the screen)
+    cameraY = frog.visualY - canvas.height * 0.6;
+
+    checkCollisions();
+    updateParticles(dt);
+}
+
+function drawFrog(ctxOffset) {
+    if (frog.state === 'dead' || (frog.state === 'drowning' && particles.length < 5)) return;
+
+    ctx.save();
+    ctx.translate(ctxOffset + frog.visualX, frog.visualY);
+    
+    // Sinking animation
+    if (frog.state === 'drowning') {
+        ctx.scale(1 - (1-particles.length/20), 1 - (1-particles.length/20));
+        ctx.globalAlpha = particles.length/20;
+    }
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(0, TILE_SIZE*0.3, frog.width/2, frog.width/4, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Body
+    ctx.fillStyle = '#22c55e'; // Bright green
+    ctx.beginPath();
+    ctx.roundRect(-frog.width/2, -frog.height/2, frog.width, frog.height, 10);
+    ctx.fill();
+
+    // Belly
+    ctx.fillStyle = '#bbf7d0';
+    ctx.beginPath();
+    ctx.roundRect(-frog.width/2 + 4, -frog.height/2 + 10, frog.width - 8, frog.height - 14, 8);
+    ctx.fill();
+
+    // Eyes
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(-frog.width/4, -frog.height/2, 6, 0, Math.PI*2);
+    ctx.arc(frog.width/4, -frog.height/2, 6, 0, Math.PI*2);
+    ctx.fill();
+    
+    // Pupils
+    ctx.fillStyle = 'black';
+    ctx.beginPath();
+    let eyeYOffset = frog.isJumping ? -2 : 0; 
+    ctx.arc(-frog.width/4, -frog.height/2 + eyeYOffset, 3, 0, Math.PI*2);
+    ctx.arc(frog.width/4, -frog.height/2 + eyeYOffset, 3, 0, Math.PI*2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function render() {
+    // Clear screen
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    
+    // Center the grid in the middle of the screen horizontally
+    const ctxOffsetX = (canvas.width - (COLS * TILE_SIZE)) / 2;
+    
+    // Pan the camera vertically
+    ctx.translate(0, -cameraY);
+
+    // Render components
+    lanes.forEach(l => l.draw(ctxOffsetX));
+    drawFrog(ctxOffsetX);
+    drawParticles(ctxOffsetX);
+
+    ctx.restore();
+}
+
+function gameLoop(timestamp) {
+    let dt = timestamp - lastTime;
+    lastTime = timestamp;
+
+    if (dt > 100) dt = 16; // Cap dt on tab switch to prevent massive jump
+
+    updateGame(dt);
+    render();
+
+    if (isPlaying || particles.length > 0) {
+        animationId = requestAnimationFrame(gameLoop);
+    }
+}
+
+function startGame() {
+    uiLayers.start.classList.add('hidden');
+    uiLayers.gameOver.classList.add('hidden');
+    displays.eduFeedback.classList.add('hidden');
+    uiLayers.hud.classList.remove('hidden');
+    
+    // Show mobile controls on small screens
+    if (window.innerWidth < 768) {
+        uiLayers.controls.classList.remove('hidden');
+    }
+
+    resize();
+    
+    // Reset State
+    score = 0;
+    maxRowReached = 0;
+    sectionRules = { 0: 'even' };
+    currentTarget = 'even';
+    updateRuleDisplay();
+    displays.score.innerText = "0";
+    
+    lanes = [];
+    particles = [];
+    
+    frog.logicalX = 3; // Middle column (0-6)
+    frog.logicalY = 0; // Bottom row
+    frog.state = 'alive';
+    frog.isJumping = false;
+    
+    frog.visualX = frog.logicalX * TILE_SIZE + TILE_SIZE/2;
+    frog.visualY = -frog.logicalY * TILE_SIZE + TILE_SIZE/2; // Start row is 0
+    
+    // Set initial camera
+    cameraY = frog.visualY - canvas.height * 0.6; 
+
+    ensureLanes();
+
+    isPlaying = true;
+    lastTime = performance.now();
+    gameLoop(lastTime);
+}
+
+// Initialization
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('restart-btn').addEventListener('click', startGame);
+
+// Draw initial static background for the start screen
+resize();
+lanes.push(new Lane(0, 'grass'));
+lanes.push(new Lane(1, 'water'));
+lanes.push(new Lane(2, 'water'));
+lanes.push(new Lane(3, 'water'));
+cameraY = -canvas.height * 0.5; // shift camera for preview
+render();
+
+</script>
+</body>
+</html>
