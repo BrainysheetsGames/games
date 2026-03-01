@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Beach War!</title>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<canvas id="gc"></canvas>
+<script>
+const C = document.getElementById('gc'), X = C.getContext('2d');
+
+// ─── Globals ───
+let W, H, GY, S;
+let state = 'menu';
+let mathMode = 'multiplication';
+let gold = 150;
+let lvl = 0;
+let upPts = 0;
+let frame = 0;
+let touch = false;
+let cmd = 'attack';
+let camX = 0;
+let WW = 2000;
+
+// Stats
+let totalQ = 0, totalOK = 0, streak = 0, best = 0;
+
+// Math
+let mQ = null, mIn = '', mGold = 0, mFB = null, mFBTimer = 0, mCC = 0;
+
+// Units & statues
+let pU = [], eU = [], projs = [], parts = [], floats = [];
+let pS = null, eS = null;
+let autoGT = 0, eSpT = 0, eSpN = 0;
+
+// Upgrades
+let ups = { sDmg:0, sHp:0, aDmg:0, aRng:0, kHp:0, kDmg:0, stHp:0, stInc:0 };
+
+// Numpad keys
+let nK = [];
+
+// ─── Levels ───
+const LV = [
+  { n:'Noodle Warriors', d:'Way of the Noodle',  et:['sword'],           sr:5000, sm:8,  shp:350, rw:2 },
+  { n:'Balloon Throwers',d:'Way of the Splash',   et:['archer'],          sr:5000, sm:8,  shp:400, rw:2 },
+  { n:'Ambush!',         d:'Mixed Forces',        et:['sword','archer'],  sr:4200, sm:12, shp:500, rw:2 },
+  { n:'Surfers',         d:'Way of the Wave',     et:['sword','knight'],  sr:4000, sm:11, shp:600, rw:2 },
+  { n:'Full Squad',      d:'All Unit Types',      et:['sword','archer','knight'], sr:3500, sm:14, shp:700, rw:3 },
+  { n:'Heavy Surf',      d:'Elite Beach Crew',    et:['knight','archer','knight'], sr:3200, sm:14, shp:850, rw:3 },
+  { n:'The Wave',        d:'Relentless Splash',   et:['sword','sword','archer'], sr:2500, sm:20, shp:750, rw:3 },
+  { n:'Last Splash',     d:'The Final Beach Battle!', et:['sword','archer','knight','knight'], sr:2800, sm:18, shp:1100, rw:4 },
+];
+
+// ─── Unit defs ───
+function uDef(type, isE) {
+  const base = {
+    sword:  { nm:'Noodle Warrior', cost:80,  hp:50,  dmg:10, spd:2.0, rng:26,  as:800,  h:34, pop:1 },
+    archer: { nm:'Balloon Thrower',cost:150, hp:35,  dmg:8,  spd:1.1, rng:200, as:1500, h:34, pop:1, proj:true },
+    knight: { nm:'Surfer',         cost:250, hp:120, dmg:15, spd:0.85,rng:30,  as:1000, h:38, pop:2 },
+  };
+  let d = { ...base[type] };
+  if (!isE) {
+    if (type === 'sword')  { d.dmg += ups.sDmg * 3; d.hp += ups.sHp * 12; }
+    if (type === 'archer') { d.dmg += ups.aDmg * 3; d.rng += ups.aRng * 25; }
+    if (type === 'knight') { d.hp += ups.kHp * 20;  d.dmg += ups.kDmg * 4; }
+  } else {
+    let sc = 1 + lvl * 0.1;
+    d.hp = Math.floor(d.hp * sc); d.dmg = Math.floor(d.dmg * sc);
+  }
+  return d;
+}
+
+// ─── Resize ───
+function resize() {
+  W = C.width = innerWidth; H = C.height = innerHeight;
+  GY = Math.floor(H * 0.75); S = Math.min(W / 1200, H / 800);
+  WW = Math.max(W * 2.2, 1800);
+  buildNP();
+}
+addEventListener('resize', resize);
+
+// ─── Numpad ───
+function buildNP() {
+  nK = [];
+  if (!touch) return;
+  const kw = Math.min(60 * S, W / 6), kh = kw * 0.8, g = 4 * S;
+  const tw = 3 * kw + 2 * g, sx = W - tw - 10 * S, sy = GY + 50 * S;
+  '789456123⌫0✓'.split('').forEach((l, i) => {
+    nK.push({ x: sx + (i % 3) * (kw + g), y: sy + Math.floor(i / 3) * (kh + g), w: kw, h: kh, l });
+  });
+}
+
+// ─── Particles / Floats ───
+function spark(x, y, c, n) { for (let i = 0; i < (n||5); i++) parts.push({ x, y, vx: (Math.random()-.5)*4, vy: -Math.random()*4-1, life: 25+Math.random()*15, c, sz: 2+Math.random()*2 }); }
+function float(x, y, t, c) { floats.push({ x, y, t, c: c||'#FFD700', life: 50 }); }
+
+// ─── Math questions ───
+function genQ() {
+  const M = 12;
+  let a, b, ans, blank, disp, pos = Math.floor(Math.random() * 3);
+  switch (mathMode) {
+    case 'addition':
+      a = 1 + Math.floor(Math.random()*M); b = 1 + Math.floor(Math.random()*M); ans = a + b;
+      break;
+    case 'subtraction':
+      b = 1 + Math.floor(Math.random()*M); a = b + 1 + Math.floor(Math.random()*M); ans = a - b;
+      break;
+    case 'multiplication':
+      a = 1 + Math.floor(Math.random()*M); b = 1 + Math.floor(Math.random()*M); ans = a * b;
+      break;
+    case 'division':
+      b = 1 + Math.floor(Math.random()*M); ans = 1 + Math.floor(Math.random()*M); a = b * ans;
+      break;
+  }
+  const ops = { addition:'+', subtraction:'−', multiplication:'×', division:'÷' };
+  const op = ops[mathMode];
+  if (pos === 0) { blank = a; disp = '___ ' + op + ' ' + b + ' = ' + ans; }
+  else if (pos === 1) { blank = b; disp = a + ' ' + op + ' ___ = ' + ans; }
+  else { blank = ans; disp = a + ' ' + op + ' ' + b + ' = ___'; }
+  return { disp, ans: blank };
+}
+
+// ─── Unit / Statue creation ───
+function mkUnit(type, isE, x) {
+  const def = uDef(type, isE);
+  return { type, isE, def, x: x !== undefined ? x : (isE ? WW - 70 * S : 70 * S), y: GY,
+    hp: def.hp, mhp: def.hp, at: 0, st: 'walk', anim: 0, dTimer: 0, rm: false };
+}
+function mkStats() {
+  const L = LV[lvl];
+  pS = { x: 45 * S, y: GY, hp: 400 + ups.stHp * 80, mhp: 400 + ups.stHp * 80 };
+  eS = { x: WW - 45 * S, y: GY, hp: L.shp, mhp: L.shp };
+}
+function startLvl() {
+  pU = []; eU = []; projs = []; parts = []; floats = [];
+  gold = 150; autoGT = 0; eSpT = 0; eSpN = 0; camX = 0; cmd = 'attack';
+  mkStats(); state = 'play';
+}
+
+// ─── Combat ───
+function findTgt(u, foes, stat) {
+  let best = null, bd = Infinity;
+  for (let e of foes) { if (e.st === 'dying') continue; let d = Math.abs(u.x - e.x); if (d < bd) { bd = d; best = e; } }
+  if (stat && stat.hp > 0) { let d = Math.abs(u.x - stat.x); if (d < bd) best = stat; }
+  return best;
+}
+function hit(tgt, d) {
+  if (!tgt) return;
+  tgt.hp -= d;
+  if (tgt.hp <= 0) { tgt.hp = 0; if (tgt.st !== undefined) { tgt.st = 'dying'; spark(tgt.x, GY - 15 * S, '#FFD700', 6); } }
+}
+function updUnits(units, foes, ownSt, foeSt, dt) {
+  for (let u of units) {
+    if (u.st === 'dying') { u.dTimer += dt; if (u.dTimer > 400) u.rm = true; continue; }
+    u.anim += dt; u.at -= dt;
+    let tgt = findTgt(u, foes, foeSt);
+    if (!tgt) { u.st = 'idle'; continue; }
+    let dist = Math.abs(u.x - tgt.x), rng = u.def.rng * S;
+    if (dist <= rng) {
+      u.st = 'attack';
+      if (u.at <= 0) {
+        u.at = u.def.as;
+        if (u.def.proj) projs.push({ x: u.x, y: GY - u.def.h * S * .6, tx: tgt.x, ty: GY - 18 * S, spd: 5, dmg: u.def.dmg, isE: u.isE, life: 120 });
+        else { hit(tgt, u.def.dmg); spark(tgt.x, GY - 20 * S, '#FFF', 3); }
+      }
+    } else {
+      u.st = 'walk';
+      let dir = tgt.x > u.x ? 1 : -1;
+      if (!u.isE && cmd === 'garrison') {
+        dir = ownSt.x > u.x ? 1 : -1;
+        if (Math.abs(u.x - ownSt.x) < 50 * S) { u.st = 'idle'; continue; }
+      }
+      if (!u.isE && cmd === 'defend') {
+        let dLine = ownSt.x + (WW * .5 - ownSt.x) * .3;
+        if (u.x > dLine + 30 * S && dist > rng) dir = -1;
+      }
+      u.x += dir * u.def.spd * S * (dt / 16);
+    }
+  }
+}
+function updProjs(dt) {
+  for (let p of projs) {
+    let dx = p.tx - p.x, dy = p.ty - p.y, d = Math.sqrt(dx * dx + dy * dy);
+    if (d < p.spd * 2.5) {
+      let tgts = p.isE ? pU : eU, stat = p.isE ? pS : eS;
+      let best2 = null, bd = 30 * S;
+      for (let t of tgts) { if (t.st !== 'dying') { let dd = Math.abs(t.x - p.tx); if (dd < bd) { bd = dd; best2 = t; } } }
+      if (best2) hit(best2, p.dmg); else if (stat && Math.abs(stat.x - p.tx) < 50 * S) hit(stat, p.dmg);
+      spark(p.tx, p.ty, '#39C0ED', 3); p.rm = true;
+    } else { p.x += (dx / d) * p.spd; p.y += (dy / d) * p.spd; }
+    if (--p.life <= 0) p.rm = true;
+  }
+  projs = projs.filter(p => !p.rm);
+}
+
+// ─── RoundRect ───
+function rr(x, y, w, h, r) {
+  X.beginPath(); X.moveTo(x + r, y); X.lineTo(x + w - r, y); X.arcTo(x + w, y, x + w, y + r, r);
+  X.lineTo(x + w, y + h - r); X.arcTo(x + w, y + h, x + w - r, y + h, r);
+  X.lineTo(x + r, y + h); X.arcTo(x, y + h, x, y + h - r, r); X.lineTo(x, y + r); X.arcTo(x, y, x + r, y, r); X.closePath();
+}
+
+// ─── Draw: Background (Beach Theme) ───
+function drawBG() {
+  // Sky gradient
+  let g = X.createLinearGradient(0, 0, 0, GY);
+  g.addColorStop(0, '#87CEEB'); g.addColorStop(0.6, '#B0E0E6'); g.addColorStop(1, '#E0F7FA');
+  X.fillStyle = g; X.fillRect(0, 0, W, GY);
+  // Sun
+  X.fillStyle = '#FFE066';
+  X.beginPath(); X.arc(W * 0.85 + Math.sin(frame * 0.005) * 10, 55 * S, 32 * S, 0, Math.PI * 2); X.fill();
+  X.fillStyle = '#FFF176';
+  X.beginPath(); X.arc(W * 0.85 + Math.sin(frame * 0.005) * 10, 55 * S, 24 * S, 0, Math.PI * 2); X.fill();
+  // Clouds
+  X.fillStyle = 'rgba(255,255,255,0.7)';
+  for (let i = 0; i < 5; i++) {
+    let cx2 = ((i * 380 - camX * .15 + 9999) % (W + 250)) - 120;
+    X.beginPath(); X.ellipse(cx2, 40 * S + i * 28 * S, 55 * S, 18 * S, 0, 0, Math.PI * 2); X.fill();
+    X.beginPath(); X.ellipse(cx2 + 28 * S, 34 * S + i * 28 * S, 35 * S, 14 * S, 0, 0, Math.PI * 2); X.fill();
+  }
+  // Ocean waves in background
+  X.fillStyle = 'rgba(70,180,220,0.25)';
+  for (let i = 0; i < 3; i++) {
+    X.beginPath();
+    let wy = GY - 20 * S - i * 18 * S;
+    X.moveTo(0, wy);
+    for (let wx = 0; wx <= W; wx += 30) {
+      X.lineTo(wx, wy + Math.sin((wx + frame * 1.5 + i * 200) * 0.015) * 5 * S);
+    }
+    X.lineTo(W, GY); X.lineTo(0, GY); X.fill();
+  }
+  // Sand
+  X.fillStyle = '#F4D68C'; X.fillRect(0, GY, W, 12 * S);
+  X.fillStyle = '#E8C872'; X.fillRect(0, GY + 12 * S, W, H);
+  // Sand texture - little dots
+  X.fillStyle = 'rgba(200,170,100,0.4)';
+  for (let i = 0; i < 35; i++) {
+    let gx = ((i * 70 - camX * .8 + 9999) % W);
+    X.beginPath(); X.arc(gx, GY + 5 * S, 1.5 * S, 0, Math.PI * 2); X.fill();
+    X.beginPath(); X.arc(gx + 20, GY + 8 * S, 1 * S, 0, Math.PI * 2); X.fill();
+  }
+  // Seashells
+  X.fillStyle = '#FADADD';
+  for (let i = 0; i < 8; i++) {
+    let shx = ((i * 250 - camX * .6 + 9999) % (W + 100)) - 50;
+    X.beginPath(); X.arc(shx, GY + 4 * S, 2.5 * S, 0, Math.PI, true); X.fill();
+  }
+}
+
+// ─── Draw: Sandcastle (Statue) ───
+function drawStatue(st, isE) {
+  let sx = st.x - camX, sy = st.y, s = S;
+  if (sx < -60*s || sx > W + 60*s) return;
+  // Base
+  X.fillStyle = '#DEB966'; X.fillRect(sx - 26 * s, sy - 50 * s, 52 * s, 50 * s);
+  // Towers
+  X.fillStyle = '#D4A843';
+  X.fillRect(sx - 22 * s, sy - 65 * s, 16 * s, 20 * s);
+  X.fillRect(sx + 6 * s, sy - 65 * s, 16 * s, 20 * s);
+  // Tower tops (crenellations)
+  X.fillStyle = '#C89B3C';
+  for (let i = 0; i < 3; i++) {
+    X.fillRect(sx - 22 * s + i * 6 * s, sy - 70 * s, 4 * s, 5 * s);
+    X.fillRect(sx + 6 * s + i * 6 * s, sy - 70 * s, 4 * s, 5 * s);
+  }
+  // Middle tower
+  X.fillStyle = '#DEB966';
+  X.fillRect(sx - 8 * s, sy - 72 * s, 16 * s, 25 * s);
+  // Flag on top
+  X.strokeStyle = '#8B6914'; X.lineWidth = 1.5 * s;
+  X.beginPath(); X.moveTo(sx, sy - 72 * s); X.lineTo(sx, sy - 86 * s); X.stroke();
+  X.fillStyle = isE ? '#FF6B6B' : '#4FC3F7';
+  X.beginPath();
+  X.moveTo(sx, sy - 86 * s); X.lineTo(sx + 12 * s, sy - 81 * s); X.lineTo(sx, sy - 76 * s); X.fill();
+  // Door
+  X.fillStyle = '#8B6914';
+  X.beginPath(); X.arc(sx, sy - 10 * s, 6 * s, Math.PI, 0, true);
+  X.lineTo(sx + 6 * s, sy); X.lineTo(sx - 6 * s, sy); X.fill();
+  // HP bar
+  let bw = 50 * s, bh = 5 * s, bx2 = sx - bw / 2, by2 = sy - 95 * s;
+  X.fillStyle = '#222'; X.fillRect(bx2, by2, bw, bh);
+  let pct = st.hp / st.mhp;
+  X.fillStyle = pct > .5 ? '#2ECC71' : pct > .25 ? '#F39C12' : '#E74C3C';
+  X.fillRect(bx2, by2, bw * pct, bh);
+  X.fillStyle = '#FFF'; X.font = `bold ${10 * s}px Nunito,sans-serif`; X.textAlign = 'center';
+  X.fillText(Math.ceil(st.hp) + '/' + st.mhp, sx, by2 - 2 * s);
+}
+
+// ─── Draw: Stick Figure (Beach themed) ───
+function drawStick(u) {
+  let sx = u.x - camX, sy = u.y, s = S;
+  if (sx < -40 * s || sx > W + 40 * s) return;
+  X.save();
+  let h = u.def.h * s, hr = 5 * s, bl = h * .38, ll = h * .28;
+  let bc = u.isE ? '#C0392B' : '#1a1a2e';
+  let ac = u.isE ? '#FF6B6B' : '#4FC3F7';
+  let flip = u.isE ? -1 : 1;
+  X.translate(sx, sy);
+  if (u.st === 'dying') { X.globalAlpha = Math.max(0, 1 - u.dTimer / 400); X.rotate(u.dTimer * .003 * flip); }
+  let wb = u.st === 'walk' ? Math.sin(u.anim * .008) * .15 : 0;
+  let atk = u.st === 'attack' ? Math.sin(u.anim * .015) : 0;
+  X.lineWidth = 2.5 * s; X.lineCap = 'round'; X.strokeStyle = bc;
+  // Body
+  X.beginPath(); X.moveTo(0, -h + hr * 2); X.lineTo(0, -h + hr * 2 + bl); X.stroke();
+  // Legs
+  X.beginPath(); X.moveTo(0, -h + hr * 2 + bl);
+  X.lineTo((-ll * .5 + Math.sin(wb * 5) * ll * .4) * flip, 0); X.stroke();
+  X.beginPath(); X.moveTo(0, -h + hr * 2 + bl);
+  X.lineTo((ll * .5 - Math.sin(wb * 5) * ll * .4) * flip, 0); X.stroke();
+  let ay = -h + hr * 2 + bl * .3;
+
+  if (u.type === 'sword') {
+    // ── NOODLE WARRIOR: holds a pool noodle ──
+    let swing = atk * .7;
+    X.save(); X.translate(0, ay); X.rotate(swing * flip + .3 * flip);
+    // Arm holding noodle
+    X.beginPath(); X.moveTo(0, 0); X.lineTo(ll * .7 * flip, -ll * .2); X.stroke();
+    // Pool noodle (thick, colorful cylinder)
+    X.strokeStyle = u.isE ? '#FF6B6B' : '#00E5FF'; X.lineWidth = 4.5 * s; X.lineCap = 'round';
+    X.beginPath(); X.moveTo(ll * .5 * flip, -ll * .1); X.lineTo(ll * 1.4 * flip, -ll * .8); X.stroke();
+    // Noodle highlight stripe
+    X.strokeStyle = u.isE ? '#FF9E9E' : '#80F0FF'; X.lineWidth = 1.5 * s;
+    X.beginPath(); X.moveTo(ll * .6 * flip, -ll * .2); X.lineTo(ll * 1.3 * flip, -ll * .7); X.stroke();
+    X.restore();
+    X.strokeStyle = bc; X.lineWidth = 2.5 * s;
+    X.beginPath(); X.moveTo(0, ay); X.lineTo(-ll * .5 * flip, ay + ll * .35); X.stroke();
+
+  } else if (u.type === 'archer') {
+    // ── BALLOON THROWER: holds a water balloon ──
+    // Throwing arm
+    let throwAnim = atk * .8;
+    X.save(); X.translate(0, ay); X.rotate(throwAnim * flip - .2 * flip);
+    X.beginPath(); X.moveTo(0, 0); X.lineTo(ll * .7 * flip, -ll * .3); X.stroke();
+    // Water balloon in hand (when not throwing)
+    X.fillStyle = u.isE ? '#FF6B6B' : '#4FC3F7';
+    X.beginPath(); X.ellipse(ll * .8 * flip, -ll * .35, 4.5 * s, 5.5 * s, 0, 0, Math.PI * 2); X.fill();
+    // Balloon tie
+    X.fillStyle = u.isE ? '#C0392B' : '#0288D1';
+    X.beginPath(); X.moveTo(ll * .8 * flip - 1 * s, -ll * .35 + 5.5 * s);
+    X.lineTo(ll * .8 * flip + 1 * s, -ll * .35 + 5.5 * s);
+    X.lineTo(ll * .8 * flip, -ll * .35 + 7.5 * s); X.fill();
+    // Water shine
+    X.fillStyle = 'rgba(255,255,255,0.5)';
+    X.beginPath(); X.arc(ll * .75 * flip, -ll * .42, 1.5 * s, 0, Math.PI * 2); X.fill();
+    X.restore();
+    X.strokeStyle = bc; X.lineWidth = 2.5 * s;
+    X.beginPath(); X.moveTo(0, ay); X.lineTo(-ll * .4 * flip, ay + ll * .3); X.stroke();
+
+  } else if (u.type === 'knight') {
+    // ── SURFER: surfboard shield + pool noodle ──
+    let swing = atk * .6;
+    // Noodle arm
+    X.save(); X.translate(0, ay); X.rotate(swing * flip + .35 * flip);
+    X.beginPath(); X.moveTo(0, 0); X.lineTo(ll * .6 * flip, -ll * .15); X.stroke();
+    // Pool noodle weapon
+    X.strokeStyle = u.isE ? '#FF9E9E' : '#76FF03'; X.lineWidth = 4 * s; X.lineCap = 'round';
+    X.beginPath(); X.moveTo(ll * .5 * flip, -ll * .1); X.lineTo(ll * 1.4 * flip, -ll * .85); X.stroke();
+    // Noodle highlight
+    X.strokeStyle = u.isE ? '#FFD0D0' : '#B2FF59'; X.lineWidth = 1.2 * s;
+    X.beginPath(); X.moveTo(ll * .6 * flip, -ll * .2); X.lineTo(ll * 1.3 * flip, -ll * .75); X.stroke();
+    X.restore();
+    X.strokeStyle = bc; X.lineWidth = 2.5 * s;
+    // Shield arm
+    X.beginPath(); X.moveTo(0, ay); X.lineTo(-ll * .45 * flip, ay + ll * .15); X.stroke();
+    // Surfboard shield
+    X.save();
+    X.translate(-ll * .55 * flip, ay + ll * .08);
+    X.rotate(0.15 * flip);
+    // Board shape
+    X.fillStyle = ac;
+    X.beginPath();
+    X.ellipse(0, 0, 5 * s, 11 * s, 0, 0, Math.PI * 2); X.fill();
+    // Board stripe
+    X.strokeStyle = u.isE ? '#C0392B' : '#0288D1'; X.lineWidth = 1.2 * s;
+    X.beginPath(); X.moveTo(0, -8 * s); X.lineTo(0, 8 * s); X.stroke();
+    // Board fin
+    X.fillStyle = u.isE ? '#C0392B' : '#0288D1';
+    X.beginPath(); X.moveTo(-1.5 * s, 9 * s); X.lineTo(0, 12 * s); X.lineTo(1.5 * s, 9 * s); X.fill();
+    X.restore();
+    // Sun visor / beach hat
+    X.fillStyle = u.isE ? '#FF6B6B' : '#FFF176';
+    X.beginPath(); X.arc(0, -h + hr - 1.5 * s, hr + 2.5 * s, -Math.PI, -0.2, false); X.fill();
+    // Hat band
+    X.fillStyle = u.isE ? '#C0392B' : '#F9A825';
+    X.fillRect(-hr * 1.3, -h + hr - 2 * s, hr * 2.6, 1.5 * s);
+  }
+
+  // Head
+  X.fillStyle = bc;
+  X.beginPath(); X.arc(0, -h + hr, hr, 0, Math.PI * 2); X.fill();
+  // HP bar
+  if (u.hp < u.mhp && u.st !== 'dying') {
+    let bw2 = 20 * s, bh2 = 2.5 * s, by3 = -h - 6 * s;
+    X.fillStyle = '#333'; X.fillRect(-bw2 / 2, by3, bw2, bh2);
+    let pct2 = u.hp / u.mhp;
+    X.fillStyle = pct2 > .5 ? '#2ECC71' : pct2 > .25 ? '#F39C12' : '#E74C3C';
+    X.fillRect(-bw2 / 2, by3, bw2 * pct2, bh2);
+  }
+  X.restore();
+}
+
+// ─── Draw: Projectiles (Water Balloons) ───
+function drawProjs() {
+  for (let p of projs) {
+    let px = p.x - camX;
+    X.save(); X.translate(px, p.y);
+    // Water balloon
+    X.fillStyle = p.isE ? '#FF6B6B' : '#4FC3F7';
+    X.beginPath(); X.ellipse(0, 0, 4.5 * S, 5.5 * S, 0, 0, Math.PI * 2); X.fill();
+    // Tie
+    X.fillStyle = p.isE ? '#C0392B' : '#0288D1';
+    X.beginPath(); X.moveTo(-1.2 * S, 5 * S); X.lineTo(0, 7 * S); X.lineTo(1.2 * S, 5 * S); X.fill();
+    // Shine
+    X.fillStyle = 'rgba(255,255,255,0.55)';
+    X.beginPath(); X.arc(-1.5 * S, -2 * S, 1.5 * S, 0, Math.PI * 2); X.fill();
+    X.restore();
+  }
+}
+
+// ─── Draw: HUD ───
+function drawHUD() {
+  let s = S, p = 8 * s;
+  X.fillStyle = 'rgba(0,0,0,.72)'; X.fillRect(0, 0, W, 48 * s);
+  X.fillStyle = '#FFD700'; X.font = `bold ${17*s}px Bungee,sans-serif`; X.textAlign = 'left';
+  X.fillText('🐚 ' + gold, p, 32 * s);
+  X.fillStyle = '#FFF'; X.font = `bold ${13*s}px Nunito,sans-serif`; X.textAlign = 'center';
+  X.fillText('Level ' + (lvl + 1) + ': ' + LV[lvl].n, W / 2, 20 * s);
+  X.fillStyle = '#BBB'; X.font = `${10*s}px Nunito,sans-serif`;
+  X.fillText(LV[lvl].d, W / 2, 36 * s);
+  let pop = pU.filter(u => u.st !== 'dying').reduce((sum, u) => sum + u.def.pop, 0);
+  X.fillStyle = '#CCC'; X.font = `bold ${11*s}px Nunito,sans-serif`; X.textAlign = 'right';
+  X.fillText('Squad: ' + pop + '/16', W - 110 * s, 18 * s);
+  if (streak >= 2) {
+    X.fillStyle = '#F39C12'; X.fillText('🔥' + streak, W - 110 * s, 36 * s);
+  }
+  // Math button
+  let mbw = 90 * s, mbh = 34 * s, mbx = W - mbw - p, mby = 48 * s + 6 * s;
+  X.shadowColor = '#FFD700'; X.shadowBlur = 10 + Math.sin(frame * .06) * 6;
+  X.fillStyle = '#27AE60'; rr(mbx, mby, mbw, mbh, 7 * s); X.fill();
+  X.shadowBlur = 0;
+  X.fillStyle = '#FFF'; X.font = `bold ${14*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('📐 MATH', mbx + mbw / 2, mby + 23 * s);
+  // Commands
+  let cmds = [['attack','🌊 Charge','#E74C3C'],['defend','🏖️ Hold','#F39C12'],['garrison','🏰 Fort','#3498DB']];
+  let cbw = 78 * s, cbh = 28 * s, cg = 5 * s, csx = p, csy = GY - cbh - 8 * s;
+  cmds.forEach(([id, label, col], i) => {
+    let cx2 = csx + i * (cbw + cg);
+    X.fillStyle = cmd === id ? col : 'rgba(0,0,0,.55)';
+    rr(cx2, csy, cbw, cbh, 5 * s); X.fill();
+    X.strokeStyle = col; X.lineWidth = cmd === id ? 2 * s : 1 * s;
+    rr(cx2, csy, cbw, cbh, 5 * s); X.stroke();
+    X.fillStyle = '#FFF'; X.font = `bold ${11*s}px Nunito,sans-serif`; X.textAlign = 'center';
+    X.fillText(label, cx2 + cbw / 2, csy + 19 * s);
+  });
+  // Unit buttons
+  let uTypes = [
+    { t:'sword',  ic:'🏊', cost:80,  un:true },
+    { t:'archer', ic:'🎈', cost:150, un:true },
+    { t:'knight', ic:'🏄', cost:250, un:lvl>=3 },
+  ];
+  let ubw = touch ? 80 * s : 90 * s, ubh = touch ? 50 * s : 52 * s, ug = 8 * s;
+  let utw = uTypes.length * (ubw + ug) - ug;
+  let usx = (W - utw) / 2, usy = GY + 6 * s;
+  uTypes.forEach((ut, i) => {
+    let bx = usx + i * (ubw + ug), by = usy;
+    let canBuy = gold >= ut.cost && pop + uDef(ut.t, false).pop <= 16 && ut.un;
+    X.fillStyle = !ut.un ? 'rgba(40,40,40,.8)' : canBuy ? 'rgba(41,128,185,.88)' : 'rgba(60,60,60,.8)';
+    rr(bx, by, ubw, ubh, 6 * s); X.fill();
+    X.strokeStyle = canBuy ? '#3498DB' : '#555'; X.lineWidth = 1.5 * s;
+    rr(bx, by, ubw, ubh, 6 * s); X.stroke();
+    X.font = `${18*s}px sans-serif`; X.textAlign = 'center';
+    X.fillText(ut.un ? ut.ic : '🔒', bx + ubw / 2, by + 22 * s);
+    X.fillStyle = canBuy ? '#FFD700' : '#777'; X.font = `bold ${11*s}px Nunito,sans-serif`;
+    X.fillText(ut.cost + 'g', bx + ubw / 2, by + ubh - 5 * s);
+    if (!touch) {
+      X.fillStyle = '#888'; X.font = `${9*s}px Nunito,sans-serif`;
+      X.fillText('[' + (i + 1) + ']', bx + ubw / 2, by + ubh + 11 * s);
+    }
+  });
+}
+
+// ─── Draw: Math Screen ───
+function drawMath() {
+  X.fillStyle = 'rgba(0,0,0,.88)'; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  X.fillStyle = '#FFD700'; X.font = `bold ${26*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('📐 MATH CHALLENGE', cx, 42 * s);
+  X.fillStyle = '#999'; X.font = `${12*s}px Nunito,sans-serif`;
+  X.fillText('Mode: ' + mathMode[0].toUpperCase() + mathMode.slice(1), cx, 62 * s);
+  X.fillStyle = 'rgba(255,255,255,.1)'; rr(cx - 180 * s, 72 * s, 360 * s, 28 * s, 6 * s); X.fill();
+  X.fillStyle = '#FFD700'; X.font = `bold ${12*s}px Nunito,sans-serif`;
+  X.fillText('Gold: +' + mGold + '   Streak: ' + streak + '🔥   Correct: ' + mCC, cx, 91 * s);
+  X.fillStyle = 'rgba(44,62,80,.92)'; rr(cx - 200 * s, 108 * s, 400 * s, 70 * s, 10 * s); X.fill();
+  X.strokeStyle = '#3498DB'; X.lineWidth = 2.5 * s; rr(cx - 200 * s, 108 * s, 400 * s, 70 * s, 10 * s); X.stroke();
+  if (mQ) { X.fillStyle = '#FFF'; X.font = `bold ${28*s}px Bungee,sans-serif`; X.fillText(mQ.disp, cx, 152 * s); }
+  X.fillStyle = '#FFF'; rr(cx - 90 * s, 192 * s, 180 * s, 44 * s, 7 * s); X.fill();
+  X.strokeStyle = '#3498DB'; X.lineWidth = 2 * s; rr(cx - 90 * s, 192 * s, 180 * s, 44 * s, 7 * s); X.stroke();
+  X.fillStyle = mIn ? '#222' : '#AAA'; X.font = `bold ${24*s}px Bungee,sans-serif`;
+  X.fillText(mIn || '?', cx, 222 * s);
+  if (mFB) {
+    X.fillStyle = mFB.ok ? '#2ECC71' : '#E74C3C'; X.font = `bold ${20*s}px Bungee,sans-serif`;
+    X.fillText(mFB.t, cx, 262 * s);
+  }
+  if (streak >= 3) {
+    X.fillStyle = '#F39C12'; X.font = `bold ${12*s}px Nunito,sans-serif`;
+    X.fillText('🔥 ' + streak + 'x Streak! +' + Math.min(streak, 5) * 8 + ' bonus gold!', cx, 286 * s);
+  }
+  if (touch) {
+    for (let k of nK) {
+      X.fillStyle = 'rgba(44,62,80,.9)'; rr(k.x, k.y, k.w, k.h, 5 * s); X.fill();
+      X.strokeStyle = '#5D6D7E'; X.lineWidth = 1 * s; rr(k.x, k.y, k.w, k.h, 5 * s); X.stroke();
+      X.fillStyle = k.l === '✓' ? '#2ECC71' : k.l === '⌫' ? '#E74C3C' : '#FFF';
+      X.font = `bold ${18*s}px Nunito,sans-serif`; X.textAlign = 'center';
+      X.fillText(k.l, k.x + k.w / 2, k.y + k.h / 2 + 6 * s);
+    }
+  } else {
+    X.fillStyle = '#666'; X.font = `${11*s}px Nunito,sans-serif`; X.textAlign = 'center';
+    X.fillText('Type answer + Enter  |  Esc = back', cx, 296 * s);
+  }
+  let bbw = 150 * s, bbh = 40 * s, bbx = cx - bbw / 2, bby = touch ? H - bbh - 12 * s : 320 * s;
+  X.fillStyle = '#E74C3C'; rr(bbx, bby, bbw, bbh, 7 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${14*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('⬅ BACK TO BEACH', cx, bby + 27 * s);
+}
+
+// ─── Draw: Menu ───
+function drawMenu() {
+  let g = X.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#87CEEB'); g.addColorStop(0.5, '#4FC3F7'); g.addColorStop(1, '#F4D68C');
+  X.fillStyle = g; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  // Waves
+  X.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 3; i++) {
+    X.beginPath();
+    let wy = H * 0.55 + i * 20 * s;
+    X.moveTo(0, wy);
+    for (let wx = 0; wx <= W; wx += 30) {
+      X.lineTo(wx, wy + Math.sin((wx + frame * 1.2 + i * 150) * 0.012) * 8 * s);
+    }
+    X.lineTo(W, H); X.lineTo(0, H); X.fill();
+  }
+  // Background stick figures on beach
+  X.globalAlpha = .15;
+  for (let i = 0; i < 6; i++) {
+    let fx = (i * 200 * s + frame * .4 + 999) % (W + 100) - 50, fy = H * .6 + Math.sin(frame * .02 + i) * 15 * s;
+    X.strokeStyle = '#333'; X.lineWidth = 2 * s;
+    X.beginPath(); X.arc(fx, fy - 25 * s, 7 * s, 0, Math.PI * 2); X.stroke();
+    X.beginPath(); X.moveTo(fx, fy - 18 * s); X.lineTo(fx, fy);
+    X.moveTo(fx - 8 * s, fy - 12 * s); X.lineTo(fx + 8 * s, fy - 12 * s);
+    X.moveTo(fx, fy); X.lineTo(fx - 6 * s, fy + 15 * s);
+    X.moveTo(fx, fy); X.lineTo(fx + 6 * s, fy + 15 * s); X.stroke();
+  }
+  X.globalAlpha = 1;
+  X.shadowColor = '#FF6B35'; X.shadowBlur = 25 * s;
+  X.fillStyle = '#FF6B35'; X.font = `bold ${44*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('BEACH', cx, H * .2);
+  X.fillStyle = '#FFF'; X.fillText('WAR!', cx, H * .2 + 48 * s);
+  X.shadowBlur = 0;
+  X.fillStyle = '#1a1a2e'; X.font = `bold ${15*s}px Nunito,sans-serif`;
+  X.fillText('Build Your Beach Squad With Brain Power!', cx, H * .2 + 78 * s);
+  X.font = `${36*s}px sans-serif`; X.fillText('🏖️', cx, H * .2 + 112 * s);
+  let bw = 240 * s, bh = 52 * s, bx = cx - bw / 2, by = H * .53;
+  let pu = Math.sin(frame * .06) * .08 + 1;
+  X.save(); X.translate(cx, by + bh / 2); X.scale(pu, pu); X.translate(-cx, -(by + bh / 2));
+  X.fillStyle = '#FF6B35'; rr(bx, by, bw, bh, 10 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${22*s}px Bungee,sans-serif`; X.fillText('▶ PLAY', cx, by + 35 * s);
+  X.restore();
+  let hy = by + bh + 18 * s;
+  X.fillStyle = 'rgba(0,0,0,.15)'; rr(bx, hy, bw, bh * .78, 8 * s); X.fill();
+  X.strokeStyle = 'rgba(0,0,0,.25)'; X.lineWidth = 1.5 * s; rr(bx, hy, bw, bh * .78, 8 * s); X.stroke();
+  X.fillStyle = '#1a1a2e'; X.font = `bold ${15*s}px Nunito,sans-serif`; X.fillText('❓ HOW TO PLAY', cx, hy + 27 * s);
+  X.fillStyle = 'rgba(0,0,0,.25)'; X.font = `${11*s}px Nunito,sans-serif`; X.fillText('BrainySheets.com', cx, H - 16 * s);
+}
+
+// ─── Draw: Mode Select ───
+function drawMode() {
+  let g = X.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#87CEEB'); g.addColorStop(1, '#F4D68C');
+  X.fillStyle = g; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  X.fillStyle = '#FF6B35'; X.font = `bold ${28*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('SELECT MATH MODE', cx, 55 * s);
+  X.fillStyle = '#333'; X.font = `${13*s}px Nunito,sans-serif`;
+  X.fillText('Choose how you earn gold!', cx, 80 * s);
+  let modes = [['addition','➕ Addition','#2ECC71'],['subtraction','➖ Subtraction','#3498DB'],
+    ['multiplication','✖️ Multiplication','#E67E22'],['division','➗ Division','#9B59B6']];
+  let bw = 260 * s, bh = 56 * s, gap = 14 * s, th = 4 * (bh + gap) - gap, sy = (H - th) / 2 + 10 * s;
+  modes.forEach(([id, label, col], i) => {
+    let bx = cx - bw / 2, by = sy + i * (bh + gap);
+    X.fillStyle = col; X.globalAlpha = .9; rr(bx, by, bw, bh, 9 * s); X.fill(); X.globalAlpha = 1;
+    X.fillStyle = '#FFF'; X.font = `bold ${18*s}px Bungee,sans-serif`; X.fillText(label, cx, by + 36 * s);
+  });
+}
+
+// ─── Draw: How To Play ───
+function drawHow() {
+  X.fillStyle = 'rgba(0,0,0,.93)'; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  X.fillStyle = '#FFD700'; X.font = `bold ${26*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('HOW TO PLAY', cx, 42 * s);
+  let lines = [
+    '🏖️  Destroy the enemy sandcastle to win each level!',
+    '📐  Tap the MATH button to answer questions & earn gold',
+    '💰  Use gold to buy Noodle Warriors, Balloon Throwers & Surfers',
+    '🔥  Answer streaks give bonus gold per question!',
+    '🌊  Use Charge, Hold, or Fort commands',
+    '⬆️  Earn upgrade points after each victory',
+    '🏆  Conquer all 8 levels to rule the beach!',
+  ];
+  X.fillStyle = '#FFF'; X.font = `bold ${13*s}px Nunito,sans-serif`;
+  lines.forEach((l, i) => X.fillText(l, cx, 85 * s + i * 32 * s));
+  if (!touch) {
+    X.fillStyle = '#87CEEB'; X.font = `bold ${12*s}px Nunito,sans-serif`;
+    X.fillText('Keys: 1-3 Buy  |  A/D/G Commands  |  M Math  |  ←→ Scroll', cx, 85 * s + lines.length * 32 * s + 18 * s);
+  }
+  let bbw = 140 * s, bbh = 40 * s, bx = cx - bbw / 2, by = H - bbh - 28 * s;
+  X.fillStyle = '#3498DB'; rr(bx, by, bbw, bbh, 7 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${15*s}px Bungee,sans-serif`; X.fillText('⬅ BACK', cx, by + 27 * s);
+}
+
+// ─── Draw: Level Win ───
+function drawLvlWin() {
+  X.fillStyle = 'rgba(0,0,0,.86)'; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  for (let i = 0; i < 12; i++) {
+    let px = cx + Math.sin(frame * .03 + i * .5) * 160 * s;
+    let py = H * .15 + Math.cos(frame * .04 + i * .7) * 30 * s;
+    X.fillStyle = ['#FFD700','#FFF','#4FC3F7'][i % 3];
+    X.globalAlpha = .5 + Math.sin(frame * .08 + i) * .3;
+    X.beginPath(); X.arc(px, py, 2 * s, 0, Math.PI * 2); X.fill();
+  }
+  X.globalAlpha = 1;
+  X.fillStyle = '#FFD700'; X.font = `bold ${34*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('⭐ VICTORY! ⭐', cx, H * .22);
+  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Nunito,sans-serif`;
+  X.fillText('Level ' + (lvl + 1) + ': ' + LV[lvl].n + ' Conquered!', cx, H * .22 + 42 * s);
+  X.fillStyle = '#2ECC71'; X.font = `bold ${15*s}px Nunito,sans-serif`;
+  X.fillText('+' + LV[lvl].rw + ' Upgrade Points Earned!', cx, H * .22 + 75 * s);
+  X.fillStyle = '#CCC'; X.font = `${12*s}px Nunito,sans-serif`;
+  X.fillText('Questions: ' + totalQ + '  |  Best Streak: ' + best + '🔥', cx, H * .22 + 105 * s);
+  let bw = 200 * s, bh = 48 * s, bx = cx - bw / 2, by = H * .58;
+  X.fillStyle = '#2ECC71'; rr(bx, by, bw, bh, 9 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Bungee,sans-serif`;
+  X.fillText(lvl < LV.length - 1 ? 'UPGRADES ➡' : '🏆 YOU WIN!', cx, by + 32 * s);
+}
+
+// ─── Draw: Upgrades ───
+function drawUps() {
+  X.fillStyle = 'rgba(0,0,0,.93)'; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  X.fillStyle = '#FFD700'; X.font = `bold ${26*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('⬆ UPGRADES', cx, 38 * s);
+  X.fillStyle = '#2ECC71'; X.font = `bold ${14*s}px Nunito,sans-serif`;
+  X.fillText('Points Available: ' + upPts, cx, 62 * s);
+  let list = [
+    ['sDmg','🏊 Noodle Damage',4],   ['sHp','🏊 Noodle Health',4],
+    ['aDmg','🎈 Balloon Damage',4],   ['aRng','🎈 Balloon Range',3],
+    ['kHp','🏄 Surfer Health',4],     ['kDmg','🏄 Surfer Damage',4],
+    ['stHp','🏰 Sandcastle Health',4],['stInc','🏰 Auto Income',3],
+  ];
+  let bw = 280 * s, bh = 30 * s, gap = 5 * s, sy = 80 * s;
+  list.forEach(([k, nm, mx], i) => {
+    let bx = cx - bw / 2, by = sy + i * (bh + gap);
+    let cur = ups[k], full = cur >= mx;
+    X.fillStyle = full ? 'rgba(46,204,113,.25)' : 'rgba(255,255,255,.08)';
+    rr(bx, by, bw, bh, 5 * s); X.fill();
+    if (!full && upPts > 0) {
+      X.strokeStyle = '#2ECC71'; X.lineWidth = 1.2 * s;
+      rr(bx, by, bw, bh, 5 * s); X.stroke();
+    }
+    X.fillStyle = '#FFF'; X.font = `bold ${11*s}px Nunito,sans-serif`; X.textAlign = 'left';
+    X.fillText(nm, bx + 8 * s, by + 20 * s);
+    X.textAlign = 'right'; X.fillStyle = full ? '#2ECC71' : '#FFD700';
+    let pips = ''; for (let j = 0; j < mx; j++) pips += j < cur ? '●' : '○';
+    X.fillText(pips, bx + bw - 8 * s, by + 20 * s);
+  });
+  let cbw = 180 * s, cbh = 44 * s, cbx = cx - cbw / 2, cby = H - cbh - 28 * s;
+  X.fillStyle = '#E67E22'; rr(cbx, cby, cbw, cbh, 9 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('NEXT LEVEL ➡', cx, cby + 30 * s);
+}
+
+// ─── Draw: Game Over ───
+function drawOver() {
+  X.fillStyle = 'rgba(0,0,0,.86)'; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  X.fillStyle = '#E74C3C'; X.font = `bold ${34*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('🌊 WASHED OUT!', cx, H * .28);
+  X.fillStyle = '#FFF'; X.font = `bold ${15*s}px Nunito,sans-serif`;
+  X.fillText('Your sandcastle was destroyed!', cx, H * .28 + 40 * s);
+  X.fillStyle = '#CCC'; X.font = `${13*s}px Nunito,sans-serif`;
+  X.fillText('Tip: Open MATH to earn more gold for your beach squad!', cx, H * .28 + 75 * s);
+  let bw = 180 * s, bh = 46 * s, bx = cx - bw / 2;
+  let by1 = H * .52;
+  X.fillStyle = '#E67E22'; rr(bx, by1, bw, bh, 9 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Bungee,sans-serif`;
+  X.fillText('🔄 RETRY', cx, by1 + 31 * s);
+  let by2 = by1 + bh + 16 * s;
+  X.fillStyle = '#7F8C8D'; rr(bx, by2, bw, bh, 9 * s); X.fill();
+  X.fillStyle = '#FFF'; X.fillText('🏠 MENU', cx, by2 + 31 * s);
+}
+
+// ─── Draw: Victory ───
+function drawVic() {
+  X.fillStyle = 'rgba(0,0,0,.86)'; X.fillRect(0, 0, W, H);
+  let s = S, cx = W / 2;
+  for (let i = 0; i < 25; i++) {
+    X.fillStyle = ['#FFD700','#FF6B35','#4FC3F7','#2ECC71','#FF6B6B'][i % 5];
+    let px = (Math.sin(frame * .02 + i * 7) * .4 + .5) * W;
+    let py = ((frame * .5 + i * 45) % (H + 40)) - 20;
+    X.save(); X.translate(px, py); X.rotate(frame * .05 + i);
+    X.fillRect(-4 * s, -2 * s, 8 * s, 4 * s); X.restore();
+  }
+  X.fillStyle = '#FFD700'; X.font = `bold ${38*s}px Bungee,sans-serif`; X.textAlign = 'center';
+  X.fillText('🏆 BEACH CHAMPION! 🏆', cx, H * .24);
+  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Nunito,sans-serif`;
+  X.fillText('You conquered the entire beach!', cx, H * .24 + 48 * s);
+  X.fillStyle = '#FFD700'; X.font = `bold ${13*s}px Nunito,sans-serif`;
+  let acc = totalQ > 0 ? Math.round(totalOK / totalQ * 100) : 0;
+  X.fillText('Questions: ' + totalQ + '  |  Accuracy: ' + acc + '%  |  Best Streak: ' + best + '🔥', cx, H * .24 + 85 * s);
+  let bw = 200 * s, bh = 48 * s, bx = cx - bw / 2, by = H * .55;
+  X.fillStyle = '#2ECC71'; rr(bx, by, bw, bh, 9 * s); X.fill();
+  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Bungee,sans-serif`;
+  X.fillText('🔄 PLAY AGAIN', cx, by + 32 * s);
+}
+
+// ═══════════════════════════════════════
+//  UPDATE
+// ═══════════════════════════════════════
+function update(dt) {
+  if (state !== 'play') return;
+  autoGT += dt;
+  let rate = 3500 - ups.stInc * 600;
+  if (autoGT >= rate) { gold += 4 + ups.stInc * 2; autoGT = 0; }
+  let L = LV[lvl];
+  eSpT += dt;
+  if (eSpT > L.sr && eSpN < L.sm) {
+    let t = L.et[Math.floor(Math.random() * L.et.length)];
+    eU.push(mkUnit(t, true));
+    eSpN++; eSpT = 0;
+  }
+  updUnits(pU, eU, pS, eS, dt);
+  updUnits(eU, pU, eS, pS, dt);
+  updProjs(dt);
+  pU = pU.filter(u => !u.rm);
+  eU = eU.filter(u => !u.rm);
+  parts.forEach(p => { p.x += p.vx; p.y += p.vy; p.vy += .18; p.life--; });
+  parts = parts.filter(p => p.life > 0);
+  floats.forEach(f => { f.y -= 1; f.life--; });
+  floats = floats.filter(f => f.life > 0);
+  let fx = pS.x;
+  pU.forEach(u => { if (u.st !== 'dying' && u.x > fx) fx = u.x; });
+  let tc = Math.max(0, Math.min(fx - W * .4, WW - W));
+  camX += (tc - camX) * .04;
+  if (eS.hp <= 0) { upPts += LV[lvl].rw; state = lvl >= LV.length - 1 ? 'victory' : 'lvlWin'; }
+  if (pS.hp <= 0) state = 'over';
+}
+
+// ═══════════════════════════════════════
+//  MAIN DRAW
+// ═══════════════════════════════════════
+function draw() {
+  X.clearRect(0, 0, W, H);
+  frame++;
+  if (state === 'menu')    { drawMenu(); return; }
+  if (state === 'mode')    { drawMode(); return; }
+  if (state === 'how')     { drawHow();  return; }
+  if (state === 'lvlWin')  { drawLvlWin(); return; }
+  if (state === 'ups')     { drawUps();  return; }
+  if (state === 'over')    { drawOver(); return; }
+  if (state === 'victory') { drawVic();  return; }
+  drawBG();
+  drawStatue(pS, false);
+  drawStatue(eS, true);
+  [...pU, ...eU].forEach(u => drawStick(u));
+  drawProjs();
+  parts.forEach(p => {
+    X.globalAlpha = p.life / 40; X.fillStyle = p.c;
+    X.beginPath(); X.arc(p.x - camX, p.y, p.sz * S * .4, 0, Math.PI * 2); X.fill();
+  });
+  X.globalAlpha = 1;
+  floats.forEach(f => {
+    X.globalAlpha = f.life / 50; X.fillStyle = f.c;
+    X.font = `bold ${16*S}px Bungee,sans-serif`; X.textAlign = 'center';
+    X.fillText(f.t, f.x - camX, f.y);
+  });
+  X.globalAlpha = 1;
+  drawHUD();
+  if (state === 'math') drawMath();
+}
+
+// ═══════════════════════════════════════
+//  GAME LOOP
+// ═══════════════════════════════════════
+let lt = 0;
+function loop(ts) {
+  let dt = Math.min(ts - lt, 50);
+  lt = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════
+//  MATH INPUT
+// ═══════════════════════════════════════
+function mathIn(k) {
+  if (mFB) return;
+  if (k === '⌫' || k === 'Backspace') mIn = mIn.slice(0, -1);
+  else if (k === '✓' || k === 'Enter') { if (mIn) checkAns(); }
+  else if (k === '-' && !mIn) mIn = '-';
+  else if (k >= '0' && k <= '9' && mIn.length < 4) mIn += k;
+}
+
+function checkAns() {
+  let v = parseInt(mIn);
+  totalQ++;
+  if (v === mQ.ans) {
+    totalOK++; streak++; if (streak > best) best = streak; mCC++;
+    let earn = 20 + Math.min(streak, 5) * 8;
+    gold += earn; mGold += earn;
+    mFB = { ok: true, t: '✓ Correct! +' + earn + 'g' };
+    float(pS.x + 30 * S, GY - 40 * S, '+' + earn + 'g', '#2ECC71');
+  } else {
+    streak = 0;
+    mFB = { ok: false, t: '✗ It was ' + mQ.ans };
+  }
+  mIn = '';
+  setTimeout(() => { mQ = genQ(); mFB = null; }, 1000);
+}
+
+function buyUnit(type) {
+  let def = uDef(type, false);
+  let pop = pU.filter(u => u.st !== 'dying').reduce((s2, u) => s2 + u.def.pop, 0);
+  let unlock = { sword: 0, archer: 0, knight: 3 };
+  if (lvl < (unlock[type] || 0)) return;
+  if (gold >= def.cost && pop + def.pop <= 16) {
+    gold -= def.cost;
+    let sx = pS.x + 55 * S;
+    pU.push(mkUnit(type, false, sx));
+    spark(sx, GY - 15 * S, '#4FC3F7', 4);
+  }
+}
+
+// ═══════════════════════════════════════
+//  CLICK HANDLING
+// ═══════════════════════════════════════
+function click(x, y) {
+  let s = S, cx = W / 2;
+  if (state === 'menu') {
+    let bw = 240 * s, bh = 52 * s, bx = cx - bw / 2, by = H * .53;
+    if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) { state = 'mode'; return; }
+    let hy = by + bh + 18 * s;
+    if (x >= bx && x <= bx + bw && y >= hy && y <= hy + bh * .78) { state = 'how'; return; }
+    return;
+  }
+  if (state === 'how') {
+    let bw = 140 * s, bx = cx - bw / 2, by = H - 40 * s - 28 * s;
+    if (x >= bx && x <= bx + bw && y >= by && y <= by + 40 * s) state = 'menu';
+    return;
+  }
+  if (state === 'mode') {
+    let bw = 260 * s, bh = 56 * s, gap = 14 * s;
+    let th = 4 * (bh + gap) - gap, sy = (H - th) / 2 + 10 * s;
+    let ids = ['addition','subtraction','multiplication','division'];
+    for (let i = 0; i < 4; i++) {
+      let bx2 = cx - bw / 2, by2 = sy + i * (bh + gap);
+      if (x >= bx2 && x <= bx2 + bw && y >= by2 && y <= by2 + bh) {
+        mathMode = ids[i]; lvl = 0; upPts = 0; totalQ = 0; totalOK = 0; streak = 0; best = 0;
+        ups = { sDmg:0, sHp:0, aDmg:0, aRng:0, kHp:0, kDmg:0, stHp:0, stInc:0 };
+        startLvl(); return;
+      }
+    }
+    return;
+  }
+  if (state === 'math') {
+    if (touch) {
+      for (let k of nK) {
+        if (x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h) { mathIn(k.l); return; }
+      }
+    }
+    let bbw = 150 * s, bbx = cx - bbw / 2, bby = touch ? H - 40 * s - 12 * s : 320 * s;
+    if (x >= bbx && x <= bbx + bbw && y >= bby && y <= bby + 40 * s) { state = 'play'; }
+    return;
+  }
+  if (state === 'play') {
+    let p = 8 * s;
+    let mbw = 90 * s, mbh = 34 * s, mbx = W - mbw - p, mby = 48 * s + 6 * s;
+    if (x >= mbx && x <= mbx + mbw && y >= mby && y <= mby + mbh) {
+      state = 'math'; mQ = genQ(); mIn = ''; mCC = 0; mGold = 0; mFB = null; return;
+    }
+    let cmds2 = ['attack','defend','garrison'];
+    let cbw = 78 * s, cbh2 = 28 * s, cg = 5 * s, csx = p, csy = GY - cbh2 - 8 * s;
+    for (let i = 0; i < 3; i++) {
+      let cx2 = csx + i * (cbw + cg);
+      if (x >= cx2 && x <= cx2 + cbw && y >= csy && y <= csy + cbh2) { cmd = cmds2[i]; return; }
+    }
+    let uTypes = ['sword','archer','knight'];
+    let ubw = touch ? 80 * s : 90 * s, ubh = touch ? 50 * s : 52 * s, ug = 8 * s;
+    let utw = uTypes.length * (ubw + ug) - ug;
+    let usx = (W - utw) / 2, usy = GY + 6 * s;
+    for (let i = 0; i < uTypes.length; i++) {
+      let bx2 = usx + i * (ubw + ug);
+      if (x >= bx2 && x <= bx2 + ubw && y >= usy && y <= usy + ubh) { buyUnit(uTypes[i]); return; }
+    }
+    return;
+  }
+  if (state === 'lvlWin') {
+    let bw = 200 * s, bh = 48 * s, bx = cx - bw / 2, by = H * .58;
+    if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+      state = lvl >= LV.length - 1 ? 'victory' : 'ups';
+    }
+    return;
+  }
+  if (state === 'ups') {
+    let list = [['sDmg',4],['sHp',4],['aDmg',4],['aRng',3],['kHp',4],['kDmg',4],['stHp',4],['stInc',3]];
+    let bw = 280 * s, bh = 30 * s, gap = 5 * s, sy = 80 * s;
+    for (let i = 0; i < list.length; i++) {
+      let [k, mx] = list[i], bx = cx - bw / 2, by = sy + i * (bh + gap);
+      if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+        if (upPts > 0 && ups[k] < mx) { ups[k]++; upPts--; }
+        return;
+      }
+    }
+    let cbw = 180 * s, cbh = 44 * s, cbx = cx - cbw / 2, cby = H - cbh - 28 * s;
+    if (x >= cbx && x <= cbx + cbw && y >= cby && y <= cby + cbh) { lvl++; startLvl(); }
+    return;
+  }
+  if (state === 'over') {
+    let bw = 180 * s, bh = 46 * s, bx = cx - bw / 2;
+    let by1 = H * .52;
+    if (x >= bx && x <= bx + bw && y >= by1 && y <= by1 + bh) { startLvl(); return; }
+    let by2 = by1 + bh + 16 * s;
+    if (x >= bx && x <= bx + bw && y >= by2 && y <= by2 + bh) { state = 'menu'; return; }
+    return;
+  }
+  if (state === 'victory') {
+    let bw = 200 * s, bh = 48 * s, bx = cx - bw / 2, by = H * .55;
+    if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) state = 'menu';
+  }
+}
+
+// ═══════════════════════════════════════
+//  EVENTS
+// ═══════════════════════════════════════
+C.addEventListener('click', e => click(e.clientX, e.clientY));
+C.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touch = true; buildNP();
+  click(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+
+let drag = false, dsx = 0, dcx = 0;
+C.addEventListener('mousedown', e => {
+  if (state === 'play' && e.clientY > 48 * S && e.clientY < GY) { drag = true; dsx = e.clientX; dcx = camX; }
+});
+C.addEventListener('mousemove', e => { if (drag) camX = Math.max(0, Math.min(dcx - (e.clientX - dsx), WW - W)); });
+C.addEventListener('mouseup', () => drag = false);
+
+let tdrag = false, tsx = 0, tcx = 0;
+C.addEventListener('touchstart', e => {
+  if (state === 'play' && e.touches[0]) {
+    let ty = e.touches[0].clientY;
+    if (ty > 48 * S && ty < GY) { tdrag = true; tsx = e.touches[0].clientX; tcx = camX; }
+  }
+}, { passive: true });
+C.addEventListener('touchmove', e => {
+  if (tdrag && e.touches[0]) camX = Math.max(0, Math.min(tcx - (e.touches[0].clientX - tsx), WW - W));
+}, { passive: true });
+C.addEventListener('touchend', () => tdrag = false);
+
+document.addEventListener('keydown', e => {
+  if (state === 'math') {
+    if (e.key >= '0' && e.key <= '9') mathIn(e.key);
+    else if (e.key === 'Backspace') { e.preventDefault(); mathIn('Backspace'); }
+    else if (e.key === 'Enter') mathIn('Enter');
+    else if (e.key === '-') mathIn('-');
+    else if (e.key === 'Escape') state = 'play';
+    return;
+  }
+  if (state === 'play') {
+    if (e.key === '1') buyUnit('sword');
+    if (e.key === '2') buyUnit('archer');
+    if (e.key === '3') buyUnit('knight');
+    if (e.key === 'a' || e.key === 'A') cmd = 'attack';
+    if (e.key === 'd' || e.key === 'D') cmd = 'defend';
+    if (e.key === 'g' || e.key === 'G') cmd = 'garrison';
+    if (e.key === 'm' || e.key === 'M') {
+      state = 'math'; mQ = genQ(); mIn = ''; mCC = 0; mGold = 0; mFB = null;
+    }
+    if (e.key === 'ArrowRight') camX = Math.min(camX + 40 * S, WW - W);
+    if (e.key === 'ArrowLeft') camX = Math.max(camX - 40 * S, 0);
+  }
+  if (state === 'menu' && (e.key === 'Enter' || e.key === ' ')) state = 'mode';
+});
+
+// ═══════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════
+resize();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
