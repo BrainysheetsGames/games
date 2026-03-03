@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Candy Kingdom Defenders</title>
+  <style>
+    :root {
+      --sky: #BDE7F6;
+      --grass: #A5E6A1;
+      --path: #F7D794;
+      --gold: #FFD700;
+      --white: #FFFFFF;
+      --text: #333333;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif; /* Friendly fallback font */
+      touch-action: none; /* Prevent pinch zoom on touch */
+    }
+    
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: 1024px;
+      aspect-ratio: 4 / 3;
+      background-color: var(--grass);
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      border-radius: 16px;
+    }
+
+    /* Core Canvas layer */
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* UI Overlay elements */
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+    .hud-box {
+      background: var(--white);
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 1.2rem;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+    }
+
+    /* Tower Build Menu (hidden by default) */
+    #build-menu {
+      position: absolute;
+      background: var(--white);
+      border-radius: 16px;
+      padding: 10px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+      transform: translate(-50%, -100%);
+      margin-top: -20px; /* Offset above node */
+    }
+    .build-btn {
+      background: var(--sky);
+      border: 2px solid #82c8e3;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 1rem;
+      min-width: 120px; /* Large touch target */
+      min-height: 48px;
+      text-align: left;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Persistent Math Panel - Bottom right */
+    #math-panel {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 320px;
+      background: var(--white);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+    #math-header {
+      font-weight: bold;
+      color: var(--text);
+      display: flex;
+      justify-content: space-between;
+    }
+    #math-question {
+      font-size: 1.2rem;
+      text-align: center;
+    }
+    #math-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .math-btn {
+      background: #eee;
+      border: 2px solid #ddd;
+      border-radius: 12px;
+      padding: 15px 5px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      min-height: 60px; /* Touch target */
+    }
+    
+    /* Feedback overlay */
+    #math-feedback {
+      text-align: center;
+      font-weight: bold;
+      min-height: 24px;
+      color: #ff6b81; /* Default pinkish */
+    }
+
+    /* Start Wave Button */
+    #start-wave-btn {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: #ff6b81;
+      color: white;
+      border: none;
+      border-radius: 20px;
+      padding: 15px 30px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    
+    #game-over-screen {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        display: none;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-size: 2rem;
+        z-index: 100;
+    }
+
+  </style>
+</head>
+<body>
+
+<div id="game-container">
+  <canvas id="game-canvas"></canvas>
+
+  <div id="hud">
+    <div class="hud-box">❤️ Hearts: <span id="ui-hearts">20</span></div>
+    <div class="hud-box">🌊 Wave: <span id="ui-wave">1</span></div>
+    <div class="hud-box">💰 Gold: <span id="ui-gold">150</span></div>
+  </div>
+
+  <div id="build-menu">
+    <button class="build-btn" onclick="Game.buyTower('DPS')">🧁 Cannon <span>$100</span></button>
+    <button class="build-btn" onclick="Game.buyTower('SNIPER')">🍭 Sniper <span>$150</span></button>
+    <button class="build-btn" onclick="Game.buyTower('SLOW')">🍫 Fountain <span>$120</span></button>
+    <button class="build-btn" onclick="Game.closeMenu()">❌ Cancel</button>
+  </div>
+
+  <div id="math-panel">
+    <div id="math-header">
+      <span>Grade: <span id="math-grade-ui">2</span></span>
+      <span>Streak: <span id="math-streak-ui">0</span>🔥</span>
+    </div>
+    <div id="math-question">Loading question...</div>
+    <div id="math-options">
+      </div>
+    <div id="math-feedback"></div>
+  </div>
+
+  <button id="start-wave-btn" onclick="Game.startWave()">Start Wave!</button>
+  
+  <div id="game-over-screen">
+      <h1 id="game-over-title">Game Over!</h1>
+      <p>The candies got through.</p>
+      <button onclick="location.reload()" style="padding:10px 20px; font-size:1.2rem; border-radius:10px; cursor:pointer;">Play Again</button>
+  </div>
+</div>
+
+<script src="math-engine.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
