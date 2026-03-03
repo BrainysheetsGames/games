@@ -1,23 +1,20 @@
 // math-engine.js
-// Handles question generation, grading, and the 'Gold' economy.
 
 const MathEngine = {
     currentQuestion: null,
     streak: 0,
     baseGoldReward: 25,
-    gradeLevel: 3, // Defaulting to 3rd grade logic
+    gradeLevel: null, 
     
-    // Grade specific generators
     generators: {
         2: [
             () => {
                 const h = Math.floor(Math.random() * 12) + 1;
                 const m = [0, 15, 30, 45][Math.floor(Math.random() * 4)];
                 const mStr = m === 0 ? "00" : m;
-                const minAdd = 5;
-                const newM = m + minAdd;
+                const newM = m + 5;
                 return {
-                    q: `What is 5 minutes after ${h}:${mStr}?`,
+                    q: `What is 5 min after ${h}:${mStr}?`,
                     a: `${h}:${newM < 10 ? '0'+newM : newM}`,
                     wrong: [`${h}:${mStr}5`, `${h+1}:00`, `${h}:${m-5>0?m-5:'00'}`]
                 };
@@ -25,11 +22,10 @@ const MathEngine = {
             () => {
                 const dimes = Math.floor(Math.random() * 5) + 1;
                 const pennies = Math.floor(Math.random() * 9) + 1;
-                const total = (dimes * 10) + pennies;
                 return {
                     q: `Count: ${dimes} Dimes, ${pennies} Pennies`,
-                    a: `${total}¢`,
-                    wrong: [`${pennies * 10 + dimes}¢`, `${total + 10}¢`, `${total - 5}¢`]
+                    a: `${(dimes * 10) + pennies}¢`,
+                    wrong: [`${pennies * 10 + dimes}¢`, `${(dimes * 10) + pennies + 10}¢`, `${(dimes * 10) + pennies - 5}¢`]
                 };
             }
         ],
@@ -37,23 +33,35 @@ const MathEngine = {
             () => {
                 const w = Math.floor(Math.random() * 5) + 3;
                 const l = Math.floor(Math.random() * 5) + 3;
-                const perim = 2 * (w + l);
                 return {
                     q: `Perimeter of a ${w}x${l} rectangle?`,
-                    a: `${perim}`,
-                    wrong: [`${w * l}`, `${perim + 2}`, `${w + l}`]
+                    a: `${2 * (w + l)}`,
+                    wrong: [`${w * l}`, `${2 * (w + l) + 2}`, `${w + l}`]
                 };
-            },
+            }
+        ],
+        4: [
             () => {
-                const gallons = Math.floor(Math.random() * 4) + 1;
+                const ft = Math.floor(Math.random() * 5) + 2;
                 return {
-                    q: `How many quarts in ${gallons} gallon(s)?`,
-                    a: `${gallons * 4}`,
-                    wrong: [`${gallons * 2}`, `${gallons * 8}`, `${gallons * 3}`]
+                    q: `How many inches in ${ft} feet?`,
+                    a: `${ft * 12}`,
+                    wrong: [`${ft * 10}`, `${ft * 14}`, `${ft * 12 + 2}`]
+                };
+            }
+        ],
+        5: [
+            () => {
+                const l = Math.floor(Math.random() * 4) + 2;
+                const w = Math.floor(Math.random() * 4) + 2;
+                const h = Math.floor(Math.random() * 4) + 2;
+                return {
+                    q: `Volume: L=${l}, W=${w}, H=${h}`,
+                    a: `${l * w * h}`,
+                    wrong: [`${l + w + h}`, `${(l * w * h) + 2}`, `${l * w}`]
                 };
             }
         ]
-        // You can add Grade 4 and 5 arrays here
     },
 
     init: function() {
@@ -61,23 +69,15 @@ const MathEngine = {
     },
 
     generateQuestion: function() {
-        // Pick a generator based on grade
+        // Fallback to Grade 3 if missing
         const genList = this.generators[this.gradeLevel] || this.generators[3];
         const randomGen = genList[Math.floor(Math.random() * genList.length)];
-        
         const qData = randomGen();
         
-        // Build multiple choice array
         let options = [qData.a, ...qData.wrong];
-        // Shuffle array
         options = options.sort(() => Math.random() - 0.5);
 
-        this.currentQuestion = {
-            question: qData.q,
-            answer: qData.a,
-            options: options
-        };
-
+        this.currentQuestion = { question: qData.q, answer: qData.a, options: options };
         this.updateUI();
     },
 
@@ -87,7 +87,7 @@ const MathEngine = {
         document.getElementById('math-question').innerText = this.currentQuestion.question;
         
         const optsContainer = document.getElementById('math-options');
-        optsContainer.innerHTML = ''; // Clear old buttons
+        optsContainer.innerHTML = ''; 
         
         this.currentQuestion.options.forEach(opt => {
             const btn = document.createElement('button');
@@ -102,7 +102,6 @@ const MathEngine = {
         const feedback = document.getElementById('math-feedback');
         
         if (selected === this.currentQuestion.answer) {
-            // Correct logic
             this.streak++;
             let multiplier = 1.0;
             if (this.streak >= 5) multiplier = 1.4;
@@ -111,19 +110,17 @@ const MathEngine = {
             const goldEarned = Math.floor(this.baseGoldReward * multiplier);
             Game.addGold(goldEarned);
             
-            feedback.style.color = "#4CAF50"; // Greenish
+            feedback.style.color = "#2ed573"; 
             feedback.innerText = `Awesome! +${goldEarned} Gold`;
             
-            // Wait slightly, then new question
             setTimeout(() => {
                 feedback.innerText = "";
                 this.generateQuestion();
             }, 1000);
 
         } else {
-            // Incorrect logic (No penalty, reset streak, gentle phrasing)
             this.streak = 0;
-            feedback.style.color = "#ff6b81";
+            feedback.style.color = "#ff4757";
             feedback.innerText = "Not quite — try again!";
             document.getElementById('math-streak-ui').innerText = this.streak;
         }
