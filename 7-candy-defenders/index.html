@@ -9,20 +9,19 @@
       --sky: #BDE7F6;
       --grass: #A5E6A1;
       --path: #F7D794;
-      --gold: #FFD700;
       --white: #FFFFFF;
       --text: #333333;
     }
     body {
       margin: 0;
       padding: 0;
-      background-color: #f0f0f0;
+      background-color: #2c3e50;
       display: flex;
       justify-content: center;
       align-items: center;
       min-height: 100vh;
-      font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif; /* Friendly fallback font */
-      touch-action: none; /* Prevent pinch zoom on touch */
+      font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif;
+      touch-action: none;
     }
     
     #game-container {
@@ -32,23 +31,63 @@
       aspect-ratio: 4 / 3;
       background-color: var(--grass);
       overflow: hidden;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
       border-radius: 16px;
     }
 
-    /* Core Canvas layer */
     canvas {
       display: block;
       width: 100%;
       height: 100%;
     }
 
-    /* UI Overlay elements */
+    /* Start Screen / Grade Selector */
+    #start-screen {
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.95);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+    #start-screen h1 {
+      font-size: 3rem;
+      color: #ff6b81;
+      margin-bottom: 10px;
+      text-shadow: 2px 2px 0px #ffdae0;
+    }
+    .grade-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 30px;
+    }
+    .grade-btn {
+      background: var(--sky);
+      border: 4px solid #82c8e3;
+      border-radius: 20px;
+      padding: 20px 40px;
+      font-size: 1.5rem;
+      font-weight: bold;
+      cursor: pointer;
+      color: var(--text);
+      box-shadow: 0 6px 0 #82c8e3;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .grade-btn:active {
+      transform: translateY(6px);
+      box-shadow: 0 0px 0 #82c8e3;
+    }
+
+    /* UI Overlays */
     #hud {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      right: 10px;
+      top: 15px;
+      left: 15px;
+      right: 15px;
       display: flex;
       justify-content: space-between;
       pointer-events: none;
@@ -63,154 +102,138 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      pointer-events: auto;
+      border: 3px solid #eee;
     }
 
-    /* Tower Build Menu (hidden by default) */
     #build-menu {
       position: absolute;
       background: var(--white);
       border-radius: 16px;
-      padding: 10px;
+      padding: 12px;
       display: none;
       flex-direction: column;
-      gap: 8px;
-      box-shadow: 0 6px 15px rgba(0,0,0,0.2);
+      gap: 10px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
       transform: translate(-50%, -100%);
-      margin-top: -20px; /* Offset above node */
+      margin-top: -30px;
+      border: 3px solid #f0f0f0;
     }
     .build-btn {
-      background: var(--sky);
-      border: 2px solid #82c8e3;
-      border-radius: 10px;
-      padding: 8px 12px;
+      background: #f8f9fa;
+      border: 2px solid #ddd;
+      border-radius: 12px;
+      padding: 10px 15px;
       font-weight: bold;
       cursor: pointer;
-      font-size: 1rem;
-      min-width: 120px; /* Large touch target */
-      min-height: 48px;
+      font-size: 1.1rem;
+      min-width: 150px;
       text-align: left;
       display: flex;
       justify-content: space-between;
+      align-items: center;
     }
 
-    /* Persistent Math Panel - Bottom right */
     #math-panel {
       position: absolute;
       bottom: 20px;
       right: 20px;
       width: 320px;
       background: var(--white);
-      border-radius: 20px;
+      border-radius: 24px;
       padding: 20px;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.2);
       display: flex;
       flex-direction: column;
       gap: 15px;
+      border: 4px solid #f0f0f0;
     }
-    #math-header {
-      font-weight: bold;
-      color: var(--text);
-      display: flex;
-      justify-content: space-between;
-    }
-    #math-question {
-      font-size: 1.2rem;
-      text-align: center;
-    }
-    #math-options {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .math-btn {
-      background: #eee;
-      border: 2px solid #ddd;
-      border-radius: 12px;
-      padding: 15px 5px;
-      font-size: 1.1rem;
-      font-weight: bold;
-      cursor: pointer;
-      min-height: 60px; /* Touch target */
-    }
-    
-    /* Feedback overlay */
-    #math-feedback {
-      text-align: center;
-      font-weight: bold;
-      min-height: 24px;
-      color: #ff6b81; /* Default pinkish */
-    }
+    #math-header { font-weight: bold; color: var(--text); display: flex; justify-content: space-between; }
+    #math-question { font-size: 1.2rem; text-align: center; }
+    #math-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .math-btn { background: #eee; border: 2px solid #ddd; border-radius: 12px; padding: 15px 5px; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
+    #math-feedback { text-align: center; font-weight: bold; min-height: 24px; }
 
-    /* Start Wave Button */
     #start-wave-btn {
       position: absolute;
       bottom: 20px;
       left: 20px;
       background: #ff6b81;
       color: white;
-      border: none;
+      border: 4px solid #ff4760;
       border-radius: 20px;
       padding: 15px 30px;
-      font-size: 1.2rem;
+      font-size: 1.3rem;
       font-weight: bold;
       cursor: pointer;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+      box-shadow: 0 6px 0 #ff4760;
     }
+    #start-wave-btn:active { transform: translateY(6px); box-shadow: none; }
     
     #game-over-screen {
-        position: absolute;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(255, 255, 255, 0.9);
-        display: none;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        font-size: 2rem;
-        z-index: 100;
+        position: absolute; inset: 0; background: rgba(255, 255, 255, 0.9);
+        display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 100;
     }
-
   </style>
 </head>
 <body>
 
 <div id="game-container">
+  
+  <div id="start-screen">
+    <h1>🍬 Candy Kingdom Defenders</h1>
+    <h2>Stop the sugar rush!</h2>
+    <p style="font-size: 1.2rem;">Pick your grade level to start the math engine:</p>
+    <div class="grade-grid">
+      <button class="grade-btn" onclick="startGame(2)">Grade 2</button>
+      <button class="grade-btn" onclick="startGame(3)">Grade 3</button>
+      <button class="grade-btn" onclick="startGame(4)">Grade 4</button>
+      <button class="grade-btn" onclick="startGame(5)">Grade 5</button>
+    </div>
+  </div>
+
   <canvas id="game-canvas"></canvas>
 
   <div id="hud">
-    <div class="hud-box">❤️ Hearts: <span id="ui-hearts">20</span></div>
+    <div class="hud-box">❤️ <span id="ui-hearts">20</span></div>
     <div class="hud-box">🌊 Wave: <span id="ui-wave">1</span></div>
-    <div class="hud-box">💰 Gold: <span id="ui-gold">150</span></div>
+    <div class="hud-box">💰 <span id="ui-gold">150</span></div>
   </div>
 
   <div id="build-menu">
     <button class="build-btn" onclick="Game.buyTower('DPS')">🧁 Cannon <span>$100</span></button>
     <button class="build-btn" onclick="Game.buyTower('SNIPER')">🍭 Sniper <span>$150</span></button>
-    <button class="build-btn" onclick="Game.buyTower('SLOW')">🍫 Fountain <span>$120</span></button>
-    <button class="build-btn" onclick="Game.closeMenu()">❌ Cancel</button>
+    <button class="build-btn" onclick="Game.buyTower('SLOW')">⛲ Fountain <span>$120</span></button>
+    <button class="build-btn" onclick="Game.closeMenu()" style="justify-content: center; background: #ff7675; color: white;">❌ Close</button>
   </div>
 
   <div id="math-panel">
     <div id="math-header">
-      <span>Grade: <span id="math-grade-ui">2</span></span>
+      <span>Grade: <span id="math-grade-ui">-</span></span>
       <span>Streak: <span id="math-streak-ui">0</span>🔥</span>
     </div>
-    <div id="math-question">Loading question...</div>
-    <div id="math-options">
-      </div>
+    <div id="math-question">Awaiting Grade Selection...</div>
+    <div id="math-options"></div>
     <div id="math-feedback"></div>
   </div>
 
-  <button id="start-wave-btn" onclick="Game.startWave()">Start Wave!</button>
+  <button id="start-wave-btn" onclick="Game.startWave()" style="display: none;">Start Wave 1!</button>
   
   <div id="game-over-screen">
       <h1 id="game-over-title">Game Over!</h1>
-      <p>The candies got through.</p>
-      <button onclick="location.reload()" style="padding:10px 20px; font-size:1.2rem; border-radius:10px; cursor:pointer;">Play Again</button>
+      <button onclick="location.reload()" style="padding:15px 30px; font-size:1.5rem; border-radius:15px; cursor:pointer;">Play Again</button>
   </div>
 </div>
 
 <script src="math-engine.js"></script>
 <script src="game.js"></script>
+<script>
+  // Boot sequence triggered by UI
+  function startGame(grade) {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('start-wave-btn').style.display = 'block';
+    MathEngine.gradeLevel = grade;
+    Game.init();
+  }
+</script>
 </body>
 </html>
