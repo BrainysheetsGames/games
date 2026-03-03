@@ -87,13 +87,51 @@ function resize() {
 addEventListener('resize', resize);
 
 // ─── Numpad ───
+// FIX: Numpad now fills available vertical space below the math panel on iPad portrait.
+// We measure how much room is left between the answer box and the bottom of the screen,
+// then size keys to use ~85% of that space, keeping them square-ish.
 function buildNP() {
   nK = [];
   if (!touch) return;
-  const kw = Math.min(60 * S, W / 6), kh = kw * 0.8, g = 4 * S;
-  const tw = 3 * kw + 2 * g, sx = W - tw - 10 * S, sy = GY + 50 * S;
+
+  const cols = 3, rows = 4;
+  const gap = Math.round(5 * S);
+
+  // Available horizontal space: full width minus side margins
+  const marginX = 16 * S;
+  const availW = W - marginX * 2;
+
+  // Available vertical space: from bottom of answer input area down to screen bottom
+  // Answer input sits at roughly GY*0.32 from top in the math overlay; back button at bottom.
+  // We reserve space for the back button (~52*S) plus a bottom margin.
+  const mathPanelBottom = GY * 0.32 + 44 * S; // approx bottom of answer input box
+  const backBtnHeight = 52 * S;
+  const bottomMargin = 12 * S;
+  const availH = H - mathPanelBottom - backBtnHeight - bottomMargin - gap * (rows - 1);
+
+  // Key size: fit cols across width, rows down height, keep aspect ~1:0.85
+  const kwByWidth  = Math.floor((availW - gap * (cols - 1)) / cols);
+  const khByHeight = Math.floor(availH / rows);
+
+  // Use the smaller dimension so nothing overflows, with a generous min size
+  const kw = Math.max(Math.min(kwByWidth, khByHeight * 1.2), 56 * S);
+  const kh = Math.max(Math.min(khByHeight, kwByWidth * 0.85), 46 * S);
+
+  // Center the pad horizontally
+  const totalPadW = cols * kw + (cols - 1) * gap;
+  const sx = Math.round((W - totalPadW) / 2);
+
+  // Start just below the answer input area, add a small gap
+  const sy = Math.round(mathPanelBottom + 10 * S);
+
   '789456123⌫0✓'.split('').forEach((l, i) => {
-    nK.push({ x: sx + (i % 3) * (kw + g), y: sy + Math.floor(i / 3) * (kh + g), w: kw, h: kh, l });
+    nK.push({
+      x: sx + (i % cols) * (kw + gap),
+      y: sy + Math.floor(i / cols) * (kh + gap),
+      w: kw,
+      h: kh,
+      l
+    });
   });
 }
 
@@ -130,7 +168,10 @@ function genQ() {
 // ─── Unit / Statue creation ───
 function mkUnit(type, isE, x) {
   const def = uDef(type, isE);
-  return { type, isE, def, x: x !== undefined ? x : (isE ? WW - 70 * S : 70 * S), y: GY,
+  // FIX: Guard against GY being 0 on first frame before resize() has run.
+  // If GY is falsy, compute it from the current window height.
+  const safeGY = GY || Math.floor(innerHeight * 0.75);
+  return { type, isE, def, x: x !== undefined ? x : (isE ? WW - 70 * S : 70 * S), y: safeGY,
     hp: def.hp, mhp: def.hp, at: 0, st: 'walk', anim: 0, dTimer: 0, rm: false };
 }
 function mkStats() {
@@ -517,17 +558,24 @@ function drawMath() {
       X.fillStyle = 'rgba(44,62,80,.9)'; rr(k.x, k.y, k.w, k.h, 5 * s); X.fill();
       X.strokeStyle = '#5D6D7E'; X.lineWidth = 1 * s; rr(k.x, k.y, k.w, k.h, 5 * s); X.stroke();
       X.fillStyle = k.l === '✓' ? '#2ECC71' : k.l === '⌫' ? '#E74C3C' : '#FFF';
-      X.font = `bold ${18*s}px Nunito,sans-serif`; X.textAlign = 'center';
-      X.fillText(k.l, k.x + k.w / 2, k.y + k.h / 2 + 6 * s);
+      X.font = `bold ${Math.round(k.h * 0.42)}px Nunito,sans-serif`; X.textAlign = 'center';
+      X.fillText(k.l, k.x + k.w / 2, k.y + k.h * 0.64);
     }
+    // Back button positioned below numpad with padding
+    let lastKey = nK[nK.length - 1];
+    let bby = lastKey ? lastKey.y + lastKey.h + 10 * s : H - 52 * s - 12 * s;
+    let bbw = 150 * s, bbh = 40 * s, bbx = cx - bbw / 2;
+    X.fillStyle = '#E74C3C'; rr(bbx, bby, bbw, bbh, 7 * s); X.fill();
+    X.fillStyle = '#FFF'; X.font = `bold ${14*s}px Bungee,sans-serif`; X.textAlign = 'center';
+    X.fillText('⬅ BACK TO BEACH', cx, bby + 27 * s);
   } else {
     X.fillStyle = '#666'; X.font = `${11*s}px Nunito,sans-serif`; X.textAlign = 'center';
     X.fillText('Type answer + Enter  |  Esc = back', cx, 296 * s);
+    let bbw = 150 * s, bbh = 40 * s, bbx = cx - bbw / 2, bby = 320 * s;
+    X.fillStyle = '#E74C3C'; rr(bbx, bby, bbw, bbh, 7 * s); X.fill();
+    X.fillStyle = '#FFF'; X.font = `bold ${14*s}px Bungee,sans-serif`; X.textAlign = 'center';
+    X.fillText('⬅ BACK TO BEACH', cx, bby + 27 * s);
   }
-  let bbw = 150 * s, bbh = 40 * s, bbx = cx - bbw / 2, bby = touch ? H - bbh - 12 * s : 320 * s;
-  X.fillStyle = '#E74C3C'; rr(bbx, bby, bbw, bbh, 7 * s); X.fill();
-  X.fillStyle = '#FFF'; X.font = `bold ${14*s}px Bungee,sans-serif`; X.textAlign = 'center';
-  X.fillText('⬅ BACK TO BEACH', cx, bby + 27 * s);
 }
 
 // ─── Draw: Menu ───
@@ -886,8 +934,17 @@ function click(x, y) {
         if (x >= k.x && x <= k.x + k.w && y >= k.y && y <= k.y + k.h) { mathIn(k.l); return; }
       }
     }
-    let bbw = 150 * s, bbx = cx - bbw / 2, bby = touch ? H - 40 * s - 12 * s : 320 * s;
-    if (x >= bbx && x <= bbx + bbw && y >= bby && y <= bby + 40 * s) { state = 'play'; }
+    // Back button: for touch, it's below the numpad; for desktop, fixed position
+    let cx2 = W / 2;
+    let bbw = 150 * s, bbh = 40 * s, bbx = cx2 - bbw / 2;
+    let bby;
+    if (touch && nK.length > 0) {
+      let lastKey = nK[nK.length - 1];
+      bby = lastKey.y + lastKey.h + 10 * s;
+    } else {
+      bby = 320 * s;
+    }
+    if (x >= bbx && x <= bbx + bbw && y >= bby && y <= bby + bbh) { state = 'play'; }
     return;
   }
   if (state === 'play') {
@@ -1004,6 +1061,9 @@ document.addEventListener('keydown', e => {
 // ═══════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════
+// FIX: Call resize() synchronously before starting the loop so GY and S
+// are always valid when the first frame fires. This prevents the "floating
+// units" glitch caused by units being created with y:0 before resize runs.
 resize();
 requestAnimationFrame(loop);
 </script>
