@@ -29,14 +29,19 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            /* Use Dynamic Viewport Height for mobile browsers */
+            height: 100vh; 
+            height: 100dvh; 
+            touch-action: none; /* Prevents pull-to-refresh on mobile */
         }
 
         #game-container {
             position: relative;
             width: 100%;
             max-width: 500px;
+            /* Use Dynamic Viewport Height for mobile browsers */
             height: 100vh;
+            height: 100dvh;
             background: linear-gradient(to bottom, #1a2a6c, #b21f1f, #fdbb2d);
             background-size: 100% 200%;
             overflow: hidden;
@@ -68,7 +73,7 @@
 
         #highscore-display {
             position: absolute;
-            bottom: 30px;
+            bottom: 20px;
             left: 20px;
             font-size: 20px;
             font-weight: bold;
@@ -80,31 +85,33 @@
 
         #target-panel {
             position: absolute;
-            bottom: 30px;
+            bottom: 15px; /* Tucked slightly closer to the bottom */
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(255, 255, 255, 0.9);
-            padding: 15px 30px;
-            border-radius: 50px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 20px; /* Tighter padding for mobile screens */
+            border-radius: 40px;
             color: #333;
             text-align: center;
             pointer-events: auto;
             border: 4px solid var(--player-color);
-            min-width: 250px;
+            min-width: 220px;
             box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+            z-index: 20;
         }
 
         #target-text {
-            font-size: 18px;
+            font-size: 16px;
             margin: 0;
             font-weight: bold;
         }
 
         #target-number {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: 900;
             color: var(--player-color);
             display: block;
+            margin-top: 5px;
         }
 
         #menu, #game-over {
@@ -173,7 +180,7 @@
     <div id="highscore-display">Best: 0m</div>
 
     <div id="target-panel" class="hidden">
-        <p id="target-text">Jump to the nearest <span id="round-type">Ten</span>:</p>
+        <p id="target-text">Jump to nearest <span id="round-type">Ten</span>:</p>
         <span id="target-number">42</span>
     </div>
 
@@ -188,7 +195,7 @@
     </div>
 
     <div id="game-over" class="hidden">
-        <h1>Missions Ends!</h1>
+        <h1>Mission Ends!</h1>
         <p id="final-score">You climbed 0 meters.</p>
         <button onclick="startGame()">TRY AGAIN</button>
     </div>
@@ -247,16 +254,23 @@
     }
 
     function resize() {
+        // MAGIC FIX: Force the layout to exactly match the true visible window height
+        let vh = window.innerHeight;
+        document.body.style.height = `${vh}px`;
+        
         const container = document.getElementById('game-container');
+        container.style.height = `${vh}px`;
+        
         canvas.width = container.clientWidth;
         canvas.height = container.clientHeight;
     }
 
     window.addEventListener('resize', resize);
-    resize();
+    // Call resize slightly delayed to ensure mobile browsers have finished orienting
+    setTimeout(resize, 100); 
 
     // Input Handling
-    let mouseX = canvas.width / 2;
+    let mouseX = window.innerWidth / 2;
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
         mouseX = e.clientX - rect.left;
@@ -344,7 +358,7 @@
         // Starting platform
         platforms.push({
             x: canvas.width / 2 - 50,
-            y: canvas.height - 100,
+            y: canvas.height - 150,
             width: 100,
             height: 20,
             value: "START",
@@ -355,7 +369,7 @@
 
         // Initial vertical spread of pairs
         for (let i = 1; i <= 5; i++) {
-            platforms.push(...createPlatformPair(canvas.height - 100 - (i * PLATFORM_GAP)));
+            platforms.push(...createPlatformPair(canvas.height - 150 - (i * PLATFORM_GAP)));
         }
     }
 
@@ -366,10 +380,15 @@
         currentPlatformWidth = 100;
         mathDifficulty = 1;
         floatingTexts = [];
+        
+        // Call resize one more time at start to be safe
+        resize();
+        
         player.x = canvas.width / 2 - PLAYER_SIZE / 2;
-        player.y = canvas.height - 200;
+        player.y = canvas.height - 250;
         player.vx = 0;
         player.vy = 0;
+        mouseX = player.x + PLAYER_SIZE / 2;
         particles = [];
         
         menu.classList.add('hidden');
@@ -527,10 +546,6 @@
             ctx.beginPath();
             ctx.roundRect(p.x, p.y, p.width, p.height, 10);
             ctx.fill();
-            
-            // Highlight if correct (Teacher aid)
-            // ctx.strokeStyle = p.isCorrect ? 'rgba(255,255,255,0.5)' : 'transparent';
-            // ctx.stroke();
 
             // Text on cloud
             ctx.fillStyle = '#333';
