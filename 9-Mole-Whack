@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Expanded Form Whack-A-Mole</title>
+    <style>
+        /* =========================================
+           CSS STYLING & JUICY ANIMATIONS
+        ========================================= */
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
+
+        * {
+            box-sizing: border-box;
+            user-select: none; /* Prevent text selection on rapid tapping */
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Fredoka One', cursive, sans-serif;
+            background: linear-gradient(135deg, #74ebd5 0%, #ACB6E5 100%);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden;
+            color: #333;
+        }
+
+        /* UI Top Bar */
+        #ui-bar {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 20px;
+            font-size: 24px;
+            background: rgba(255, 255, 255, 0.4);
+            border-bottom-left-radius: 20px;
+            border-bottom-right-radius: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        .stat { background: #fff; padding: 5px 15px; border-radius: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        #score-display { color: #2ecc71; }
+        #level-display { color: #9b59b6; }
+
+        /* The prompt container at the bottom */
+        #prompt-container {
+            position: absolute;
+            bottom: 20px;
+            width: 90%;
+            max-width: 600px;
+            background: #fff;
+            padding: 20px;
+            text-align: center;
+            border-radius: 30px;
+            font-size: 32px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            border: 4px solid #3498db;
+            z-index: 10;
+            transition: transform 0.1s;
+        }
+
+        #prompt-text {
+            color: #e74c3c;
+            text-shadow: 2px 2px 0px #fceabb;
+        }
+
+        /* Game Board */
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            width: 95%;
+            max-width: 600px;
+            margin-top: auto;
+            margin-bottom: 140px; /* Space for prompt */
+            padding: 20px;
+        }
+
+        .hole-container {
+            position: relative;
+            width: 100%;
+            padding-bottom: 100%; /* 1:1 Aspect Ratio */
+            overflow: hidden;
+            border-radius: 20px;
+        }
+
+        .hole {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 40%;
+            background: #5c4033;
+            border-radius: 50% / 100% 100% 0 0;
+            box-shadow: inset 0 10px 10px rgba(0,0,0,0.5);
+            z-index: 2;
+        }
+
+        .mole {
+            position: absolute;
+            bottom: 10%;
+            left: 15%;
+            width: 70%;
+            height: 80%;
+            background: #e67e22;
+            border-radius: 50% 50% 20% 20%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 28px;
+            color: white;
+            text-shadow: 2px 2px 0px #d35400;
+            cursor: pointer;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: translateY(120%);
+            z-index: 1;
+            box-shadow: inset -5px -5px 10px rgba(0,0,0,0.2);
+            border: 3px solid #d35400;
+        }
+
+        /* Mole faces */
+        .mole::before {
+            content: '..';
+            position: absolute;
+            top: 15px;
+            font-size: 30px;
+            color: black;
+            text-shadow: none;
+            line-height: 10px;
+            letter-spacing: 10px;
+        }
+        .mole::after {
+            content: '';
+            position: absolute;
+            top: 35px;
+            width: 15px;
+            height: 10px;
+            background: pink;
+            border-radius: 50%;
+        }
+
+        .mole .number { z-index: 3; margin-top: 20px; pointer-events: none;}
+        .mole.up { transform: translateY(0); }
+
+        /* Screens */
+        #overlay, #map-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            color: white;
+            text-align: center;
+        }
+        
+        #overlay h1 { font-size: 48px; margin-bottom: 10px; color: #f1c40f;}
+        #overlay p { font-size: 20px; margin-bottom: 30px; max-width: 400px; line-height: 1.5; padding: 0 20px;}
+        
+        button {
+            padding: 15px 40px;
+            font-size: 24px;
+            font-family: inherit;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 5px 0 #27ae60;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        button:active { transform: translateY(5px); box-shadow: 0 0 0 #27ae60; }
+
+        /* Level Map Screen */
+        #map-screen {
+            background: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%);
+            display: none;
+            z-index: 110;
+        }
+
+        #map-screen h1 { font-size: 40px; color: #2980b9; margin-bottom: 5px; text-shadow: 2px 2px white;}
+        
+        .map-container {
+            position: relative;
+            width: 90%;
+            max-width: 500px;
+            height: 60vh;
+            background: rgba(255,255,255,0.5);
+            border-radius: 20px;
+            border: 4px solid #fff;
+            margin: 20px 0;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .map-svg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .map-node {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #fff;
+            border: 4px solid #bdc3c7;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 14px;
+            font-weight: bold;
+            color: #7f8c8d;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .map-node.completed {
+            background: #2ecc71;
+            border-color: #27ae60;
+            color: white;
+        }
+
+        .map-node.active {
+            border-color: #f39c12;
+            animation: pulseActive 1s infinite alternate;
+        }
+
+        @keyframes pulseActive {
+            from { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(243, 156, 18, 0.7); }
+            to { transform: translate(-50%, -50%) scale(1.2); box-shadow: 0 0 0 10px rgba(243, 156, 18, 0); }
+        }
+
+        #map-mole {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: #e67e22;
+            border-radius: 50% 50% 20% 20%;
+            z-index: 3;
+            transition: all 1s ease-in-out;
+            transform: translate(-50%, -100%);
+            border: 2px solid #d35400;
+            display: none;
+        }
+        
+        #map-mole::before {
+            content: '..';
+            position: absolute;
+            top: 5px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-size: 16px;
+            color: black;
+            line-height: 10px;
+            letter-spacing: 4px;
+        }
+
+        /* Juice: Screen Shake */
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-2px, 0, 0); }
+            20%, 80% { transform: translate3d(4px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+            40%, 60% { transform: translate3d(8px, 0, 0); }
+        }
+
+        /* Particles Canvas overlay */
+        #particle-canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* Floating Text (DOM-based) */
+        .floating-text {
+            position: absolute;
+            font-size: 32px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 60;
+            animation: floatUp 1s ease-out forwards;
+            text-shadow: 2px 2px 0 #000;
+        }
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-100px) scale(1.5); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Particle Overlay for Juicy Feedback -->
+    <canvas id="particle-canvas"></canvas>
+
+    <div id="ui-bar">
+        <div class="stat" id="score-display">Score: 0</div>
+        <div class="stat" id="level-display">Level: 1</div>
+    </div>
+
+    <div id="game-board">
+        <!-- 9 holes populated by JS -->
+    </div>
+
+    <div id="prompt-container">
+        Find: <br> <span id="prompt-text">Loading...</span>
+    </div>
+
+    <div id="overlay">
+        <h1 id="overlay-title">Math Moles!</h1>
+        <p id="overlay-desc">Whack the mole that matches the expanded form. Careful, don't whack the wrong ones!</p>
+        <button id="start-btn">Play Now</button>
+    </div>
+
+    <!-- Map Screen -->
+    <div id="map-screen">
+        <h1 id="map-title">Level 1 Complete!</h1>
+        <div class="map-container" id="map-container">
+            <svg class="map-svg" id="map-svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+            <!-- Nodes added via JS -->
+            <div id="map-mole"></div>
+        </div>
+        <button id="continue-btn">Next Level</button>
+    </div>
+
+    <script>
+        /* =========================================
+           GAME CONFIGURATION - TWEAK BALANCE HERE
+        ========================================= */
+        const CONFIG = {
+            pointsPerCorrect: 10,       // Points awarded for right answer
+            pointsPerWrong: -5,         // Points deducted for wrong answer
+            
+            // Particle Colors (Hex or names)
+            particleColorsCorrect: ['#2ecc71', '#f1c40f', '#fff'],
+            particleColorsWrong: ['#e74c3c', '#c0392b', '#000']
+        };
+
+        // 10 Levels of increasing difficulty
+        const LEVEL_DATA = [
+            { level: 1, digits: 2, targetScore: 50, moleDuration: 3000, spawnMin: 800, spawnMax: 1500, maxMoles: 1 },
+            { level: 2, digits: 2, targetScore: 80, moleDuration: 2500, spawnMin: 700, spawnMax: 1400, maxMoles: 2 },
+            { level: 3, digits: 3, targetScore: 100, moleDuration: 2500, spawnMin: 600, spawnMax: 1300, maxMoles: 2 },
+            { level: 4, digits: 3, targetScore: 120, moleDuration: 2000, spawnMin: 500, spawnMax: 1200, maxMoles: 2 },
+            { level: 5, digits: 3, targetScore: 150, moleDuration: 1800, spawnMin: 500, spawnMax: 1000, maxMoles: 3 },
+            { level: 6, digits: 4, targetScore: 150, moleDuration: 2000, spawnMin: 600, spawnMax: 1200, maxMoles: 2 },
+            { level: 7, digits: 4, targetScore: 180, moleDuration: 1700, spawnMin: 500, spawnMax: 1100, maxMoles: 3 },
+            { level: 8, digits: 4, targetScore: 200, moleDuration: 1500, spawnMin: 400, spawnMax: 1000, maxMoles: 3 },
+            { level: 9, digits: 4, targetScore: 250, moleDuration: 1300, spawnMin: 300, spawnMax: 900, maxMoles: 4 },
+            { level: 10, digits: 4, targetScore: 300, moleDuration: 1000, spawnMin: 200, spawnMax: 800, maxMoles: 4 },
+        ];
+
+        // Hardcoded positions for map nodes (Percentages x, y)
+        const MAP_NODES = [
+            {x: 15, y: 90}, {x: 50, y: 85}, {x: 85, y: 75},
+            {x: 80, y: 50}, {x: 50, y: 55}, {x: 15, y: 45},
+            {x: 20, y: 20}, {x: 55, y: 15}, {x: 85, y: 25},
+            {x: 80, y: 5}
+        ];
+
+        /* =========================================
+           GAME STATE & VARIABLES
+        ========================================= */
+        let score = 0;
+        let level = 1;
+        let isPlaying = false;
+        let currentTargetNumber = 0;
+        let activeMoles = [];
+        let spawnTimer;
+
+        // DOM Elements
+        const board = document.getElementById('game-board');
+        const scoreDisplay = document.getElementById('score-display');
+        const levelDisplay = document.getElementById('level-display');
+        const promptText = document.getElementById('prompt-text');
+        const promptContainer = document.getElementById('prompt-container');
+        
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlayDesc = document.getElementById('overlay-desc');
+        const startBtn = document.getElementById('start-btn');
+        
+        // Map Elements
+        const mapScreen = document.getElementById('map-screen');
+        const mapTitle = document.getElementById('map-title');
+        const mapContainer = document.getElementById('map-container');
+        const mapSvg = document.getElementById('map-svg');
+        const mapMole = document.getElementById('map-mole');
+        const continueBtn = document.getElementById('continue-btn');
+
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Setup Board (9 holes)
+        const totalHoles = 9;
+        let holes = [];
+        for (let i = 0; i < totalHoles; i++) {
+            const container = document.createElement('div');
+            container.className = 'hole-container';
+            container.innerHTML = `
+                <div class="mole" data-index="${i}"><span class="number"></span></div>
+                <div class="hole"></div>
+            `;
+            board.appendChild(container);
+            holes.push(container.querySelector('.mole'));
+        }
+
+        /* =========================================
+           MAP SETUP LOGIC
+        ========================================= */
+        function initMap() {
+            // Draw lines on SVG
+            let pathD = `M ${MAP_NODES[0].x} ${MAP_NODES[0].y}`;
+            for (let i = 1; i < MAP_NODES.length; i++) {
+                pathD += ` L ${MAP_NODES[i].x} ${MAP_NODES[i].y}`;
+            }
+            mapSvg.innerHTML = `<path d="${pathD}" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2" stroke-dasharray="4,4" />`;
+
+            // Draw nodes
+            MAP_NODES.forEach((node, index) => {
+                const nodeEl = document.createElement('div');
+                nodeEl.className = 'map-node';
+                nodeEl.style.left = `${node.x}%`;
+                nodeEl.style.top = `${node.y}%`;
+                nodeEl.innerText = index + 1;
+                nodeEl.id = `node-${index + 1}`;
+                mapContainer.appendChild(nodeEl);
+            });
+        }
+        initMap();
+
+        function showLevelMap(isStart = false) {
+            isPlaying = false;
+            clearTimeout(spawnTimer);
+            holes.forEach(mole => mole.classList.remove('up'));
+            
+            mapScreen.style.display = 'flex';
+            mapMole.style.display = 'block';
+            
+            if (isStart) {
+                mapTitle.innerText = "Get Ready!";
+                continueBtn.innerText = "Start Game";
+                updateMapNodes(1);
+                // Snap mole to first node
+                mapMole.style.transition = 'none';
+                mapMole.style.left = `${MAP_NODES[0].x}%`;
+                mapMole.style.top = `${MAP_NODES[0].y}%`;
+                // Force reflow
+                void mapMole.offsetWidth;
+                mapMole.style.transition = 'all 1s ease-in-out';
+            } else {
+                mapTitle.innerText = `Level ${level - 1} Complete!`;
+                if (level > 10) {
+                    mapTitle.innerText = "You Beat The Game!";
+                    continueBtn.innerText = "Play Again";
+                } else {
+                    continueBtn.innerText = `Start Level ${level}`;
+                }
+                updateMapNodes(level - 1);
+                
+                // Move mole from previous node to current
+                const prevNode = MAP_NODES[level - 2];
+                mapMole.style.transition = 'none';
+                mapMole.style.left = `${prevNode.x}%`;
+                mapMole.style.top = `${prevNode.y}%`;
+                void mapMole.offsetWidth;
+                
+                mapMole.style.transition = 'all 1s ease-in-out';
+                setTimeout(() => {
+                    if(level <= 10) {
+                        mapMole.style.left = `${MAP_NODES[level - 1].x}%`;
+                        mapMole.style.top = `${MAP_NODES[level - 1].y}%`;
+                        updateMapNodes(level);
+                    }
+                }, 500);
+            }
+        }
+
+        function updateMapNodes(currentActiveLvl) {
+            for (let i = 1; i <= 10; i++) {
+                const node = document.getElementById(`node-${i}`);
+                if (!node) continue;
+                node.className = 'map-node'; // reset
+                if (i < currentActiveLvl) node.classList.add('completed');
+                else if (i === currentActiveLvl) node.classList.add('active');
+            }
+        }
+
+        continueBtn.addEventListener('click', () => {
+            if (level > 10) {
+                level = 1;
+                showLevelMap(true);
+            } else {
+                mapScreen.style.display = 'none';
+                startLevel();
+            }
+        });
+
+        /* =========================================
+           MATH LOGIC: Expanded Form
+        ========================================= */
+        function generateTarget() {
+            let min, max;
+            // Prevent crashing if we beat the game
+            const targetLevel = Math.min(level, 10);
+            const currentData = LEVEL_DATA[targetLevel - 1];
+            
+            if (currentData.digits === 2) { min = 11; max = 99; }
+            else if (currentData.digits === 3) { min = 101; max = 999; }
+            else { min = 1001; max = 9999; }
+
+            // Ensure no numbers ending entirely in 0s to keep expanded form meaningful
+            do {
+                currentTargetNumber = Math.floor(Math.random() * (max - min + 1)) + min;
+            } while (currentTargetNumber % 10 === 0 && currentTargetNumber < 100);
+
+            // Create expanded form string
+            let strNum = currentTargetNumber.toString();
+            let parts = [];
+            for (let i = 0; i < strNum.length; i++) {
+                let digit = parseInt(strNum[i]);
+                if (digit !== 0) {
+                    parts.push(digit * Math.pow(10, strNum.length - 1 - i));
+                }
+            }
+            promptText.innerText = parts.join(' + ');
+            
+            // "Juice": bounce the prompt when it changes
+            promptContainer.style.transform = 'scale(1.1)';
+            setTimeout(() => { promptContainer.style.transform = 'scale(1)'; }, 150);
+        }
+
+        function generateDistractor() {
+            let min, max;
+            const targetLevel = Math.min(level, 10);
+            const currentData = LEVEL_DATA[targetLevel - 1];
+            
+            if (currentData.digits === 2) { min = 10; max = 99; }
+            else if (currentData.digits === 3) { min = 100; max = 999; }
+            else { min = 1000; max = 9999; }
+            
+            let distractor;
+            do {
+                distractor = Math.floor(Math.random() * (max - min + 1)) + min;
+            } while (distractor === currentTargetNumber);
+            return distractor;
+        }
+
+        /* =========================================
+           GAMEPLAY LOOP
+        ========================================= */
+        function startGame() {
+            score = 0;
+            level = 1;
+            overlay.style.display = 'none';
+            resizeCanvas();
+            showLevelMap(true); // Show map first instead of starting directly
+        }
+
+        function startLevel() {
+            score = 0; // Reset score for the specific level target
+            isPlaying = true;
+            updateUI();
+            generateTarget();
+            scheduleNextMole();
+        }
+
+        function updateUI() {
+            const currentData = LEVEL_DATA[Math.min(level, 10) - 1];
+            scoreDisplay.innerText = `Score: ${score} / ${currentData.targetScore}`;
+            levelDisplay.innerText = `Level: ${Math.min(level, 10)}`;
+            
+            // Check Level Up progression (Make sure we only process level up once)
+            if (score >= currentData.targetScore && isPlaying) {
+                isPlaying = false; // Immediately pause gameplay interactions
+                clearTimeout(spawnTimer); // Stop scheduling moles
+                holes.forEach(mole => mole.classList.remove('up')); // Force hide all moles
+                
+                level++; // advance level logic
+                createFloatingText(window.innerWidth/2, window.innerHeight/2, "LEVEL CLEARED!", "#9b59b6");
+                setTimeout(() => {
+                    showLevelMap(false);
+                }, 1000); // Wait 1 sec before showing map to allow particle feedback to finish
+            }
+        }
+
+        function scheduleNextMole() {
+            if (!isPlaying) return; // double check before scheduling
+            
+            const currentData = LEVEL_DATA[level - 1];
+            const delay = Math.random() * (currentData.spawnMax - currentData.spawnMin) + currentData.spawnMin;
+            spawnTimer = setTimeout(() => {
+                spawnMole();
+                scheduleNextMole();
+            }, delay);
+        }
+
+        function spawnMole() {
+            if (!isPlaying) return;
+            
+            const currentData = LEVEL_DATA[level - 1];
+            const availableHoles = holes.filter(m => !m.classList.contains('up'));
+            
+            // Cap the maximum number of moles that can be up at once per level
+            const upMoles = holes.length - availableHoles.length;
+            if (availableHoles.length === 0 || upMoles >= currentData.maxMoles) return;
+
+            const mole = availableHoles[Math.floor(Math.random() * availableHoles.length)];
+            const isCorrectMole = Math.random() > 0.5; // 50% chance to be the correct answer
+            
+            const num = isCorrectMole ? currentTargetNumber : generateDistractor();
+            mole.querySelector('.number').innerText = num;
+            mole.dataset.val = num;
+            
+            mole.classList.add('up');
+
+            // Determine how long it stays up based on progression
+            const stayDuration = currentData.moleDuration;
+
+            // Hide after duration
+            setTimeout(() => {
+                if (mole.classList.contains('up')) {
+                    mole.classList.remove('up');
+                }
+            }, stayDuration);
+        }
+
+        /* =========================================
+           CONTROLS & INTERACTION (Desktop & Mobile)
+        ========================================= */
+        function handleHit(e) {
+            if (!isPlaying) return;
+            
+            // Prevent default behavior to stop double firing on touch devices (mouse+touch)
+            if(e.type === 'touchstart') e.preventDefault(); 
+            
+            const mole = e.currentTarget;
+            if (!mole.classList.contains('up')) return; // already hit or hidden
+
+            const hitValue = parseInt(mole.dataset.val);
+            const rect = mole.getBoundingClientRect();
+            const hitX = rect.left + rect.width / 2;
+            const hitY = rect.top + rect.height / 2;
+
+            if (hitValue === currentTargetNumber) {
+                // CORRECT
+                score += CONFIG.pointsPerCorrect;
+                spawnParticles(hitX, hitY, CONFIG.particleColorsCorrect);
+                createFloatingText(hitX, hitY, `+${CONFIG.pointsPerCorrect}`, '#2ecc71');
+                mole.classList.remove('up');
+                
+                updateUI(); // Check if we beat the level first
+                if (isPlaying) { 
+                    generateTarget(); // Get new question immediately only if still playing
+                }
+            } else {
+                // WRONG
+                score = Math.max(0, score + CONFIG.pointsPerWrong);
+                spawnParticles(hitX, hitY, CONFIG.particleColorsWrong);
+                createFloatingText(hitX, hitY, "Oops!", '#e74c3c');
+                triggerScreenShake();
+                mole.classList.remove('up');
+                updateUI();
+            }
+        }
+
+        // Apply event listeners (Mobile-First Touch + Mouse)
+        holes.forEach(mole => {
+            mole.addEventListener('touchstart', handleHit, { passive: false });
+            mole.addEventListener('mousedown', handleHit);
+        });
+
+        startBtn.addEventListener('click', startGame);
+        startBtn.addEventListener('touchstart', (e) => { e.preventDefault(); startGame(); }, { passive: false });
+
+        /* =========================================
+           "JUICE": PARTICLES, FLOATING TEXT, SHAKE
+        ========================================= */
+        
+        // 1. Screen Shake
+        function triggerScreenShake() {
+            document.body.classList.remove('shake');
+            void document.body.offsetWidth; // trigger reflow
+            document.body.classList.add('shake');
+            setTimeout(() => document.body.classList.remove('shake'), 400);
+        }
+
+        // 2. DOM-based Floating Text
+        function createFloatingText(x, y, text, color) {
+            const el = document.createElement('div');
+            el.className = 'floating-text';
+            el.innerText = text;
+            el.style.left = `${x - 20}px`;
+            el.style.top = `${y - 20}px`;
+            el.style.color = color;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 1000);
+        }
+
+        // 3. Canvas Particle System
+        let particles = [];
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        // Initial resize
+        resizeCanvas();
+
+        class Particle {
+            constructor(x, y, colors) {
+                this.x = x;
+                this.y = y;
+                this.size = Math.random() * 8 + 5;
+                this.speedX = Math.random() * 8 - 4;
+                this.speedY = Math.random() * -8 - 2;
+                this.color = colors[Math.floor(Math.random() * colors.length)];
+                this.gravity = 0.4;
+                this.life = 1;
+                this.decay = Math.random() * 0.02 + 0.02;
+            }
+            update() {
+                this.speedY += this.gravity;
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= this.decay;
+            }
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.life * 5); // spinning effect
+                ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+        function spawnParticles(x, y, colors) {
+            for (let i = 0; i < 20; i++) {
+                particles.push(new Particle(x, y, colors));
+            }
+        }
+
+        function animateParticles() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                particles[i].draw();
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+            requestAnimationFrame(animateParticles);
+        }
+        animateParticles(); // start particle loop
+
+    </script>
+</body>
+</html>
