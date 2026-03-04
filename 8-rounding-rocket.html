@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rounding Rocket - Endless Jumper</title>
+    <style>
+        :root {
+            --sky-blue: #87CEEB;
+            --grass-green: #4CAF50;
+            --player-color: #FF5722;
+            --platform-color: #ffffff;
+            --wrong-color: #e74c3c;
+            --right-color: #2ecc71;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #222;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            height: 100vh;
+            background: linear-gradient(to bottom, #1a2a6c, #b21f1f, #fdbb2d);
+            background-size: 100% 200%;
+            overflow: hidden;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            pointer-events: none;
+            padding: 20px;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+
+        #score-display {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        #highscore-display {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            font-size: 20px;
+            font-weight: bold;
+            color: #fdbb2d;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        #target-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px 30px;
+            border-radius: 50px;
+            color: #333;
+            text-align: center;
+            pointer-events: auto;
+            border: 4px solid var(--player-color);
+            min-width: 250px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+
+        #target-text {
+            font-size: 18px;
+            margin: 0;
+            font-weight: bold;
+        }
+
+        #target-number {
+            font-size: 32px;
+            font-weight: 900;
+            color: var(--player-color);
+            display: block;
+        }
+
+        #menu, #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 100;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .hidden { display: none !important; }
+
+        button {
+            padding: 15px 40px;
+            font-size: 24px;
+            cursor: pointer;
+            background: var(--player-color);
+            border: none;
+            color: white;
+            border-radius: 50px;
+            margin-top: 20px;
+            transition: transform 0.1s;
+            pointer-events: auto;
+            font-weight: bold;
+            box-shadow: 0 5px 0 #a03615;
+        }
+
+        button:active {
+            transform: translateY(3px);
+            box-shadow: 0 2px 0 #a03615;
+        }
+
+        h1 { font-size: 42px; margin-bottom: 10px; color: #fdbb2d; }
+        p { font-size: 18px; line-height: 1.5; }
+
+        .difficulty-btn {
+            background: #555;
+            font-size: 16px;
+            padding: 10px 20px;
+            margin: 5px;
+        }
+
+        .difficulty-btn.active {
+            background: var(--right-color);
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        <div id="score-display">Height: 0m</div>
+    </div>
+
+    <div id="highscore-display">Best: 0m</div>
+
+    <div id="target-panel" class="hidden">
+        <p id="target-text">Jump to the nearest <span id="round-type">Ten</span>:</p>
+        <span id="target-number">42</span>
+    </div>
+
+    <div id="menu">
+        <h1>Rounding Rocket</h1>
+        <p>Jump on the clouds with the CORRECT rounded answer to keep going up!</p>
+        <div>
+            <button class="difficulty-btn active" onclick="setMode('tens')">Round to 10s</button>
+            <button class="difficulty-btn" onclick="setMode('hundreds')">Round to 100s</button>
+        </div>
+        <button onclick="startGame()">START MISSION</button>
+    </div>
+
+    <div id="game-over" class="hidden">
+        <h1>Missions Ends!</h1>
+        <p id="final-score">You climbed 0 meters.</p>
+        <button onclick="startGame()">TRY AGAIN</button>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreDisplay = document.getElementById('score-display');
+    const highScoreDisplay = document.getElementById('highscore-display');
+    const targetPanel = document.getElementById('target-panel');
+    const targetNumEl = document.getElementById('target-number');
+    const roundTypeEl = document.getElementById('round-type');
+    const menu = document.getElementById('menu');
+    const gameOverScreen = document.getElementById('game-over');
+    const finalScoreEl = document.getElementById('final-score');
+
+    // Game Constants
+    const GRAVITY = 0.2;
+    const JUMP_FORCE = -11;
+    const PLATFORM_HEIGHT = 20;
+    const PLAYER_SIZE = 40;
+    const PLATFORM_GAP = 240;
+
+    // Game State
+    let gameState = 'menu';
+    let score = 0;
+    let highScore = 0;
+    let cameraY = 0;
+    let mode = 'tens'; // 'tens' or 'hundreds'
+    let targetValue = 0;
+    let correctRounded = 0;
+    let platforms = [];
+    let particles = [];
+    let floatingTexts = [];
+    let currentPlatformWidth = 100;
+    let mathDifficulty = 1;
+    
+    const player = {
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        width: PLAYER_SIZE,
+        height: PLAYER_SIZE,
+        rotation: 0
+    };
+
+    function setMode(m) {
+        mode = m;
+        document.querySelectorAll('.difficulty-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if(btn.innerText.toLowerCase().includes(m)) btn.classList.add('active');
+        });
+        roundTypeEl.innerText = m === 'tens' ? 'Ten' : 'Hundred';
+    }
+
+    function resize() {
+        const container = document.getElementById('game-container');
+        canvas.width = container.clientWidth;
+        canvas.height = container.clientHeight;
+    }
+
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Input Handling
+    let mouseX = canvas.width / 2;
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.clientX - rect.left;
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.touches[0].clientX - rect.left;
+        e.preventDefault();
+    }, {passive: false});
+
+    function generateTarget() {
+        let divisor = mode === 'tens' ? 10 : 100;
+        let digits = mode === 'tens' ? (1 + mathDifficulty) : (2 + mathDifficulty);
+        
+        // As mathDifficulty goes up, we add digits to the generated numbers
+        let minVal = Math.pow(10, digits - 1);
+        let maxVal = Math.pow(10, digits) - 1;
+        
+        do {
+            targetValue = Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal;
+        } while (targetValue % divisor === 0); // Make sure it's not already a rounded number
+        
+        correctRounded = Math.round(targetValue / divisor) * divisor;
+        targetNumEl.innerText = targetValue;
+    }
+
+    function generatePairValues() {
+        let offset = mode === 'tens' ? 10 : 100;
+        // Generate a plausible but wrong answer
+        let wrongOffset = (Math.floor(Math.random() * 3) + 1) * offset; 
+        let wrongVal = Math.random() > 0.5 ? correctRounded + wrongOffset : correctRounded - wrongOffset;
+        if (wrongVal < 0) wrongVal = correctRounded + wrongOffset;
+        
+        // Randomly assign which side gets the correct answer
+        return Math.random() > 0.5 ? [correctRounded, wrongVal] : [wrongVal, correctRounded];
+    }
+
+    function createPlatformPair(y) {
+        const vals = generatePairValues();
+        
+        let x1, x2;
+        let attempts = 0;
+        // Generate random X positions until they are well separated
+        do {
+            x1 = Math.random() * (canvas.width - currentPlatformWidth);
+            x2 = Math.random() * (canvas.width - currentPlatformWidth);
+            attempts++;
+        } while (Math.abs(x1 - x2) < currentPlatformWidth + 30 && attempts < 50);
+
+        // Fallback to edges if random generation takes too long (e.g., small screens)
+        if (Math.abs(x1 - x2) < currentPlatformWidth + 30) {
+            x1 = 10;
+            x2 = canvas.width - currentPlatformWidth - 10;
+        }
+        
+        return [
+            {
+                x: x1,
+                y: y + (Math.random() * 20 - 10), // Slight vertical variance
+                width: currentPlatformWidth,
+                height: PLATFORM_HEIGHT,
+                value: vals[0],
+                isCorrect: vals[0] === correctRounded,
+                color: '#fff',
+                touched: false
+            },
+            {
+                x: x2,
+                y: y + (Math.random() * 20 - 10),
+                width: currentPlatformWidth,
+                height: PLATFORM_HEIGHT,
+                value: vals[1],
+                isCorrect: vals[1] === correctRounded,
+                color: '#fff',
+                touched: false
+            }
+        ];
+    }
+
+    function initPlatforms() {
+        platforms = [];
+        generateTarget();
+        
+        // Starting platform
+        platforms.push({
+            x: canvas.width / 2 - 50,
+            y: canvas.height - 100,
+            width: 100,
+            height: 20,
+            value: "START",
+            isCorrect: true,
+            color: '#2ecc71',
+            touched: false
+        });
+
+        // Initial vertical spread of pairs
+        for (let i = 1; i <= 5; i++) {
+            platforms.push(...createPlatformPair(canvas.height - 100 - (i * PLATFORM_GAP)));
+        }
+    }
+
+    function startGame() {
+        gameState = 'playing';
+        score = 0;
+        cameraY = 0;
+        currentPlatformWidth = 100;
+        mathDifficulty = 1;
+        floatingTexts = [];
+        player.x = canvas.width / 2 - PLAYER_SIZE / 2;
+        player.y = canvas.height - 200;
+        player.vx = 0;
+        player.vy = 0;
+        particles = [];
+        
+        menu.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+        targetPanel.classList.remove('hidden');
+        
+        initPlatforms();
+        requestAnimationFrame(update);
+    }
+
+    function createParticles(x, y, color) {
+        for(let i=0; i<10; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10,
+                life: 1.0,
+                color
+            });
+        }
+    }
+
+    function addFloatingText(text, color) {
+        floatingTexts.push({
+            text: text,
+            y: canvas.height / 3,
+            life: 2.0,
+            color: color
+        });
+    }
+
+    function update() {
+        if (gameState !== 'playing') return;
+
+        // Update floating texts
+        floatingTexts.forEach(ft => {
+            ft.y -= 2;
+            ft.life -= 0.02;
+        });
+        floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+
+        // Player physics
+        player.vy += GRAVITY;
+        player.y += player.vy;
+
+        // Smooth follow mouse/touch
+        let targetX = mouseX - player.width / 2;
+        player.x += (targetX - player.x) * 0.15;
+
+        // Wrap around screen
+        if (player.x > canvas.width) player.x = -player.width;
+        if (player.x < -player.width) player.x = canvas.width;
+
+        // Camera follow
+        if (player.y < cameraY + canvas.height / 2) {
+            cameraY = player.y - canvas.height / 2;
+        }
+
+        // Platform collision
+        if (player.vy > 0) { // Only collide while falling
+            platforms.forEach(p => {
+                if (
+                    player.x + player.width > p.x &&
+                    player.x < p.x + p.width &&
+                    player.y + player.height > p.y &&
+                    player.y + player.height < p.y + p.height + player.vy
+                ) {
+                    if (p.value === "START" || p.isCorrect) {
+                        player.vy = JUMP_FORCE;
+                        createParticles(player.x + player.width/2, p.y, 'white');
+                        
+                        if (p.value !== "START" && !p.touched) {
+                            p.touched = true;
+                            
+                            let oldLevel = Math.floor(score / 100);
+                            score += 10;
+                            let newLevel = Math.floor(score / 100);
+
+                            // Trigger difficulty jumps every 100 meters
+                            if (newLevel > oldLevel) {
+                                if (newLevel % 2 === 1) {
+                                    // Odd hundreds (100, 300...) -> Shrink Platforms
+                                    currentPlatformWidth = Math.max(40, currentPlatformWidth - 15);
+                                    addFloatingText("Platforms Shrinking!", varToHex('--wrong-color'));
+                                } else {
+                                    // Even hundreds (200, 400...) -> Math gets harder
+                                    mathDifficulty++;
+                                    addFloatingText("Harder Math!", "#fdbb2d");
+                                }
+                            }
+
+                            generateTarget();
+                            
+                            // Update all existing platforms ABOVE the player to match the new target
+                            let abovePlatforms = platforms.filter(p2 => p2.y < p.y - 20);
+                            
+                            // Sort bottom to top to keep pairs together
+                            abovePlatforms.sort((a, b) => b.y - a.y);
+                            for (let i = 0; i < abovePlatforms.length - 1; i += 2) {
+                                let pA = abovePlatforms[i];
+                                let pB = abovePlatforms[i+1];
+                                let vals = generatePairValues();
+                                
+                                pA.value = vals[0];
+                                pA.isCorrect = (vals[0] === correctRounded);
+                                pA.color = '#fff'; // Reset colors just in case
+                                
+                                pB.value = vals[1];
+                                pB.isCorrect = (vals[1] === correctRounded);
+                                pB.color = '#fff';
+                            }
+                        }
+                    } else if (!p.touched) {
+                        // Hit wrong answer! Fall straight through like a ghost cloud
+                        p.touched = true;
+                        p.color = varToHex('--wrong-color');
+                        createParticles(player.x + player.width/2, p.y, 'red');
+                    }
+                }
+            });
+        }
+
+        // Clean up and add platforms
+        platforms = platforms.filter(p => p.y < cameraY + canvas.height + 100);
+        
+        // Maintain roughly 5 pairs on screen at all times
+        while (platforms.length < 10) {
+            const lowestY = Math.min(...platforms.map(p => p.y));
+            platforms.push(...createPlatformPair(lowestY - PLATFORM_GAP));
+        }
+
+        // Check game over
+        if (player.y > cameraY + canvas.height) {
+            endGame();
+        }
+
+        draw();
+        requestAnimationFrame(update);
+    }
+
+    function varToHex(varName) {
+        return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        ctx.translate(0, -cameraY);
+
+        // Draw Platforms
+        platforms.forEach(p => {
+            // Cloud body
+            ctx.fillStyle = p.color || 'white';
+            ctx.beginPath();
+            ctx.roundRect(p.x, p.y, p.width, p.height, 10);
+            ctx.fill();
+            
+            // Highlight if correct (Teacher aid)
+            // ctx.strokeStyle = p.isCorrect ? 'rgba(255,255,255,0.5)' : 'transparent';
+            // ctx.stroke();
+
+            // Text on cloud
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(p.value, p.x + p.width / 2, p.y + 15);
+        });
+
+        // Draw Particles
+        particles.forEach((p, i) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.02;
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, 4, 4);
+            if(p.life <= 0) particles.splice(i, 1);
+        });
+        ctx.globalAlpha = 1;
+
+        // Draw Player (Rocket)
+        ctx.fillStyle = varToHex('--player-color');
+        const px = player.x + player.width/2;
+        const py = player.y + player.height/2;
+        
+        ctx.beginPath();
+        ctx.moveTo(px, py - 25);
+        ctx.lineTo(px - 15, py + 15);
+        ctx.lineTo(px + 15, py + 15);
+        ctx.fill();
+        
+        // Flame
+        if(player.vy < 0) {
+            ctx.fillStyle = '#fdbb2d';
+            ctx.beginPath();
+            ctx.moveTo(px - 8, py + 15);
+            ctx.lineTo(px, py + 25 + Math.random() * 10);
+            ctx.lineTo(px + 8, py + 15);
+            ctx.fill();
+        }
+
+        ctx.restore();
+
+        // Draw Floating Texts (UI Layer)
+        floatingTexts.forEach(ft => {
+            ctx.globalAlpha = ft.life > 1 ? 1 : ft.life;
+            ctx.fillStyle = ft.color;
+            ctx.font = 'bold 36px Arial';
+            ctx.textAlign = 'center';
+            
+            // outline for readability against background
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#222';
+            ctx.strokeText(ft.text, canvas.width / 2, ft.y);
+            
+            ctx.fillText(ft.text, canvas.width / 2, ft.y);
+        });
+        ctx.globalAlpha = 1;
+
+        scoreDisplay.innerText = `Height: ${Math.floor(score)}m`;
+    }
+
+    function endGame() {
+        gameState = 'gameOver';
+        gameOverScreen.classList.remove('hidden');
+        targetPanel.classList.add('hidden');
+        
+        if (score > highScore) {
+            highScore = score;
+            highScoreDisplay.innerText = `Best: ${Math.floor(highScore)}m`;
+        }
+        
+        finalScoreEl.innerText = `You climbed ${Math.floor(score)} meters.`;
+    }
+
+</script>
+</body>
+</html>
