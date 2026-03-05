@@ -208,6 +208,10 @@
             box-shadow: 60px 0 0 #222, 120px 0 0 #222, 180px 0 0 #222; /* Wheels */
         }
 
+        .train.arrived {
+            left: 20px;
+        }
+
         .train.leaving {
             left: 120% !important;
             transition: left 1s ease-in !important;
@@ -583,6 +587,7 @@ let state = {
     waveStartTime: 0,
     waveTimeLimit: 0,
     lastFrameTime: 0,
+    timeRemaining: 0,
     timeMultiplier: 1, // For coffee slow-mo
     rushHourQueue: [], // For continuous spawns
     
@@ -676,8 +681,8 @@ function init() {
     document.getElementById('start-btn').addEventListener('click', () => { initAudio(); startGame(); });
     
     dom.platforms.forEach(p => {
-        p.addEventListener('touchstart', (e) => { e.preventDefault(); handlePlatformClick(p.dataset.id); }, {passive: false});
-        p.addEventListener('mousedown', (e) => { e.preventDefault(); handlePlatformClick(p.dataset.id); });
+        p.addEventListener('touchstart', (e) => { e.preventDefault(); handlePlatformClick(parseInt(p.dataset.id)); }, {passive: false});
+        p.addEventListener('mousedown', (e) => { e.preventDefault(); handlePlatformClick(parseInt(p.dataset.id)); });
     });
 
     buildShopUI();
@@ -696,17 +701,16 @@ function resize() {
  * ==========================================
  */
 function getDifficulty(day) {
-    // 2 days per skill step
-    let step = 60; // default to hours
+    let step = 60;
     let trainCount = 2;
     let decoys = 1;
     let delays = false;
 
-    if (day <= 2) { step = 60; trainCount = 2; decoys = 1; } // Hours
-    else if (day <= 4) { step = 30; trainCount = 2; decoys = 2; } // Half hours
-    else if (day <= 6) { step = 15; trainCount = 3; decoys = 1; delays = true; } // Quarters
-    else if (day <= 8) { step = 5; trainCount = 3; decoys = 2; delays = true; } // 5-mins
-    else { step = 1; trainCount = 3; decoys = 2; delays = true; } // Exact mins
+    if (day <= 2) { step = 60; trainCount = 2; decoys = 1; }
+    else if (day <= 4) { step = 30; trainCount = 2; decoys = 2; }
+    else if (day <= 6) { step = 15; trainCount = 3; decoys = 1; delays = true; }
+    else if (day <= 8) { step = 5; trainCount = 3; decoys = 2; delays = true; }
+    else { step = 1; trainCount = 3; decoys = 2; delays = true; }
 
     return { step, trainCount, decoys, delays };
 }
@@ -737,7 +741,7 @@ window.useCoffee = function() {
             state.timeMultiplier = 1;
             document.getElementById('game-container').style.filter = "none";
         }, 6000);
-        showFloatingText(window.innerWidth/2, window.innerHeight/2, "CAFFEINE RUSH! ☕", varColor('--accent-color'));
+        showFloatingText(window.innerWidth/2, window.innerHeight/2, "CAFFEINE RUSH! ☕", "var(--accent-color)");
     }
 }
 
@@ -746,7 +750,6 @@ window.useHint = function() {
         state.powerups.info--;
         updatePowerupUI();
         
-        // Find a valid pair
         const train = state.activeTrains.find(t => !t.matched && !t.steamActive);
         if (train) {
             const schedIndex = state.schedules.findIndex(s => s.targetHour === train.targetHour && s.targetMinute === train.targetMinute && !s.matched);
@@ -768,6 +771,7 @@ function startGame() {
     document.getElementById('start-screen').classList.add('hidden');
     state.isPaused = false;
     startNextWave();
+    state.lastFrameTime = performance.now();
     requestAnimationFrame(gameLoop);
 }
 
@@ -787,9 +791,8 @@ function startNextWave() {
     dom.platforms.forEach(p => p.innerHTML = '');
     
     const diff = getDifficulty(state.level);
-    const existingTimes = []; // to ensure no duplicate times in a wave
+    const existingTimes = []; 
     
-    // Rush hour check (Every 3rd day, 2nd wave)
     const isRushHour = (state.level % 3 === 0 && state.currentWaveInDay === 2);
     const totalTrains = isRushHour ? 6 : diff.trainCount;
     
@@ -797,34 +800,30 @@ function startNextWave() {
         const banner = document.getElementById('rush-hour-banner');
         banner.classList.add('show');
         setTimeout(() => banner.classList.remove('show'), 2000);
-        playSound('wrong'); // dramatic effect
+        playSound('wrong'); 
     }
 
-    // 1. Generate core trains
     for(let i=0; i<totalTrains; i++) {
         let tData = generateUniqueTimeData(diff, existingTimes);
         tData.matched = false;
         tData.id = Date.now() + i;
         
-        // Steam Event Logic
-        tData.steamActive = Math.random() < 0.25 && state.level > 1; // 25% chance of steam after day 1
+        tData.steamActive = Math.random() < 0.25 && state.level > 1; 
         
-        // Assign broken clocks logic
         if (state.level >= 5 && Math.random() < 0.3) tData.clockType = 'roman';
         else if (state.level >= 8 && Math.random() < 0.3) tData.clockType = 'missing';
         else if (state.level >= 10 && Math.random() < 0.2) tData.clockType = 'dizzy';
         else tData.clockType = 'normal';
 
         if (i < 3) {
-            tData.platformId = i; // just assign sequentially for initial 3
+            tData.platformId = i; 
             state.activeTrains.push(tData);
         } else {
             state.rushHourQueue.push(tData);
         }
-        state.schedules.push({...tData}); // copy for schedule board
+        state.schedules.push({...tData}); 
     }
 
-    // 2. Generate decoys
     const numDecoys = isRushHour ? 4 : diff.decoys;
     for(let i=0; i<numDecoys; i++) {
         let tData = generateUniqueTimeData(diff, existingTimes);
@@ -832,18 +831,16 @@ function startNextWave() {
         state.schedules.push(tData);
     }
 
-    // 3. Shuffle schedules
     state.schedules.sort(() => Math.random() - 0.5);
 
-    // 4. Setup Timer
     let baseTime = CONFIG.BASE_WAVE_TIME;
-    if (state.purchases['statue']) baseTime += 3000; // Hero statue bonus
+    if (state.purchases['statue']) baseTime += 3000;
 
     state.waveTimeLimit = baseTime + (totalTrains * 1500); 
     if (isRushHour) state.waveTimeLimit += 5000; 
 
-    state.waveStartTime = Date.now();
-    state.lastFrameTime = Date.now();
+    state.timeRemaining = state.waveTimeLimit;
+    state.lastFrameTime = performance.now();
 
     renderSchedule();
     state.activeTrains.forEach(t => renderTrainDOM(t));
@@ -865,412 +862,312 @@ function generateUniqueTimeData(diff, existingTimes) {
         let displayMinute = minute;
         let delayAmount = 0;
 
-        // Math puzzles (late trains)
+        // Math puzzles (late trains) - continuing the provided logic
         if (diff.delays && Math.random() < 0.3) {
             delayAmount = [15, 30, 45][Math.floor(Math.random() * 3)];
-            const totalMins = (hour * 60 + minute) + delayAmount;
-            displayHour = Math.floor(totalMins / 60) % 12 || 12;
-            displayMinute = totalMins % 60;
+            let absMins = (hour === 12 ? 0 : hour) * 60 + minute + delayAmount;
+            
+            displayHour = Math.floor(absMins / 60);
+            if (displayHour === 0) displayHour = 12;
+            if (displayHour > 12) displayHour -= 12;
+            displayMinute = absMins % 60;
         }
 
-        const timeStr = `${displayHour}:${displayMinute}`;
-        if (!existingTimes.includes(timeStr)) {
-            existingTimes.push(timeStr);
+        let timeKey = `${displayHour}:${displayMinute}`;
+        if (!existingTimes.includes(timeKey)) {
+            existingTimes.push(timeKey);
             return {
-                hour, minute, targetHour: displayHour, targetMinute: displayMinute, delayAmount,
-                city: CONFIG.CITIES[Math.floor(Math.random() * CONFIG.CITIES.length)],
-                color: CONFIG.TRAIN_COLORS[Math.floor(Math.random() * CONFIG.TRAIN_COLORS.length)]
+                baseHour: hour,
+                baseMinute: minute,
+                targetHour: displayHour,
+                targetMinute: displayMinute,
+                delay: delayAmount,
+                city: CONFIG.CITIES[Math.floor(Math.random()*CONFIG.CITIES.length)],
+                color: CONFIG.TRAIN_COLORS[Math.floor(Math.random()*CONFIG.TRAIN_COLORS.length)]
             };
         }
     }
-    // Fallback if loop exhausts
-    return { hour:1, minute:0, targetHour:1, targetMinute:0, delayAmount:0, city: "Fallback", color: CONFIG.TRAIN_COLORS[0] };
+    return { baseHour: 12, baseMinute: 0, targetHour: 12, targetMinute: 0, delay: 0, city: "Fallback City", color: "var(--train-black)" };
 }
-
 
 /**
  * ==========================================
- * RENDERING
+ * RENDERING & UI
  * ==========================================
  */
-function renderTrainDOM(train) {
-    const plat = dom.platforms[train.platformId];
-    const trainEl = document.createElement('div');
-    trainEl.className = 'train';
-    trainEl.id = `train-${train.id}`;
-    trainEl.style.backgroundColor = train.color;
-    
-    if (train.delayAmount > 0) {
-        const tag = document.createElement('div');
-        tag.className = 'delay-tag';
-        tag.innerText = `+${train.delayAmount}m Late`;
-        trainEl.appendChild(tag);
-    }
-    
-    // Clock Construction
-    const clock = document.createElement('div');
-    clock.className = 'train-clock';
-    if (train.clockType === 'dizzy') clock.classList.add('dizzy-clock');
-    if (train.clockType === 'missing') clock.classList.add('missing-number');
-    
-    const ticks = document.createElement('div');
-    ticks.className = 'clock-ticks';
-    clock.appendChild(ticks);
-    
-    const romanNumerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
-
-    for (let i = 1; i <= 12; i++) {
-        const numContainer = document.createElement('div');
-        numContainer.className = 'clock-number';
-        if (train.clockType === 'missing' && (i === 3 || i === 6 || i === 9 || i === 12)) {
-            numContainer.classList.add('keep-number');
-        }
-        numContainer.style.transform = `rotate(${i * 30}deg)`;
-        const numSpan = document.createElement('span');
-        numSpan.innerText = train.clockType === 'roman' ? romanNumerals[i-1] : i;
-        numSpan.style.transform = `rotate(-${i * 30}deg)`;
-        numContainer.appendChild(numSpan);
-        clock.appendChild(numContainer);
-    }
-    
-    const hHand = document.createElement('div');
-    hHand.className = 'hand hour-hand';
-    const hDeg = (train.hour * 30) + (train.minute * 0.5);
-    hHand.style.transform = `translateX(-50%) rotate(${hDeg}deg)`;
-    
-    const mHand = document.createElement('div');
-    mHand.className = 'hand minute-hand';
-    mHand.style.transform = `translateX(-50%) rotate(${train.minute * 6}deg)`;
-    
-    const dot = document.createElement('div');
-    dot.className = 'center-dot';
-    
-    clock.appendChild(hHand);
-    clock.appendChild(mHand);
-    clock.appendChild(dot);
-    
-    // Add Steam Event
-    if (train.steamActive) {
-        const steam = document.createElement('div');
-        steam.className = 'steam-cloud';
-        steam.innerText = '💨';
-        steam.onclick = (e) => {
-            e.stopPropagation();
-            playSound('steam');
-            steam.remove();
-            train.steamActive = false;
-            createParticles(e.clientX, e.clientY, '#fff');
-        };
-        clock.appendChild(steam);
-    }
-    
-    trainEl.appendChild(clock);
-    plat.appendChild(trainEl);
-    
-    setTimeout(() => { trainEl.style.left = '20px'; }, 50);
-}
-
 function renderSchedule() {
     dom.scheduleBoard.innerHTML = '';
-    state.schedules.forEach((s, idx) => {
+    state.schedules.forEach((sched, index) => {
         const card = document.createElement('div');
-        let classes = 'schedule-card';
-        if (state.selectedScheduleIndex === idx) classes += ' selected';
-        if (s.matched) classes += ' matched';
-        card.className = classes;
-        
+        card.className = 'schedule-card' + (sched.matched ? ' matched' : '');
         card.innerHTML = `
-            <div class="city-name">${s.city}</div>
-            <div class="time-display">${s.targetHour}:${s.targetMinute.toString().padStart(2, '0')}</div>
+            <div class="city-name">${sched.city}</div>
+            <div class="time-display">${sched.targetHour}:${sched.targetMinute.toString().padStart(2, '0')}</div>
         `;
         
-        card.onpointerdown = (e) => {
-            e.stopPropagation();
-            if(s.matched) return;
-            state.selectedScheduleIndex = idx;
-            renderSchedule();
+        card.onclick = () => {
+            if (sched.matched || state.isPaused) return;
+            const allCards = document.querySelectorAll('.schedule-card');
+            allCards.forEach(c => c.classList.remove('selected'));
+            
+            if (state.selectedScheduleIndex === index) {
+                state.selectedScheduleIndex = -1; 
+            } else {
+                state.selectedScheduleIndex = index;
+                card.classList.add('selected');
+            }
         };
         dom.scheduleBoard.appendChild(card);
     });
 }
 
-function updateHUD() {
-    dom.score.innerText = state.score;
-    dom.coins.innerText = state.coins;
-    document.getElementById('level-indicator').innerText = `Day ${state.level}`;
-}
+function renderTrainDOM(trainData) {
+    const platform = dom.platforms[trainData.platformId];
+    if (!platform) return;
 
-function updateStrikes() {
-    let strikeStr = "";
-    for(let i=0; i<CONFIG.MAX_STRIKES; i++) {
-        strikeStr += i < state.strikes ? "❌ " : "⚪ ";
+    const train = document.createElement('div');
+    train.className = 'train';
+    train.id = `train-${trainData.id}`;
+    train.style.background = trainData.color;
+    
+    // Draw the clock
+    const clock = document.createElement('div');
+    clock.className = `train-clock ${trainData.clockType === 'dizzy' ? 'dizzy-clock' : ''}`;
+    
+    // Clock face
+    const ticks = document.createElement('div');
+    ticks.className = 'clock-ticks';
+    clock.appendChild(ticks);
+
+    // Numbers (skip if missing type and randomly hiding)
+    const isMissing = trainData.clockType === 'missing';
+    for (let i = 1; i <= 12; i++) {
+        const num = document.createElement('div');
+        num.className = 'clock-number' + (isMissing ? ' missing-number' : '');
+        if (isMissing && Math.random() > 0.5) num.classList.add('keep-number');
+        
+        num.style.transform = `rotate(${i * 30}deg)`;
+        
+        let label = i;
+        if (trainData.clockType === 'roman') {
+            const romans = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+            label = romans[i-1];
+        }
+
+        num.innerHTML = `<span style="transform: rotate(-${i * 30}deg)">${label}</span>`;
+        clock.appendChild(num);
     }
-    dom.strikes.innerText = strikeStr;
+
+    // Hands calculation
+    const hourAngle = (trainData.baseHour % 12) * 30 + (trainData.baseMinute / 60) * 30;
+    const minAngle = trainData.baseMinute * 6;
+
+    const hourHand = document.createElement('div');
+    hourHand.className = 'hand hour-hand';
+    hourHand.style.transform = `translateX(-50%) rotate(${hourAngle}deg)`;
+    
+    const minHand = document.createElement('div');
+    minHand.className = 'hand minute-hand';
+    minHand.style.transform = `translateX(-50%) rotate(${minAngle}deg)`;
+
+    const centerDot = document.createElement('div');
+    centerDot.className = 'center-dot';
+
+    clock.appendChild(hourHand);
+    clock.appendChild(minHand);
+    clock.appendChild(centerDot);
+    
+    train.appendChild(clock);
+
+    // Delay Tag
+    if (trainData.delay > 0) {
+        const delayTag = document.createElement('div');
+        delayTag.className = 'delay-tag';
+        delayTag.innerText = `+${trainData.delay}m`;
+        train.appendChild(delayTag);
+    }
+
+    // Steam Cloud
+    if (trainData.steamActive) {
+        const steam = document.createElement('div');
+        steam.className = 'steam-cloud';
+        steam.innerHTML = '💨';
+        steam.onclick = (e) => {
+            e.stopPropagation();
+            playSound('steam');
+            steam.remove();
+            trainData.steamActive = false;
+        };
+        train.appendChild(steam);
+    }
+
+    platform.appendChild(train);
+    
+    // Small timeout to trigger CSS transition for arrival
+    setTimeout(() => {
+        train.classList.add('arrived');
+        playSound('choo');
+    }, 50);
 }
 
 /**
  * ==========================================
- * INTERACTIONS
+ * INTERACTION LOGIC
  * ==========================================
  */
-function handlePlatformClick(platId) {
-    if (state.isPaused) return;
-    
-    const train = state.activeTrains.find(t => t.platformId == platId && !t.matched);
-    if (!train) return;
+function handlePlatformClick(platformId) {
+    if (state.isPaused || state.selectedScheduleIndex === -1) return;
 
-    if (train.steamActive) {
-        flashElement(document.getElementById(`train-${train.id}`), 'shake');
+    const selectedSched = state.schedules[state.selectedScheduleIndex];
+    const trainData = state.activeTrains.find(t => t.platformId === platformId && !t.matched);
+    
+    if (!trainData) return;
+
+    if (trainData.steamActive) {
+        document.getElementById(`train-${trainData.id}`).classList.add('shake');
+        setTimeout(() => document.getElementById(`train-${trainData.id}`).classList.remove('shake'), 400);
         return; // Must clear steam first
     }
 
-    if (state.selectedScheduleIndex === -1) {
-        flashElement(dom.scheduleBoard, 'shake');
-        return;
-    }
+    const isCorrect = (selectedSched.targetHour === trainData.targetHour && selectedSched.targetMinute === trainData.targetMinute);
 
-    const selectedSchedule = state.schedules[state.selectedScheduleIndex];
-
-    // Check match: The hours and minutes of the schedule must match the calculated target of the train
-    if (selectedSchedule.targetHour === train.targetHour && selectedSchedule.targetMinute === train.targetMinute) {
-        matchSuccess(train, selectedSchedule);
+    if (isCorrect) {
+        handleSuccess(trainData, selectedSched);
     } else {
-        matchFail();
+        handleFailure();
     }
 }
 
-function matchSuccess(train, schedule) {
-    train.matched = true;
-    schedule.matched = true;
-    state.selectedScheduleIndex = -1;
-    
+function handleSuccess(trainData, sched) {
     playSound('coin');
-    playSound('choo');
+    trainData.matched = true;
+    sched.matched = true;
     
-    const trainEl = document.getElementById(`train-${train.id}`);
-    if (trainEl) {
-        const plat = dom.platforms[train.platformId];
-        
-        // Passenger Boarding Animation
-        for (let i = 0; i < 3; i++) {
-            setTimeout(() => {
-                const pass = document.createElement('div');
-                pass.className = 'passenger';
-                pass.style.left = '30px';
-                plat.appendChild(pass);
-                setTimeout(() => {
-                    pass.style.left = '200px';
-                    pass.style.opacity = '1';
-                    setTimeout(() => pass.remove(), 400);
-                }, 50);
-            }, i * 150);
-        }
-
-        setTimeout(() => {
-            trainEl.classList.add('leaving');
-        }, 500); // Wait slightly for passengers
-
-        const rect = trainEl.getBoundingClientRect();
-        createParticles(rect.left + rect.width / 2, rect.top + rect.height / 2, varColor('--success'));
-        showFloatingText(rect.left + rect.width / 2, rect.top, "+5 💰", varColor('--success'));
-    }
-
     state.score++;
-    state.coins += 5;
-    updateHUD();
-    renderSchedule();
+    dom.score.innerText = state.score;
     
-    // Handle Rush Hour Queue
-    if (state.rushHourQueue.length > 0) {
-        setTimeout(() => {
-            if (state.isPaused) return;
+    const earned = 5 + Math.floor(Math.random() * 5);
+    state.coins += earned;
+    dom.coins.innerText = state.coins;
+
+    // Visuals
+    const trainEl = document.getElementById(`train-${trainData.id}`);
+    trainEl.classList.remove('arrived');
+    trainEl.classList.add('leaving');
+    showFloatingText(window.innerWidth / 2, trainEl.getBoundingClientRect().top, `+${earned}💰`, "var(--accent-color)");
+
+    renderSchedule(); // update UI to grey out
+    state.selectedScheduleIndex = -1;
+
+    // Remove train and potentially spawn a rush hour train
+    setTimeout(() => {
+        if (trainEl && trainEl.parentNode) trainEl.parentNode.removeChild(trainEl);
+        
+        if (state.rushHourQueue.length > 0) {
             const nextTrain = state.rushHourQueue.shift();
-            nextTrain.platformId = train.platformId;
+            nextTrain.platformId = trainData.platformId;
             state.activeTrains.push(nextTrain);
             renderTrainDOM(nextTrain);
-            playSound('steam');
-        }, 1000);
-    }
-
-    // Check if Wave is Complete
-    if (state.activeTrains.every(t => t.matched) && state.rushHourQueue.length === 0) {
-        waveComplete();
-    }
+        } else {
+            checkWaveComplete();
+        }
+    }, 1000);
 }
 
-function waveComplete() {
-    state.isPaused = true;
-    
-    // Calculate speed bonus
-    const elapsed = Date.now() - state.waveStartTime;
-    if (elapsed < state.waveTimeLimit * 0.5) {
-        state.coins += 10;
-        showFloatingText(window.innerWidth/2, window.innerHeight/3, "SPEED BONUS! +10💰", varColor('--accent-color'));
-    }
-
-    setTimeout(() => {
-        state.isPaused = false;
-        startNextWave();
-    }, 1500);
-}
-
-function matchFail() {
-    flashElement(document.getElementById('game-container'), 'shake');
-    showFloatingText(window.innerWidth/2, window.innerHeight/3, "WRONG MATCH!", varColor('--danger'));
+function handleFailure() {
     playSound('wrong');
-    
-    state.selectedScheduleIndex = -1;
-    renderSchedule();
-    triggerWaveFailure();
-}
-
-function triggerWaveFailure() {
-    state.isPaused = true;
     state.strikes++;
     updateStrikes();
-    
-    // All unmatched trains leave angry
-    state.activeTrains.forEach(t => {
-        if (!t.matched) {
-            const el = document.getElementById(`train-${t.id}`);
-            if(el) {
-                el.classList.add('failed');
-                const rect = el.getBoundingClientRect();
-                showFloatingText(rect.left + rect.width / 2, rect.top, "ANGRY!", varColor('--danger'));
+    document.getElementById('game-container').classList.add('shake');
+    setTimeout(() => document.getElementById('game-container').classList.remove('shake'), 400);
+    state.selectedScheduleIndex = -1;
+    renderSchedule();
+
+    if (state.strikes >= CONFIG.MAX_STRIKES) {
+        endGame();
+    } else {
+        // Angry trains leave, wave ends early
+        state.isPaused = true;
+        state.activeTrains.forEach(t => {
+            if (!t.matched) {
+                const el = document.getElementById(`train-${t.id}`);
+                if(el) {
+                    el.classList.remove('arrived');
+                    el.classList.add('failed');
+                }
+            }
+        });
+        setTimeout(startNextWave, 1500);
+    }
+}
+
+function checkWaveComplete() {
+    const allMatched = state.activeTrains.every(t => t.matched) && state.rushHourQueue.length === 0;
+    if (allMatched) {
+        state.isPaused = true;
+        
+        // Time bonus
+        if (state.timeRemaining > 0) {
+            const bonus = Math.floor((state.timeRemaining / state.waveTimeLimit) * 15);
+            if (bonus > 0) {
+                state.coins += bonus;
+                dom.coins.innerText = state.coins;
+                showFloatingText(window.innerWidth/2, 100, `TIME BONUS +${bonus}💰`, "var(--success)");
             }
         }
-    });
-
-    setTimeout(() => {
-        if (state.strikes >= CONFIG.MAX_STRIKES) {
-            gameOver();
-        } else {
-            state.isPaused = false;
-            startNextWave();
-        }
-    }, 1500);
+        
+        setTimeout(startNextWave, 1000);
+    }
 }
 
 /**
  * ==========================================
- * GAME LOOP (Wave Timer)
+ * GAME LOOP (Timer)
  * ==========================================
  */
-function gameLoop() {
-    if (!state.isPaused && state.activeTrains.length > 0) {
-        const now = Date.now();
-        const delta = now - state.lastFrameTime;
-        state.lastFrameTime = now;
+function gameLoop(currentTime) {
+    if (!state.isPaused) {
+        const delta = currentTime - state.lastFrameTime;
+        state.timeRemaining -= (delta * state.timeMultiplier);
         
-        // Adjust elapsed time by multiplier (for coffee powerup)
-        state.waveStartTime += delta * (1 - state.timeMultiplier);
-        
-        const elapsed = now - state.waveStartTime;
-        const remaining = Math.max(0, 1 - (elapsed / state.waveTimeLimit));
-        
-        dom.timerFill.style.transform = `scaleX(${remaining})`;
-        
-        if (remaining < 0.25) dom.timerFill.style.backgroundColor = varColor('--danger');
-        else if (remaining < 0.5) dom.timerFill.style.backgroundColor = varColor('--accent-color');
-        else dom.timerFill.style.backgroundColor = varColor('--success');
-
-        if (remaining === 0) {
-            triggerWaveFailure();
+        if (state.timeRemaining <= 0) {
+            state.timeRemaining = 0;
+            handleFailure(); // Time up counts as failure
         }
-    } else {
-        state.lastFrameTime = Date.now();
+        
+        const pct = Math.max(0, state.timeRemaining / state.waveTimeLimit);
+        dom.timerFill.style.transform = `scaleX(${pct})`;
+        
+        if (pct < 0.25) dom.timerFill.style.backgroundColor = "var(--danger)";
+        else if (pct < 0.5) dom.timerFill.style.backgroundColor = "var(--accent-color)";
+        else dom.timerFill.style.backgroundColor = "var(--success)";
     }
+    
+    state.lastFrameTime = currentTime;
     requestAnimationFrame(gameLoop);
 }
 
 /**
  * ==========================================
- * STATION BUILDER (SHOP)
+ * HELPERS
  * ==========================================
  */
-function buildShopUI() {
-    const list = document.getElementById('shop-list');
-    list.innerHTML = '';
-    
-    SHOP_ITEMS.forEach(item => {
-        const div = document.createElement('div');
-        div.className = `shop-item ${state.purchases[item.id] ? 'bought' : ''}`;
-        div.id = `shop-item-${item.id}`;
-        
-        div.innerHTML = `
-            <div>
-                <h3>${item.name}</h3>
-                <small style="color:#aaa;">Cost: ${item.cost} 💰</small>
-            </div>
-            <button class="shop-btn" onclick="buyItem('${item.id}', ${item.cost})">BUY</button>
-        `;
-        list.appendChild(div);
-    });
+function updateStrikes() {
+    dom.strikes.innerText = 'X'.repeat(state.strikes);
 }
 
-function showShop() {
-    state.isPaused = true;
-    state.level++; // Prepare for next day
-    state.currentWaveInDay = 0;
-    
-    // Grant daily powerups
-    if (state.purchases['coffee']) state.powerups.coffee = 2; // 2 coffees per day
-    if (state.purchases['info']) state.powerups.info = 2; // 2 hints per day
-    updatePowerupUI();
-    
-    document.getElementById('shop-coins').innerText = state.coins;
-    updateHUD();
-    buildShopUI(); // Refresh buttons based on coins
-    
-    // Show purchased cosmetics
-    SHOP_ITEMS.forEach(item => {
-        if (state.purchases[item.id]) {
-            item.ui.forEach(uiId => document.getElementById(uiId).style.display = 'block');
-        }
-    });
-    
-    dom.shop.classList.remove('hidden');
+function showFloatingText(x, y, text, color) {
+    const el = document.createElement('div');
+    el.className = 'floating-text';
+    el.innerText = text;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.color = color;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1000);
 }
 
-function buyItem(id, cost) {
-    if (state.coins >= cost && !state.purchases[id]) {
-        state.coins -= cost;
-        state.purchases[id] = true;
-        
-        document.getElementById('shop-coins').innerText = state.coins;
-        
-        // Mark bought
-        document.getElementById(`shop-item-${id}`).classList.add('bought');
-        
-        // Reveal cosmetic with effect
-        const itemObj = SHOP_ITEMS.find(i => i.id === id);
-        itemObj.ui.forEach(uiId => {
-            const el = document.getElementById(uiId);
-            el.style.display = 'block';
-            el.classList.add('shake');
-            setTimeout(() => el.classList.remove('shake'), 400);
-            
-            const rect = el.getBoundingClientRect();
-            createParticles(rect.left + rect.width/2, rect.top + rect.height/2, varColor('--accent-color'));
-        });
-        
-        // Init powerups immediately if bought
-        if (id === 'coffee') state.powerups.coffee = 2;
-        if (id === 'info') state.powerups.info = 2;
-        updatePowerupUI();
-
-        updateHUD();
-    }
-}
-
-function startNextDay() {
-    dom.shop.classList.add('hidden');
-    state.isPaused = false;
-    updateHUD();
-    startNextWave();
-}
-
-function gameOver() {
+function endGame() {
     state.isPaused = true;
     dom.gameOver.classList.remove('hidden');
     document.getElementById('final-score').innerText = `Trains Dispatched: ${state.score}`;
@@ -1278,50 +1175,76 @@ function gameOver() {
 
 /**
  * ==========================================
- * EFFECTS
+ * SHOP SYSTEM
  * ==========================================
  */
-function flashElement(el, className) {
-    el.classList.add(className);
-    setTimeout(() => el.classList.remove(className), 400);
+function showShop() {
+    state.isPaused = true;
+    document.getElementById('shop-coins').innerText = state.coins;
+    
+    // Grant daily powerups if purchased
+    if (state.purchases['coffee']) state.powerups.coffee++;
+    if (state.purchases['info']) state.powerups.info++;
+    
+    updateShopUI();
+    dom.shop.classList.remove('hidden');
 }
 
-function varColor(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function buildShopUI() {
+    const list = document.getElementById('shop-list');
+    list.innerHTML = '';
+    SHOP_ITEMS.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'shop-item';
+        div.id = `shop-item-${item.id}`;
+        
+        div.innerHTML = `
+            <div>
+                <h3>${item.name}</h3>
+                <small style="color:var(--accent-color)">${item.cost} Coins</small>
+            </div>
+            <button class="shop-btn" onclick="buyItem('${item.id}')">BUY</button>
+        `;
+        list.appendChild(div);
+    });
 }
 
-function createParticles(x, y, color) {
-    for (let i = 0; i < 12; i++) {
-        const p = document.createElement('div');
-        p.className = 'particle';
-        p.style.backgroundColor = color;
-        const size = Math.random() * 8 + 4;
-        p.style.width = `${size}px`; p.style.height = `${size}px`;
-        p.style.left = `${x}px`; p.style.top = `${y}px`;
-        
-        const angle = Math.random() * Math.PI * 2;
-        const velocity = Math.random() * 60 + 20;
-        const tx = Math.cos(angle) * velocity;
-        const ty = Math.sin(angle) * velocity - 30;
-        
-        p.style.transition = 'all 0.6s cubic-bezier(0.1, 0.8, 0.3, 1)';
-        document.body.appendChild(p);
-        
-        setTimeout(() => {
-            p.style.transform = `translate(${tx}px, ${ty}px) scale(0)`;
-            p.style.opacity = '0';
-        }, 10);
-        setTimeout(() => p.remove(), 600);
+function updateShopUI() {
+    SHOP_ITEMS.forEach(item => {
+        const div = document.getElementById(`shop-item-${item.id}`);
+        if (state.purchases[item.id]) {
+            div.classList.add('bought');
+            item.ui.forEach(uiId => document.getElementById(uiId).style.display = 'block');
+        } else {
+            const btn = div.querySelector('button');
+            if (state.coins >= item.cost) {
+                btn.disabled = false;
+            } else {
+                btn.disabled = true;
+            }
+        }
+    });
+    document.getElementById('shop-coins').innerText = state.coins;
+    dom.coins.innerText = state.coins;
+}
+
+window.buyItem = function(id) {
+    const item = SHOP_ITEMS.find(i => i.id === id);
+    if (item && state.coins >= item.cost && !state.purchases[id]) {
+        state.coins -= item.cost;
+        state.purchases[id] = true;
+        playSound('coin');
+        updateShopUI();
     }
 }
 
-function showFloatingText(x, y, text, color) {
-    const el = document.createElement('div');
-    el.className = 'floating-text';
-    el.style.left = `${x}px`; el.style.top = `${y}px`;
-    el.style.color = color; el.innerText = text;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 1000);
+window.startNextDay = function() {
+    dom.shop.classList.add('hidden');
+    state.level++;
+    state.currentWaveInDay = 0;
+    document.getElementById('level-indicator').innerText = `Day ${state.level}`;
+    state.isPaused = false;
+    startNextWave();
 }
 
 </script>
