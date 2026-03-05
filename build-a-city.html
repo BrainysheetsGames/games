@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Build-a-City Budget</title>
+    <style>
+        /* ==========================================================================
+           CSS STYLES & LAYOUT
+           ========================================================================== */
+        :root {
+            --primary: #4CAF50;
+            --primary-dark: #388E3C;
+            --secondary: #2196F3;
+            --bg-color: #E8F5E9;
+            --text-dark: #2E7D32;
+            --text-light: #FFFFFF;
+            --grid-bg: #81C784;
+            --grid-cell: #A5D6A7;
+            --danger: #F44336;
+            --warning: #FFC107;
+            --coin-gold: #FFD700;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh; /* Fallback */
+            height: 100dvh;
+            color: var(--text-dark);
+            transition: background-color 1s, background-image 1s;
+        }
+
+        /* MILESTONE: Night Sky */
+        body.night-sky {
+            --bg-color: #1a237e;
+            --text-dark: #e8eaf6;
+            --grid-bg: #283593;
+            --grid-cell: #3f51b5;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 40px),
+                              radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px);
+            background-size: 550px 550px, 350px 350px;
+            background-position: 0 0, 20px 60px;
+        }
+
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* HEADER / TREASURY */
+        #header {
+            background-color: var(--primary);
+            color: var(--text-light);
+            padding: 15px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 10;
+            transition: background-color 0.5s;
+        }
+
+        /* EVENT: Gold Rush */
+        #header.gold-rush {
+            background-color: #FFB300;
+            color: #4E342E;
+        }
+
+        .treasury-box {
+            display: flex;
+            align-items: center;
+            background: rgba(0,0,0,0.2);
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            border: 2px solid var(--coin-gold);
+            white-space: nowrap;
+            transition: box-shadow 0.3s, border-color 0.3s;
+        }
+
+        /* MILESTONE: Gold Border */
+        .treasury-box.gold-border {
+            border-color: #FFF8E1;
+            box-shadow: 0 0 15px #FFD700, inset 0 0 10px #FFD700;
+            background: rgba(255, 215, 0, 0.2);
+        }
+
+        .treasury-icon {
+            margin-right: 10px;
+            font-size: 1.8rem;
+        }
+
+        @keyframes pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        .pop-anim { animation: pop 0.2s ease-out; }
+
+        .city-title {
+            font-size: 1.2rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stats-bar {
+            display: flex;
+            gap: 15px;
+            font-size: 0.9rem;
+            margin-top: 8px;
+            color: var(--bg-color);
+            justify-content: flex-end;
+            width: 100%;
+        }
+
+        .stat {
+            background: rgba(0,0,0,0.2);
+            padding: 4px 10px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* MAIN GAME AREA */
+        #main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* CITY GRID */
+        #city-map {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background: radial-gradient(circle, var(--grid-cell) 0%, var(--grid-bg) 100%);
+        }
+
+        .grid {
+            display: grid;
+            gap: 5px;
+            background: rgba(255,255,255,0.3);
+            padding: 10px;
+            border-radius: 15px;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+        }
+
+        .cell {
+            background-color: rgba(255,255,255,0.6);
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.2rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        body.night-sky .cell {
+            background-color: rgba(255,255,255,0.2);
+        }
+
+        .cell:hover {
+            background-color: rgba(255,255,255,0.9);
+            transform: scale(1.05);
+            z-index: 2;
+        }
+
+        .cell.build-mode {
+            animation: pulse-green 1.5s infinite;
+            cursor: cell;
+        }
+
+        /* Level Badges for Upgraded Buildings */
+        .level-badge {
+            position: absolute;
+            bottom: -5px;
+            right: -5px;
+            background: var(--warning);
+            color: #333;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 10px;
+            border: 1px solid #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+
+        /* Active Tax Bubble */
+        .tax-bubble {
+            position: absolute;
+            top: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #FFD700;
+            border: 2px solid #FFF;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.2rem;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            animation: bounce-bubble 1.5s infinite;
+            z-index: 5;
+        }
+
+        .tax-bubble:active {
+            transform: translateX(-50%) scale(0.9);
+        }
+
+        @keyframes bounce-bubble {
+            0%, 100% { margin-top: 0; }
+            50% { margin-top: -8px; }
+        }
+
+        /* Fire Emergency */
+        .fire-fx {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(244, 67, 54, 0.4);
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5rem;
+            animation: pulse-fire 0.5s infinite alternate;
+            z-index: 4;
+            cursor: pointer;
+        }
+        
+        @keyframes pulse-fire {
+            0% { box-shadow: inset 0 0 10px #F44336; background: rgba(244, 67, 54, 0.3); }
+            100% { box-shadow: inset 0 0 30px #FF9800; background: rgba(255, 152, 0, 0.6); }
+        }
+
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); background-color: rgba(255,255,255,0.8); }
+            70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); background-color: rgba(200,255,200,0.9); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); background-color: rgba(255,255,255,0.8); }
+        }
+
+        /* SHOP & CONTROLS */
+        #shop-panel {
+            height: 160px;
+            background: white;
+            border-top: 4px solid var(--primary);
+            display: flex;
+            padding: 10px;
+            gap: 10px;
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
+            z-index: 5;
+            transition: background 1s, border-color 1s;
+        }
+
+        body.night-sky #shop-panel {
+            background: #283593;
+            border-color: #3f51b5;
+            color: white;
+        }
+
+        .earn-btn-container {
+            flex: 0 0 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-right: 2px dashed #ddd;
+            padding-right: 10px;
+            gap: 5px;
+        }
+
+        .btn-earn {
+            background: var(--warning);
+            color: #333;
+            border: none;
+            border-radius: 15px;
+            padding: 10px 5px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            flex: 1;
+            box-shadow: 0 6px 0 #D4A000;
+            transition: transform 0.1s, box-shadow 0.1s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+        }
+
+        .btn-action {
+            background: var(--secondary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 8px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            box-shadow: 0 4px 0 #1976D2;
+        }
+
+        .btn-earn:active, .btn-action:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 transparent;
+        }
+
+        .shop-items {
+            flex: 1;
+            display: flex;
+            overflow-x: auto;
+            gap: 10px;
+            padding-bottom: 5px;
+            align-items: center;
+        }
+
+        .shop-items::-webkit-scrollbar { height: 8px; }
+        .shop-items::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+
+        .shop-item {
+            flex: 0 0 100px;
+            height: 120px;
+            background: var(--bg-color);
+            border: 2px solid var(--primary-dark);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            opacity: 0.5;
+            position: relative;
+        }
+
+        body.night-sky .shop-item {
+            background: #3f51b5;
+            border-color: #5c6bc0;
+            color: white;
+        }
+
+        .shop-item.unlocked { opacity: 1; }
+        .shop-item.affordable { box-shadow: 0 4px 0 var(--primary-dark); }
+        .shop-item.affordable:active { transform: translateY(4px); box-shadow: 0 0 0 var(--primary-dark); }
+        
+        .shop-item.selected {
+            border-color: var(--warning);
+            background: #FFFDE7;
+            box-shadow: 0 0 15px rgba(255, 193, 7, 0.6);
+            transform: scale(1.05);
+            color: #333;
+        }
+
+        .item-emoji { font-size: 2.5rem; margin-bottom: 5px; }
+        .item-name { font-size: 0.8rem; font-weight: bold; }
+        .item-cost { 
+            font-size: 0.9rem; 
+            background: white; 
+            color: #333;
+            padding: 2px 8px; 
+            border-radius: 10px; 
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        /* CHALLENGE MODAL */
+        #challenge-modal {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(5px);
+        }
+
+        .challenge-box {
+            background: white;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+            position: relative;
+            transform: scale(0.9);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .challenge-box.active {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        /* Emergency Challenge specific style */
+        .challenge-box.emergency {
+            border: 4px solid var(--danger);
+            background: #FFEBEE;
+        }
+
+        .challenge-title {
+            font-size: 1.8rem;
+            color: var(--secondary);
+            margin-bottom: 20px;
+        }
+
+        .challenge-box.emergency .challenge-title {
+            color: var(--danger);
+        }
+
+        .question-area {
+            font-size: 1.5rem;
+            margin-bottom: 30px;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            color: #333;
+        }
+
+        /* VISUAL ASSETS (Coins & Items) */
+        .coin-group {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .coin {
+            border-radius: 50%;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2), 0 2px 4px rgba(0,0,0,0.2);
+            border: 2px solid rgba(255,255,255,0.5);
+            color: #333;
+        }
+        .coin-1 { width: 40px; height: 40px; background: #b87333; font-size: 0.9rem; color: white;}
+        .coin-5 { width: 45px; height: 45px; background: #e0e0e0; font-size: 1rem; }
+        .coin-10 { width: 35px; height: 35px; background: silver; font-size: 0.8rem; }
+        .coin-25 { width: 55px; height: 55px; background: #c0c0c0; font-size: 1.2rem; }
+        .bill-100 { 
+            width: 80px; height: 40px; 
+            background: #85bb65; 
+            border-radius: 5px; 
+            font-size: 1.1rem; 
+            color: white;
+            border: 2px solid #558B2F;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .shopping-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(0,0,0,0.05);
+            padding: 10px;
+            border-radius: 10px;
+            border: 2px dashed #ccc;
+        }
+        .shopping-emoji { font-size: 2rem; }
+        .shopping-price { font-size: 1rem; font-weight: bold; color: var(--primary-dark); }
+
+        /* OPTIONS */
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px;
+        }
+
+        .btn-option {
+            background: var(--bg-color);
+            border: 3px solid var(--secondary);
+            color: var(--text-dark);
+            padding: 15px;
+            font-size: 1.4rem;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: bold;
+            min-height: 80px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .btn-option:hover { background: #E3F2FD; transform: scale(1.05); }
+        .btn-option:active { transform: scale(0.95); }
+        .btn-option.correct { background: var(--primary); color: white; border-color: var(--primary-dark); }
+        .btn-option.wrong { background: var(--danger); color: white; border-color: #D32F2F; animation: shake 0.4s; }
+
+        .close-btn {
+            position: absolute;
+            top: 10px; right: 15px;
+            font-size: 2rem;
+            color: #aaa;
+            cursor: pointer;
+            background: none; border: none;
+        }
+
+        /* EFFECTS */
+        #particle-canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 200;
+        }
+
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .screen-shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+
+        /* NOTIFICATIONS & COMBO EFFECTS */
+        .notification {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.95);
+            padding: 20px 40px;
+            border-radius: 30px;
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary-dark);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            pointer-events: none;
+            opacity: 0;
+            z-index: 150;
+            transition: opacity 0.3s, transform 0.5s;
+            text-align: center;
+            line-height: 1.2;
+        }
+
+        .floating-text {
+            position: absolute;
+            pointer-events: none;
+            font-weight: bold;
+            font-size: 1.5rem;
+            color: var(--primary);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3), 0 0 2px white;
+            z-index: 140;
+            animation: floatUp 1.5s ease-out forwards;
+            transform: translate(-50%, -50%);
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translate(-50%, 0) scale(0.5); }
+            20% { transform: translate(-50%, -10px) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -60px) scale(1); }
+        }
+
+        /* RESPONSIVE TWEAKS */
+        @media (max-width: 600px) {
+            #shop-panel { height: 140px; padding: 5px; }
+            .earn-btn-container { flex: 0 0 100px; }
+            .btn-earn { font-size: 0.9rem; padding: 5px; }
+            .shop-item { flex: 0 0 85px; height: 110px; }
+            .item-emoji { font-size: 2rem; }
+            .item-name { font-size: 0.7rem; }
+            .cell { font-size: 1.8rem; }
+            .challenge-title { font-size: 1.4rem; }
+            .question-area { font-size: 1.2rem; }
+            .btn-option { font-size: 1.1rem; min-height: 60px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Header / Treasury -->
+    <div id="header">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div class="city-title" id="city-title-text">Build-a-City</div>
+            <div class="treasury-box" id="treasury-display">
+                <span class="treasury-icon">💰</span>
+                <span id="money-text">$0.00</span>
+            </div>
+        </div>
+        <div class="stats-bar">
+            <div class="stat">👥 Pop: <span id="pop-text" style="font-weight: bold;">0</span></div>
+            <div class="stat">📈 Tax Rev: <span id="rev-text" style="font-weight: bold;">$0.00</span></div>
+        </div>
+    </div>
+
+    <!-- Main Game Area -->
+    <div id="main-area">
+        <div id="city-map">
+            <div class="grid" id="grid">
+                <!-- Cells generated by JS -->
+            </div>
+        </div>
+        
+        <div id="shop-panel">
+            <div class="earn-btn-container">
+                <button class="btn-earn" id="btn-work">
+                    <span style="font-size: 1.8rem;">⛏️</span>
+                    Work
+                </button>
+                <button class="btn-action" id="btn-expand" style="display:none;">
+                    Buy Land ($50)
+                </button>
+            </div>
+            <div class="shop-items" id="shop-items">
+                <!-- Shop items generated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Challenge Modal -->
+    <div id="challenge-modal">
+        <div class="challenge-box" id="challenge-box">
+            <button class="close-btn" id="btn-close-modal">&times;</button>
+            <div class="challenge-title" id="challenge-title">City Contract!</div>
+            <div class="question-area" id="question-area">
+                <!-- Question content -->
+            </div>
+            <div class="options-grid" id="options-area">
+                <!-- Option buttons -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback Notification -->
+    <div class="notification" id="notification"></div>
+
+    <!-- Particle Canvas -->
+    <canvas id="particle-canvas"></canvas>
+</div>
+
+<script>
+    /* ==========================================================================
+       GAME CONFIGURATION & PARAMETERS (EASY TO TWEAK)
+       ========================================================================== */
+    const CONFIG = {
+        initialGridSize: 5,        // Start 5x5
+        maxGridSize: 7,            // Max expandable size
+        startingMoney: 0,          // Start with $0.00
+        landCost: 5000,            // Cost to expand grid (in cents, $50.00)
+        
+        // Visuals & Physics
+        gravity: 0.4,              
+        particleBounce: 0.6,       
+        dustColors: ['#A5D6A7', '#81C784', '#FFFFFF', '#E8F5E9'],
+        coinColors: ['#FFD700', '#FBC02D', '#FFF59D'],
+        fireColors: ['#F44336', '#FF9800', '#FFEB3B'],
+
+        // Buildings Data (Synergies & Upgrades)
+        buildings: [
+            { id: 'tree', name: 'Park', emoji: '🌲', cost: 25, unlockThreshold: 0, baseRev: 0, basePop: 2, type: 'nature' },
+            { id: 'house', name: 'House', emoji: '🏠', cost: 50, unlockThreshold: 0, baseRev: 1, basePop: 5, type: 'residential' },
+            { id: 'shop', name: 'Shop', emoji: '🏪', cost: 85, unlockThreshold: 2, baseRev: 3, basePop: 0, type: 'commercial' },
+            { id: 'school', name: 'School', emoji: '🏫', cost: 125, unlockThreshold: 5, baseRev: 0, basePop: 15, type: 'civic' },
+            { id: 'hospital', name: 'Hospital', emoji: '🏥', cost: 250, unlockThreshold: 10, baseRev: 5, basePop: 20, type: 'civic' },
+            { id: 'bank', name: 'Bank', emoji: '🏦', cost: 400, unlockThreshold: 15, baseRev: 15, basePop: 10, type: 'commercial' },
+            { id: 'skyscraper', name: 'Tower', emoji: '🏢', cost: 500, unlockThreshold: 20, baseRev: 25, basePop: 50, type: 'residential' }
+        ],
+
+        // Coin Values (in cents)
+        coins: [
+            { val: 1, class: 'coin-1', label: '1¢' },
+            { val: 5, class: 'coin-5', label: '5¢' },
+            { val: 10, class: 'coin-10', label: '10¢' },
+            { val: 25, class: 'coin-25', label: '25¢' },
+            { val: 100, class: 'bill-100', label: '$1' }
+        ],
+
+        // Store Items for Shopping Mini-Game
+        storeItems: [
+            { name: "Apple", emoji: "🍎", price: 50 },
+            { name: "Bread", emoji: "🍞", price: 120 },
+            { name: "Milk", emoji: "🥛", price: 200 },
+            { name: "Toy", emoji: "🧸", price: 325 },
+            { name: "Book", emoji: "📘", price: 450 }
+        ]
+    };
+
+    /* ==========================================================================
+       GAME STATE
+       ========================================================================== */
+    let state = {
+        gridSize: CONFIG.initialGridSize,
+        money: CONFIG.startingMoney,
+        buildingsPlaced: 0,
+        grid: [], // Array of objects: { building: configObj, level: 1, onFire: false }
+        selectedBuilding: null,
+        
+        // Challenge State
+        currentCorrectAnswer: null,
+        currentReward: 0,
+        combo: 0,
+        activeEmergencyIndex: -1,
+        
+        // Derived Stats
+        population: 0,
+        revenuePotential: 0, // Total potential revenue per tick
+        
+        // Milestones
+        achievements: {
+            goldBorder: false,
+            nightSky: false
+        },
+
+        // Events
+        goldRushTimer: 0
+    };
+
+    /* ==========================================================================
+       VIEWPORT & RESIZE HANDLING (MOBILE FIRST CRITICAL)
+       ========================================================================== */
+    function resize() {
+        let vh = window.innerHeight;
+        document.body.style.height = vh + 'px';
+        document.getElementById('game-container').style.height = vh + 'px';
+        
+        const canvas = document.getElementById('particle-canvas');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        const mapArea = document.getElementById('city-map');
+        const mapRect = mapArea.getBoundingClientRect();
+        const minDimension = Math.min(mapRect.width - 40, mapRect.height - 40);
+        const cellSize = Math.floor(minDimension / state.gridSize) - 5;
+        
+        const gridEl = document.getElementById('grid');
+        gridEl.style.gridTemplateColumns = `repeat(${state.gridSize}, ${cellSize}px)`;
+        gridEl.style.gridTemplateRows = `repeat(${state.gridSize}, ${cellSize}px)`;
+    }
+
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+
+    /* ==========================================================================
+       INITIALIZATION & GAME LOOPS
+       ========================================================================== */
+    function initGame() {
+        state.grid = new Array(state.gridSize * state.gridSize).fill(null);
+        
+        renderGrid(true);
+        renderShop();
+        updateUI();
+        
+        document.getElementById('btn-work').addEventListener('click', () => openChallenge('standard'));
+        document.getElementById('btn-close-modal').addEventListener('click', closeChallenge);
+        document.getElementById('btn-expand').addEventListener('click', buyLand);
+        
+        requestAnimationFrame(updateParticles);
+        
+        // Active Tax / Event Loop (Every 1 second)
+        setInterval(gameTick, 1000);
+        
+        setTimeout(resize, 50);
+    }
+
+    function formatMoney(cents) {
+        if (cents < 100) return `${cents}¢`;
+        return `$${(cents / 100).toFixed(2)}`;
+    }
+
+    /* ==========================================================================
+       SYNERGY & STAT RECALCULATION
+       ========================================================================== */
+    function recalculateStats() {
+        let pop = 0;
+        let rev = 0;
+        let towers = 0;
+
+        for (let i = 0; i < state.grid.length; i++) {
+            const cell = state.grid[i];
+            if (!cell) continue;
+
+            const b = cell.building;
+            const lvl = cell.level;
+            
+            if (b.id === 'skyscraper') towers++;
+
+            // Base Stats scaled by level
+            let cellPop = b.basePop * lvl;
+            let cellRev = b.baseRev * lvl;
+
+            // Find Neighbors for Synergy
+            const x = i % state.gridSize;
+            const y = Math.floor(i / state.gridSize);
+            const neighbors = [];
+            
+            if (y > 0) neighbors.push(state.grid[i - state.gridSize]); // Top
+            if (y < state.gridSize - 1) neighbors.push(state.grid[i + state.gridSize]); // Bottom
+            if (x > 0) neighbors.push(state.grid[i - 1]); // Left
+            if (x < state.gridSize - 1) neighbors.push(state.grid[i + 1]); // Right
+
+            // Apply Adjacency Rules
+            let hasPark = false;
+            let hasBank = false;
+            let hasPollution = false;
+
+            neighbors.forEach(n => {
+                if (!n) return;
+                if (n.building.id === 'tree') hasPark = true;
+                if (n.building.id === 'bank') hasBank = true;
+                if (n.building.id === 'skyscraper' || n.building.id === 'shop') hasPollution = true;
+            });
+
+            // Rule 1: Residential Boosts
+            if (b.type === 'residential' && hasPark) cellPop = Math.floor(cellPop * 1.2);
+            
+            // Rule 2: Commercial Boosts
+            if (b.type === 'commercial' && hasBank) cellRev = Math.floor(cellRev * 1.5);
+            
+            // Rule 3: Pollution Penalty
+            if (b.type === 'residential' && hasPollution && !hasPark) {
+                cellPop = Math.floor(cellPop * 0.8);
+            }
+
+            // Fire Penalty
+            if (cell.onFire) {
+                cellRev = 0;
+                cellPop = Math.floor(cellPop * 0.5);
+            }
+
+            pop += cellPop;
+            rev += cellRev;
+        }
+
+        state.population = pop;
+        state.revenuePotential = rev;
+
+        checkMilestones(towers);
+    }
+
+    function checkMilestones(towerCount) {
+        // Milestone 1: 100 Population = Gold Border
+        if (state.population >= 100 && !state.achievements.goldBorder) {
+            state.achievements.goldBorder = true;
+            document.getElementById('treasury-display').classList.add('gold-border');
+            showNotification("Milestone: Golden Treasury! 🏆", "#FFD700");
+        }
+
+        // Milestone 2: 5 Towers = Night Sky
+        if (towerCount >= 5 && !state.achievements.nightSky) {
+            state.achievements.nightSky = true;
+            document.body.classList.add('night-sky');
+            showNotification("Milestone: Metropolis! 🌃", "#3f51b5");
+        }
+    }
+
+    /* ==========================================================================
+       DYNAMIC EVENTS & ACTIVE TAXES (IDLE HYBRID)
+       ========================================================================== */
+    function gameTick() {
+        // Handle Gold Rush Timer
+        if (state.goldRushTimer > 0) {
+            state.goldRushTimer--;
+            if (state.goldRushTimer === 0) {
+                document.getElementById('header').classList.remove('gold-rush');
+                document.getElementById('city-title-text').innerText = "Build-a-City";
+            }
+        }
+
+        // Random Event Chance (if city is big enough and no active emergency)
+        if (state.buildingsPlaced > 5 && state.activeEmergencyIndex === -1) {
+            if (Math.random() < 0.02) { // 2% chance per second for Gold Rush
+                startGoldRush();
+            } else if (Math.random() < 0.01) { // 1% chance for Fire Emergency
+                startFireEmergency();
+            }
+        }
+
+        // Active Tax Bubble Spawning
+        const gridEl = document.getElementById('grid');
+        state.grid.forEach((cellData, i) => {
+            if (!cellData || cellData.onFire || cellData.building.baseRev === 0) return;
+
+            // ~15% chance per second to spawn a bubble on an income building
+            if (Math.random() < 0.15) {
+                const domCell = gridEl.children[i];
+                // Check if already has a bubble
+                if (!domCell.querySelector('.tax-bubble')) {
+                    spawnTaxBubble(i, domCell);
+                }
+            }
+        });
+    }
+
+    function spawnTaxBubble(index, domCell) {
+        const cellData = state.grid[index];
+        // Calculate dynamic revenue for this building based on synergy and level
+        // (Simplified here: just take a fraction of total potential, or base * level)
+        let bubbleValue = cellData.building.baseRev * cellData.level;
+        if (state.goldRushTimer > 0) bubbleValue *= 2;
+
+        const bubble = document.createElement('div');
+        bubble.className = 'tax-bubble';
+        bubble.innerText = '🪙';
+        
+        bubble.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent building click
+            state.money += bubbleValue;
+            
+            // Juice
+            const rect = bubble.getBoundingClientRect();
+            spawnParticles(rect.left + 15, rect.top + 15, CONFIG.coinColors, 5, 'coin');
+            createFloatingText(`+${formatMoney(bubbleValue)}`, rect.left + 15, rect.top);
+            
+            bubble.remove();
+            updateUI();
+        });
+
+        domCell.appendChild(bubble);
+
+        // Despawn after 5 seconds if not collected
+        setTimeout(() => {
+            if (bubble.parentNode) bubble.remove();
+        }, 5000);
+    }
+
+    function startGoldRush() {
+        state.goldRushTimer = 30; // 30 seconds
+        document.getElementById('header').classList.add('gold-rush');
+        document.getElementById('city-title-text').innerText = "GOLD RUSH!";
+        showNotification("ECONOMIC BOOM! 2x Taxes!", "#FFD700");
+    }
+
+    function startFireEmergency() {
+        // Pick random placed building
+        let validIndices = [];
+        state.grid.forEach((c, i) => { if(c && !c.onFire) validIndices.push(i) });
+        if (validIndices.length === 0) return;
+
+        const targetIdx = validIndices[Math.floor(Math.random() * validIndices.length)];
+        state.grid[targetIdx].onFire = true;
+        state.activeEmergencyIndex = targetIdx;
+        
+        recalculateStats();
+        updateUI();
+        renderGrid(false);
+        showNotification("EMERGENCY! Tap the fire!", "var(--danger)");
+    }
+
+    /* ==========================================================================
+       UI UPDATES
+       ========================================================================== */
+    function updateUI() {
+        const moneyText = document.getElementById('money-text');
+        const formattedMoney = formatMoney(state.money);
+        
+        if (moneyText.innerText !== formattedMoney) {
+            const treasuryBox = document.getElementById('treasury-display');
+            treasuryBox.classList.remove('pop-anim');
+            void treasuryBox.offsetWidth; 
+            treasuryBox.classList.add('pop-anim');
+        }
+        moneyText.innerText = formattedMoney;
+        
+        const popEl = document.getElementById('pop-text');
+        const revEl = document.getElementById('rev-text');
+        if (popEl) popEl.innerText = state.population;
+        if (revEl) revEl.innerText = formatMoney(state.revenuePotential);
+        
+        // Show/Hide Grid Expansion Button
+        const expandBtn = document.getElementById('btn-expand');
+        if (state.gridSize < CONFIG.maxGridSize && state.buildingsPlaced >= (state.gridSize * state.gridSize - 5)) {
+            expandBtn.style.display = 'block';
+            expandBtn.innerText = `Buy Land (${formatMoney(CONFIG.landCost)})`;
+            expandBtn.style.opacity = state.money >= CONFIG.landCost ? '1' : '0.5';
+        } else {
+            expandBtn.style.display = 'none';
+        }
+
+        renderShop(); 
+    }
+
+    /* ==========================================================================
+       CITY MAP & SHOP LOGIC
+       ========================================================================== */
+    function renderGrid(fullRebuild = false) {
+        const gridEl = document.getElementById('grid');
+        
+        if (fullRebuild || gridEl.children.length !== state.gridSize * state.gridSize) {
+            gridEl.innerHTML = '';
+            for (let i = 0; i < state.gridSize * state.gridSize; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.dataset.index = i;
+                gridEl.appendChild(cell);
+            }
+            
+            // Need to re-attach delegate if rebuild
+            gridEl.onclick = (e) => {
+                const cell = e.target.closest('.cell');
+                // Ignore if clicked on fire-fx or tax-bubble
+                if (!cell || e.target.classList.contains('fire-fx') || e.target.classList.contains('tax-bubble')) return;
+                handleCellClick(parseInt(cell.dataset.index), e);
+            };
+        }
+        
+        Array.from(gridEl.children).forEach((cell, index) => {
+            const cellData = state.grid[index];
+            cell.className = 'cell'; 
+            
+            // Clean up old visuals carefully to preserve bubbles if they exist
+            const existingBubbles = Array.from(cell.querySelectorAll('.tax-bubble'));
+            cell.innerHTML = ''; 
+            
+            if (state.selectedBuilding && !cellData) {
+                cell.classList.add('build-mode');
+            }
+            
+            if (cellData) {
+                cell.innerText = cellData.building.emoji;
+                
+                if (cellData.level > 1) {
+                    cell.innerHTML += `<div class="level-badge">Lvl ${cellData.level}</div>`;
+                }
+
+                if (cellData.onFire) {
+                    const fireFx = document.createElement('div');
+                    fireFx.className = 'fire-fx';
+                    fireFx.innerText = '🔥';
+                    fireFx.onclick = (e) => {
+                        e.stopPropagation();
+                        openChallenge('emergency', index);
+                    };
+                    cell.appendChild(fireFx);
+                }
+            }
+
+            // Restore un-clicked bubbles
+            existingBubbles.forEach(b => cell.appendChild(b));
+        });
+    }
+
+    function renderShop() {
+        const shopEl = document.getElementById('shop-items');
+        
+        if (shopEl.children.length === 0) {
+            CONFIG.buildings.forEach((building) => {
+                const item = document.createElement('div');
+                item.className = 'shop-item';
+                item.dataset.id = building.id;
+                
+                item.addEventListener('click', () => {
+                    const isUnlocked = state.buildingsPlaced >= building.unlockThreshold;
+                    const isAffordable = state.money >= building.cost;
+                    
+                    if (isUnlocked && isAffordable) {
+                        selectBuilding(building);
+                    } else if (isUnlocked && !isAffordable) {
+                        showNotification("Not enough coins!", 'var(--warning)');
+                        item.classList.add('screen-shake');
+                        setTimeout(() => item.classList.remove('screen-shake'), 500);
+                    } else {
+                        showNotification(`Unlocks at ${building.unlockThreshold} buildings!`, 'var(--warning)');
+                    }
+                });
+                shopEl.appendChild(item);
+            });
+        }
+        
+        Array.from(shopEl.children).forEach((item, index) => {
+            const building = CONFIG.buildings[index];
+            const isUnlocked = state.buildingsPlaced >= building.unlockThreshold;
+            const isAffordable = state.money >= building.cost;
+            const isSelected = state.selectedBuilding && state.selectedBuilding.id === building.id;
+            
+            item.className = `shop-item ${isUnlocked ? 'unlocked' : ''} ${isUnlocked && isAffordable ? 'affordable' : ''} ${isSelected ? 'selected' : ''}`;
+            
+            if (!isUnlocked) {
+                item.innerHTML = `<div class="item-emoji">🔒</div><div class="item-name">Level ${building.unlockThreshold}</div>`;
+            } else {
+                item.innerHTML = `
+                    <div class="item-emoji">${building.emoji}</div>
+                    <div class="item-name">${building.name}</div>
+                    <div class="item-cost">${formatMoney(building.cost)}</div>
+                `;
+            }
+        });
+    }
+
+    function selectBuilding(building) {
+        if (state.selectedBuilding && state.selectedBuilding.id === building.id) {
+            state.selectedBuilding = null; 
+        } else {
+            state.selectedBuilding = building;
+        }
+        renderShop();
+        renderGrid();
+    }
+
+    function handleCellClick(index, event) {
+        const cellData = state.grid[index];
+
+        // CASE 1: Building New
+        if (state.selectedBuilding) {
+            if (cellData !== null) {
+                showNotification("Space occupied!", 'var(--danger)');
+                return;
+            }
+            const cost = state.selectedBuilding.cost;
+            if (state.money >= cost) {
+                state.money -= cost;
+                state.grid[index] = { building: state.selectedBuilding, level: 1, onFire: false };
+                state.buildingsPlaced++;
+                
+                const rect = event.target.getBoundingClientRect();
+                spawnParticles(rect.left + rect.width/2, rect.top + rect.height/2, CONFIG.dustColors, 15, 'dust');
+                
+                state.selectedBuilding = null;
+                recalculateStats();
+                updateUI();
+                renderGrid();
+            }
+        } 
+        // CASE 2: Upgrading Existing Building
+        else if (cellData !== null) {
+            // Cannot upgrade on fire
+            if (cellData.onFire) return;
+
+            const upgradeCost = cellData.building.cost * Math.pow(2, cellData.level);
+            
+            if (state.money >= upgradeCost) {
+                state.money -= upgradeCost;
+                cellData.level++;
+                
+                const rect = event.target.getBoundingClientRect();
+                createFloatingText("UPGRADE!", rect.left + rect.width/2, rect.top);
+                spawnParticles(rect.left + rect.width/2, rect.top + rect.height/2, ['#4CAF50', '#FFF'], 10, 'dust');
+                
+                recalculateStats();
+                updateUI();
+                renderGrid();
+            } else {
+                showNotification(`Upgrade costs ${formatMoney(upgradeCost)}`, 'var(--warning)');
+            }
+        }
+    }
+
+    function buyLand() {
+        if (state.money >= CONFIG.landCost && state.gridSize < CONFIG.maxGridSize) {
+            state.money -= CONFIG.landCost;
+            
+            const oldSize = state.gridSize;
+            state.gridSize++;
+            
+            // Map old grid to new larger grid to preserve positions
+            const newGrid = new Array(state.gridSize * state.gridSize).fill(null);
+            for (let y = 0; y < oldSize; y++) {
+                for (let x = 0; x < oldSize; x++) {
+                    newGrid[y * state.gridSize + x] = state.grid[y * oldSize + x];
+                }
+            }
+            state.grid = newGrid;
+            
+            resize(); // Updates CSS grid
+            renderGrid(true); // Full DOM rebuild
+            recalculateStats();
+            updateUI();
+            
+            showNotification("City Expanded!", "var(--primary)");
+        }
+    }
+
+    /* ==========================================================================
+       BROADER FINANCIAL MINI-GAMES
+       ========================================================================== */
+    function generateCoinsForAmount(targetAmount, availableCoins) {
+        let remaining = targetAmount;
+        let result = [];
+        let sortedCoins = [...availableCoins].sort((a, b) => b.val - a.val);
+        for (let coin of sortedCoins) {
+            while (remaining >= coin.val) {
+                result.push(coin);
+                remaining -= coin.val;
+            }
+        }
+        return result;
+    }
+
+    function openChallenge(mode, emergencyIndex = -1) {
+        const modal = document.getElementById('challenge-modal');
+        const box = document.getElementById('challenge-box');
+        
+        box.className = 'challenge-box'; // reset
+        if (mode === 'emergency') {
+            box.classList.add('emergency');
+            state.activeEmergencyIndex = emergencyIndex;
+        } else {
+            state.activeEmergencyIndex = -1;
+        }
+
+        modal.style.display = 'flex';
+        void box.offsetWidth;
+        box.classList.add('active');
+        
+        generateQuestion(mode);
+    }
+
+    function closeChallenge() {
+        const box = document.getElementById('challenge-box');
+        box.classList.remove('active');
+        setTimeout(() => {
+            document.getElementById('challenge-modal').style.display = 'none';
+        }, 300);
+    }
+
+    function generateQuestion(mode) {
+        const diff = state.buildingsPlaced < 3 ? 1 : (state.buildingsPlaced < 8 ? 2 : 3);
+        const qArea = document.getElementById('question-area');
+        const optArea = document.getElementById('options-area');
+        const title = document.getElementById('challenge-title');
+        
+        qArea.innerHTML = '';
+        optArea.innerHTML = '';
+        
+        // Pick random question type (0: Count, 1: Make Amount, 2: Make Change, 3: Shopping)
+        // Adjust pool based on difficulty/mode
+        let qTypePool = [0, 1];
+        if (diff >= 2) qTypePool.push(2); // Add Make Change
+        if (diff >= 3) qTypePool.push(3); // Add Shopping
+        
+        let qType = qTypePool[Math.floor(Math.random() * qTypePool.length)];
+        
+        // Emergency is always rapid-fire "Make Change" or "Count"
+        if (mode === 'emergency') {
+            qType = Math.random() > 0.5 ? 0 : 2;
+        }
+
+        let maxAmount = diff === 1 ? 40 : (diff === 2 ? 99 : 300);
+        let allowedCoins = diff === 1 ? CONFIG.coins.slice(0, 3) : (diff === 2 ? CONFIG.coins.slice(0, 4) : CONFIG.coins);
+        
+        let targetAmount = Math.floor(Math.random() * (maxAmount / 5)) * 5;
+        if (targetAmount === 0) targetAmount = 15;
+        if (Math.random() > 0.6) targetAmount += Math.floor(Math.random() * 4) + 1;
+
+        state.currentReward = mode === 'emergency' ? 0 : targetAmount + (diff * 10);
+        
+        let options = [];
+
+        if (qType === 0) {
+            // TYPE: Count Coins
+            title.innerText = mode === 'emergency' ? "Quick! Count the water budget!" : "Count the Treasury!";
+            const coinsToDisplay = generateCoinsForAmount(targetAmount, allowedCoins);
+            const coinDiv = document.createElement('div');
+            coinDiv.className = 'coin-group';
+            coinsToDisplay.forEach(c => coinDiv.innerHTML += `<span class="coin ${c.class}">${c.label}</span>`);
+            qArea.appendChild(coinDiv);
+            
+            state.currentCorrectAnswer = targetAmount;
+            options = generateWrongAnswers(targetAmount, 3);
+            renderOptions(options, formatMoney, targetAmount);
+
+        } else if (qType === 1) {
+            // TYPE: Which group makes X?
+            title.innerText = `Which group makes ${formatMoney(targetAmount)}?`;
+            state.currentCorrectAnswer = targetAmount; 
+            
+            const correctCoins = generateCoinsForAmount(targetAmount, allowedCoins);
+            let wrong1Amount = targetAmount + 5;
+            let wrong2Amount = targetAmount > 10 ? targetAmount - 10 : targetAmount + 10;
+            
+            let groups = [
+                { id: targetAmount, coins: correctCoins },
+                { id: wrong1Amount, coins: generateCoinsForAmount(wrong1Amount, allowedCoins) },
+                { id: wrong2Amount, coins: generateCoinsForAmount(wrong2Amount, allowedCoins) }
+            ];
+            
+            groups.sort(() => Math.random() - 0.5).forEach(group => {
+                const btn = document.createElement('button');
+                btn.className = 'btn-option coin-group';
+                group.coins.forEach(c => {
+                    btn.innerHTML += `<span class="coin ${c.class}" style="transform: scale(0.7); margin: -2px;">${c.label}</span>`;
+                });
+                btn.onclick = (e) => checkAnswer(group.id, targetAmount, btn, mode);
+                optArea.appendChild(btn);
+            });
+
+        } else if (qType === 2) {
+            // TYPE: Making Change
+            let cost = targetAmount;
+            let paid = Math.ceil(cost / 100) * 100; // Paid next full dollar
+            if (paid === cost) paid += 100;
+            
+            let change = paid - cost;
+            title.innerText = "Making Change!";
+            qArea.innerHTML = `<div>Item Cost: <b>${formatMoney(cost)}</b></div>
+                               <div>Customer Paid: <b>${formatMoney(paid)}</b></div>
+                               <div style="font-size:1.2rem; margin-top:10px;">How much change?</div>`;
+            
+            state.currentCorrectAnswer = change;
+            options = generateWrongAnswers(change, 3);
+            renderOptions(options, formatMoney, change, mode);
+
+        } else if (qType === 3) {
+            // TYPE: Shopping Spree
+            title.innerText = "Shopping Spree Budget!";
+            
+            // Pick 3 random distinct items
+            let shuffledItems = [...CONFIG.storeItems].sort(() => 0.5 - Math.random());
+            let items = shuffledItems.slice(0, 3);
+            let totalCost = items.reduce((sum, item) => sum + item.price, 0);
+            
+            // Player budget is either slightly above or slightly below total
+            let canAfford = Math.random() > 0.5;
+            let budget = canAfford ? totalCost + 15 : totalCost - 20;
+
+            qArea.innerHTML = `<div style="color:var(--primary-dark); font-weight:bold;">Your Budget: ${formatMoney(budget)}</div>
+                               <div style="display:flex; gap:10px; margin-top:10px;">
+                                 ${items.map(i => `<div class="shopping-item"><span class="shopping-emoji">${i.emoji}</span><span class="shopping-price">${formatMoney(i.price)}</span></div>`).join('')}
+                               </div>
+                               <div style="font-size:1.2rem; margin-top:10px;">Can you afford ALL of this?</div>`;
+
+            state.currentCorrectAnswer = canAfford ? "YES" : "NO";
+            
+            ["YES", "NO"].forEach(opt => {
+                const btn = document.createElement('button');
+                btn.className = 'btn-option';
+                btn.innerText = opt;
+                btn.onclick = (e) => checkAnswer(opt, state.currentCorrectAnswer, btn, mode);
+                optArea.appendChild(btn);
+            });
+        }
+    }
+
+    function generateWrongAnswers(correct, count) {
+        let opts = [correct];
+        let attempts = 0;
+        while(opts.length < count && attempts < 20) {
+            let offset = [1, 5, 10, 25, -1, -5, -10, -25][Math.floor(Math.random() * 8)];
+            let wrong = correct + offset;
+            if (wrong > 0 && !opts.includes(wrong)) opts.push(wrong);
+            attempts++;
+        }
+        while(opts.length < count) {
+            let fallbackWrong = correct + Math.floor(Math.random() * 20) + 1;
+            if (!opts.includes(fallbackWrong)) opts.push(fallbackWrong);
+        }
+        return opts;
+    }
+
+    function renderOptions(options, formatter, correctId, mode) {
+        const optArea = document.getElementById('options-area');
+        options.sort(() => Math.random() - 0.5).forEach(opt => {
+            const btn = document.createElement('button');
+            btn.className = 'btn-option';
+            btn.innerText = formatter(opt);
+            btn.onclick = (e) => checkAnswer(opt, correctId, btn, mode);
+            optArea.appendChild(btn);
+        });
+    }
+
+    function checkAnswer(selectedId, correctId, btnElement, mode) {
+        const buttons = document.querySelectorAll('.btn-option');
+        buttons.forEach(b => b.style.pointerEvents = 'none');
+        
+        if (selectedId === correctId) {
+            // CORRECT
+            btnElement.classList.add('correct');
+            
+            if (mode === 'emergency') {
+                // Fix fire
+                state.grid[state.activeEmergencyIndex].onFire = false;
+                state.activeEmergencyIndex = -1;
+                recalculateStats();
+                renderGrid(false);
+                showNotification("Fire put out!", "var(--primary)");
+                spawnParticles(window.innerWidth/2, window.innerHeight/2, ['#2196F3', '#FFF'], 30, 'dust');
+            } else {
+                // Standard Reward
+                state.combo++;
+                let multiplier = Math.min(3, 1 + ((state.combo - 1) * 0.2)); 
+                let finalReward = Math.floor(state.currentReward * multiplier);
+                
+                state.money += finalReward;
+                updateUI();
+                
+                const rect = btnElement.getBoundingClientRect();
+                spawnParticles(rect.left + rect.width/2, rect.top + rect.height/2, CONFIG.coinColors, 20 + (state.combo * 5), 'coin');
+                
+                let notifText = `+${formatMoney(finalReward)}`;
+                if (state.combo > 1) notifText += `<br><span style="font-size:0.6em; color:#FF9800;">${state.combo}x COMBO! 🔥</span>`;
+                showNotification(notifText, 'var(--primary)');
+            }
+            
+            setTimeout(() => closeChallenge(), 1000);
+            
+        } else {
+            // WRONG
+            state.combo = 0; 
+            btnElement.classList.add('wrong');
+            document.getElementById('challenge-box').classList.add('screen-shake');
+            
+            if (mode === 'emergency') {
+                // If wrong on emergency, fail out immediately so they have to try again to fix the city
+                setTimeout(() => closeChallenge(), 800);
+            } else {
+                setTimeout(() => {
+                    document.getElementById('challenge-box').classList.remove('screen-shake');
+                    buttons.forEach(b => b.style.pointerEvents = 'auto');
+                    btnElement.classList.remove('wrong');
+                }, 500);
+            }
+        }
+    }
+
+    /* ==========================================================================
+       JUICE & EFFECTS ENGINE (PARTICLES & NOTIFICATIONS)
+       ========================================================================== */
+    function createFloatingText(text, x, y) {
+        const el = document.createElement('div');
+        el.className = 'floating-text';
+        el.innerText = text;
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 1500);
+    }
+
+    let notifTimeout;
+    function showNotification(text, color) {
+        const notif = document.getElementById('notification');
+        notif.innerHTML = text;
+        notif.style.color = color;
+        notif.style.opacity = '1';
+        notif.style.transform = 'translate(-50%, -60%) scale(1.1)';
+        
+        clearTimeout(notifTimeout);
+        notifTimeout = setTimeout(() => {
+            notif.style.opacity = '0';
+            notif.style.transform = 'translate(-50%, -50%) scale(1)';
+        }, 2000);
+    }
+
+    const canvas = document.getElementById('particle-canvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+
+    function spawnParticles(x, y, colors, count, type) {
+        const treasuryRect = document.getElementById('treasury-display').getBoundingClientRect();
+        const targetX = treasuryRect.left + treasuryRect.width / 2;
+        const targetY = treasuryRect.top + treasuryRect.height / 2;
+
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = Math.random() * 8 + 2;
+            particles.push({
+                x: x, y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 5,
+                radius: Math.random() * 6 + 4,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                life: 1,
+                decay: Math.random() * 0.02 + 0.01,
+                type: type,
+                targetX: targetX, targetY: targetY,
+                delay: Math.random() * 10 
+            });
+        }
+    }
+
+    function updateParticles() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        for (let i = particles.length - 1; i >= 0; i--) {
+            let p = particles[i];
+            
+            if (p.type === 'dust') {
+                p.vy += CONFIG.gravity;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= p.decay;
+                
+                if (p.y > canvas.height - p.radius) {
+                    p.y = canvas.height - p.radius;
+                    p.vy *= -CONFIG.particleBounce;
+                    p.vx *= 0.8;
+                }
+            } else if (p.type === 'coin') {
+                if (p.delay > 0) {
+                    p.delay--;
+                    p.y -= 2;
+                } else {
+                    const dx = p.targetX - p.x;
+                    const dy = p.targetY - p.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    p.vx = (dx / dist) * 18; // Faster travel
+                    p.vy = (dy / dist) * 18;
+                    
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    
+                    if (dist < 30) p.life -= 0.15;
+                }
+            }
+
+            if (p.life <= 0) {
+                particles.splice(i, 1);
+                continue;
+            }
+
+            ctx.globalAlpha = Math.max(0, p.life);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fillStyle = p.color;
+            ctx.fill();
+            
+            if (p.type === 'coin') {
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+                ctx.stroke();
+            }
+        }
+        ctx.globalAlpha = 1; 
+        requestAnimationFrame(updateParticles);
+    }
+
+    // Initialize Game
+    window.onload = initGame;
+
+</script>
+</body>
+</html>
