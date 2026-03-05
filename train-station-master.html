@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Train Station Master</title>
+    <style>
+        :root {
+            --bg-color: #2c3e50;
+            --station-floor: #7f8c8d;
+            --accent-color: #f1c40f;
+            --text-color: #ecf0f1;
+            --danger: #e74c3c;
+            --success: #2ecc71;
+            
+            /* Train Colors */
+            --train-blue: #2980b9;
+            --train-red: #c0392b;
+            --train-black: #2c3e50;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text-color);
+            touch-action: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: linear-gradient(to bottom, #1a1a2e, #16213e);
+        }
+
+        /* --- HUD --- */
+        #hud {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background: rgba(0,0,0,0.6);
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            position: relative;
+        }
+
+        .stat {
+            font-size: 1.2rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #level-indicator {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,255,255,0.15);
+            padding: 4px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
+            z-index: 90;
+        }
+
+        #strikes-container {
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            color: var(--danger);
+            font-size: 1.5rem;
+            letter-spacing: 5px;
+            z-index: 90;
+        }
+
+        /* Wave Timer */
+        #wave-timer-bg {
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 100%;
+            height: 5px;
+            background: #222;
+        }
+        #wave-timer-fill {
+            height: 100%;
+            width: 100%;
+            background: var(--success);
+            transform-origin: left;
+            transition: transform 0.1s linear, background-color 0.3s;
+        }
+
+        /* --- PLAY AREA --- */
+        #play-area {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Schedule Board */
+        #schedule-board {
+            background: #222;
+            border: 4px solid #444;
+            margin: 20px 10px 10px 10px;
+            padding: 10px;
+            border-radius: 8px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.8), 0 5px 15px rgba(0,0,0,0.5);
+            min-height: 80px;
+        }
+
+        .schedule-card {
+            background: #111;
+            border: 2px solid var(--accent-color);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+
+        .schedule-card:active { transform: scale(0.95); }
+        .schedule-card.selected {
+            background: var(--accent-color);
+            color: #000;
+            box-shadow: 0 0 15px var(--accent-color);
+        }
+        .schedule-card.matched {
+            opacity: 0.2;
+            pointer-events: none;
+            border-color: #555;
+            background: #222;
+            color: #555;
+        }
+
+        .city-name { font-size: 0.8rem; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; }
+        .time-display { font-size: 1.4rem; font-weight: bold; margin-top: 4px; }
+
+        /* Platforms */
+        #platforms {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-evenly;
+            padding: 0 10px;
+        }
+
+        .platform {
+            height: 100px;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.05), transparent);
+            border-bottom: 4px dashed #555;
+            position: relative;
+            display: flex;
+            align-items: flex-end;
+            padding-bottom: 5px;
+        }
+
+        /* Train */
+        .train {
+            position: absolute;
+            left: -320px;
+            width: 300px;
+            height: 95px;
+            border-radius: 10px 40px 10px 10px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 25px;
+            transition: left 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 8px 15px rgba(0,0,0,0.4), inset -5px 0 10px rgba(0,0,0,0.2);
+            cursor: pointer;
+            z-index: 10;
+            border-bottom: 6px solid #555;
+        }
+
+        .train::before {
+            content: '';
+            position: absolute;
+            left: 20px;
+            bottom: -15px;
+            width: 30px;
+            height: 30px;
+            background: #222;
+            border-radius: 50%;
+            border: 3px solid #555;
+            box-shadow: 60px 0 0 #222, 120px 0 0 #222, 180px 0 0 #222; /* Wheels */
+        }
+
+        .train.leaving {
+            left: 120% !important;
+            transition: left 1s ease-in !important;
+        }
+
+        .train.failed {
+            filter: grayscale(1);
+            transition: left 1s ease-in;
+            left: 120% !important;
+        }
+
+        /* Train Delay Tag */
+        .delay-tag {
+            position: absolute;
+            top: -15px;
+            right: 10px;
+            background: var(--danger);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 10px;
+            border: 2px solid white;
+            animation: pulse 1s infinite;
+        }
+
+        /* Clock */
+        .train-clock {
+            width: 80px;
+            height: 80px;
+            background: #fff;
+            border-radius: 50%;
+            border: 4px solid #333;
+            position: relative;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        .clock-ticks {
+            position: absolute;
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background: repeating-conic-gradient(from -1deg, #333 0deg, #333 2deg, transparent 2deg, transparent 30deg);
+            mask-image: radial-gradient(transparent 80%, black 81%);
+            -webkit-mask-image: radial-gradient(transparent 80%, black 81%);
+        }
+
+        .hand {
+            position: absolute;
+            bottom: 50%;
+            left: 50%;
+            background: #222;
+            transform-origin: bottom center;
+            border-radius: 4px;
+            transform: translateX(-50%);
+        }
+
+        .hour-hand { width: 4px; height: 22px; margin-left: -2px; }
+        .minute-hand { width: 3px; height: 32px; margin-left: -1.5px; background: var(--danger); }
+        .center-dot {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 8px; height: 8px;
+            background: #222;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .clock-number {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            font-size: 11px;
+            font-weight: bold;
+            color: #333;
+            pointer-events: none;
+        }
+
+        .clock-number span {
+            display: inline-block;
+            margin-top: 2px;
+        }
+
+        /* --- SCREENS --- */
+        .screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            z-index: 1000;
+            padding: 20px;
+            text-align: center;
+            overflow-y: auto;
+        }
+
+        .screen-center { justify-content: center; }
+
+        .hidden { display: none !important; }
+
+        button {
+            padding: 15px 40px;
+            font-size: 1.3rem;
+            background: var(--accent-color);
+            border: none;
+            border-radius: 50px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 6px 0 #b7950b;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+
+        button:active { transform: translateY(6px); box-shadow: 0 0 0 #b7950b; }
+        button:disabled { background: #555; color: #888; box-shadow: 0 6px 0 #333; cursor: not-allowed; }
+
+        /* Effects */
+        .particle { position: absolute; pointer-events: none; border-radius: 50%; z-index: 50; }
+        .floating-text {
+            position: absolute; font-weight: bold; font-size: 1.5rem; pointer-events: none;
+            animation: floatUp 1s forwards cubic-bezier(0.1, 0.8, 0.3, 1); z-index: 60;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-50px) scale(1.5); }
+        }
+
+        .shake { animation: shake 0.4s; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-15px); }
+            40% { transform: translateX(15px); }
+            60% { transform: translateX(-10px); }
+            80% { transform: translateX(10px); }
+        }
+        @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+        /* --- STATION BUILDER (SHOP) --- */
+        #station-diorama {
+            width: 100%;
+            max-width: 500px;
+            height: 250px;
+            background: #34495e;
+            border: 4px solid #555;
+            border-radius: 10px;
+            position: relative;
+            margin-bottom: 20px;
+            overflow: hidden;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .diorama-floor {
+            position: absolute; bottom: 0; width: 100%; height: 40%;
+            background: repeating-linear-gradient(45deg, #7f8c8d, #7f8c8d 10px, #95a5a6 10px, #95a5a6 20px);
+            border-top: 3px solid #2c3e50;
+        }
+        
+        /* Cosmetic Items appearing in diorama */
+        .cosmetic-item { position: absolute; font-size: 2rem; display: none; filter: drop-shadow(2px 4px 2px rgba(0,0,0,0.4)); }
+        #cosmetic-bench1 { bottom: 15%; left: 10%; font-size: 2.5rem; }
+        #cosmetic-bench2 { bottom: 15%; right: 10%; font-size: 2.5rem; transform: scaleX(-1); }
+        #cosmetic-plants { bottom: 20%; left: 25%; }
+        #cosmetic-trash { bottom: 10%; right: 30%; font-size: 1.5rem;}
+        #cosmetic-coffee { bottom: 18%; left: 40%; font-size: 3rem; }
+        #cosmetic-vending { bottom: 25%; right: 40%; font-size: 2.5rem; }
+        #cosmetic-luggage { bottom: 5%; left: 50%; }
+        #cosmetic-info { bottom: 20%; right: 15%; font-size: 3.5rem; }
+        #cosmetic-clock { top: 10%; left: 50%; transform: translateX(-50%); font-size: 3.5rem; }
+        #cosmetic-statue { bottom: 25%; left: 10%; font-size: 4rem; }
+        #cosmetic-roof { top: 0; left: 0; width: 100%; height: 20%; background: rgba(135, 206, 235, 0.3); border-bottom: 4px solid #fff; display:none; }
+
+        .shop-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+            max-width: 500px;
+            overflow-y: auto;
+            flex: 1;
+            padding-bottom: 20px;
+        }
+        .shop-item {
+            background: #2a2a3a; padding: 10px 15px; border-radius: 8px; border: 2px solid #555;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .shop-item h3 { margin: 0; font-size: 1rem; }
+        .shop-item.bought { opacity: 0.5; border-color: var(--success); }
+        .shop-item.bought button { display: none; }
+        .shop-btn { padding: 8px 15px; font-size: 1rem; margin-top: 0; }
+        
+        .header-wrap {
+            display: flex; justify-content: space-between; width: 100%; max-width: 500px; align-items: center;
+        }
+
+        /* --- NEW CHAOS & POWERUP STYLES --- */
+        .steam-cloud {
+            position: absolute; top: -10px; left: -10px; width: 100px; height: 100px;
+            background: radial-gradient(circle, rgba(200,200,200,0.95) 20%, rgba(255,255,255,0.8) 60%, transparent 80%);
+            border-radius: 50%; z-index: 20; cursor: pointer;
+            animation: cloudPuff 2s infinite alternate; filter: blur(3px);
+            display: flex; justify-content: center; align-items: center; font-size: 2rem;
+        }
+        @keyframes cloudPuff { 0% { transform: scale(1); } 100% { transform: scale(1.1); } }
+        
+        .passenger {
+            position: absolute; bottom: 5px; width: 15px; height: 30px;
+            background: #ecf0f1; border-radius: 8px; z-index: 15;
+            transition: all 0.5s ease-in; opacity: 0;
+        }
+
+        .dizzy-clock { transform: rotate(90deg) !important; }
+        .missing-number span { display: none !important; }
+        .missing-number.keep-number span { display: inline-block !important; }
+
+        #powerups-container {
+            position: absolute; bottom: 20px; right: 20px;
+            display: flex; gap: 10px; z-index: 90;
+        }
+        .powerup-btn {
+            width: 60px; height: 60px; border-radius: 50%; background: #34495e;
+            border: 3px solid #555; color: white; font-size: 1.5rem;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer; transition: all 0.2s; position: relative; display: none;
+        }
+        .powerup-btn.active { display: flex; border-color: var(--accent-color); }
+        .powerup-btn:active { transform: scale(0.9); }
+        .powerup-btn .badge {
+            position: absolute; top: -5px; right: -5px; background: var(--danger);
+            color: white; font-size: 0.8rem; font-weight: bold; border-radius: 50%;
+            width: 20px; height: 20px; display: flex; justify-content: center; align-items: center;
+        }
+        
+        .hint-glow { animation: hintPulse 1s infinite; box-shadow: 0 0 20px var(--success) !important; border-color: var(--success) !important; z-index: 100; }
+        @keyframes hintPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+
+        #rush-hour-banner {
+            position: absolute; top: 30%; left: -100%; width: 100%; background: var(--danger);
+            color: white; text-align: center; font-size: 3rem; font-weight: bold;
+            padding: 20px 0; z-index: 500; text-transform: uppercase; letter-spacing: 5px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5); transition: left 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        #rush-hour-banner.show { left: 0; }
+
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="hud">
+        <div class="stat">🚂 Departed: <span id="score-val">0</span></div>
+        <div class="stat">💰 <span id="coin-val">0</span></div>
+        <div id="wave-timer-bg"><div id="wave-timer-fill"></div></div>
+    </div>
+    <div id="level-indicator">Day 1</div>
+    <div id="strikes-container"></div>
+
+    <div id="play-area">
+        <div id="schedule-board">
+            <!-- Dynamic Schedule Cards go here -->
+        </div>
+        
+        <div id="platforms">
+            <div class="platform" id="p1" data-id="0"></div>
+            <div class="platform" id="p2" data-id="1"></div>
+            <div class="platform" id="p3" data-id="2"></div>
+        </div>
+        
+        <!-- NEW CHAOS ELEMENTS -->
+        <div id="powerups-container">
+            <div class="powerup-btn" id="btn-coffee" onclick="useCoffee()">☕<div class="badge" id="badge-coffee">0</div></div>
+            <div class="powerup-btn" id="btn-info" onclick="useHint()">ℹ️<div class="badge" id="badge-info">0</div></div>
+        </div>
+        <div id="rush-hour-banner">RUSH HOUR!</div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="screen screen-center">
+        <h1 style="font-size: 3rem; margin-bottom: 0; color: var(--accent-color);">TRAIN STATION MASTER</h1>
+        <p style="font-size: 1.2rem; max-width: 400px; line-height: 1.5;">Match the correct digital time on the board to the analog clock on the train! If you make a mistake, all trains leave angry.</p>
+        <div style="font-size: 4rem; margin: 10px 0;">🕒🚂</div>
+        <button id="start-btn">OPEN STATION</button>
+    </div>
+
+    <!-- Customization Shop -->
+    <div id="shop-screen" class="screen hidden">
+        <div class="header-wrap">
+            <h2 style="color: var(--accent-color); margin: 0;">MY STATION</h2>
+            <div style="font-size: 1.2rem; font-weight: bold;">💰 <span id="shop-coins">0</span></div>
+        </div>
+        <p style="margin: 5px 0 15px 0; font-size: 0.9rem;">End of Day. Decorate your station!</p>
+        
+        <div id="station-diorama">
+            <div class="diorama-floor"></div>
+            <!-- Cosmetic Elements -->
+            <div id="cosmetic-roof"></div>
+            <div class="cosmetic-item" id="cosmetic-bench1">🪑</div>
+            <div class="cosmetic-item" id="cosmetic-bench2">🪑</div>
+            <div class="cosmetic-item" id="cosmetic-plants">🪴</div>
+            <div class="cosmetic-item" id="cosmetic-trash">🗑️</div>
+            <div class="cosmetic-item" id="cosmetic-coffee">☕</div>
+            <div class="cosmetic-item" id="cosmetic-vending">🥤</div>
+            <div class="cosmetic-item" id="cosmetic-luggage">🧳</div>
+            <div class="cosmetic-item" id="cosmetic-info">ℹ️</div>
+            <div class="cosmetic-item" id="cosmetic-clock">🕰️</div>
+            <div class="cosmetic-item" id="cosmetic-statue">🗽</div>
+        </div>
+
+        <div class="shop-list" id="shop-list">
+            <!-- Populated by JS -->
+        </div>
+
+        <button onclick="startNextDay()" style="background: var(--success); width: 100%; max-width: 500px;">START NEXT DAY</button>
+    </div>
+
+    <!-- Game Over -->
+    <div id="game-over-screen" class="screen screen-center hidden">
+        <h1 style="color: var(--danger); font-size: 3.5rem; margin-bottom: 10px;">FIRED!</h1>
+        <p style="font-size: 1.5rem;">Too many angry trains!</p>
+        <h2 id="final-score" style="font-size: 2.5rem; color: var(--accent-color);">Trains Dispatched: 0</h2>
+        <button onclick="location.reload()">PLAY AGAIN</button>
+    </div>
+</div>
+
+<script>
+/**
+ * ==========================================
+ * ADJUSTABLE GAME PARAMETERS
+ * ==========================================
+ */
+const CONFIG = {
+    MAX_STRIKES: 3,
+    WAVES_PER_DAY: 4,
+    BASE_WAVE_TIME: 25000, // 25 seconds for a wave
+    CITIES: ["Silverton", "Mountain City", "Ocean Port", "Sunnyvale", "Winterfell", "Grand Junction"],
+    TRAIN_COLORS: ["var(--train-blue)", "var(--train-red)", "var(--train-black)"]
+};
+
+const SHOP_ITEMS = [
+    { id: 'benches', name: 'Waiting Benches (Cosmetic)', cost: 10, ui: ['cosmetic-bench1', 'cosmetic-bench2'] },
+    { id: 'plants', name: 'Potted Plants (Cosmetic)', cost: 15, ui: ['cosmetic-plants'] },
+    { id: 'trash', name: 'Recycling Bins (Cosmetic)', cost: 20, ui: ['cosmetic-trash'] },
+    { id: 'coffee', name: 'Coffee Cart (Unlocks Slow-Mo)', cost: 35, ui: ['cosmetic-coffee'] },
+    { id: 'vending', name: 'Vending Machine (Cosmetic)', cost: 45, ui: ['cosmetic-vending'] },
+    { id: 'luggage', name: 'Luggage Carts (Cosmetic)', cost: 55, ui: ['cosmetic-luggage'] },
+    { id: 'info', name: 'Info Desk (Unlocks Hints)', cost: 75, ui: ['cosmetic-info'] },
+    { id: 'clock', name: 'Grand Clock (Cosmetic)', cost: 100, ui: ['cosmetic-clock'] },
+    { id: 'statue', name: 'Hero Statue (+3s Wave Time)', cost: 150, ui: ['cosmetic-statue'] },
+    { id: 'roof', name: 'Glass Skylight Roof (Cosmetic)', cost: 200, ui: ['cosmetic-roof'] }
+];
+
+/**
+ * ==========================================
+ * GAME STATE
+ * ==========================================
+ */
+let state = {
+    score: 0,
+    coins: 0,
+    strikes: 0,
+    level: 1, // Day
+    currentWaveInDay: 0,
+    
+    activeTrains: [], // Trains currently on platforms
+    schedules: [],    // Options on the board
+    selectedScheduleIndex: -1,
+    
+    isPaused: true,
+    waveStartTime: 0,
+    waveTimeLimit: 0,
+    lastFrameTime: 0,
+    timeMultiplier: 1, // For coffee slow-mo
+    rushHourQueue: [], // For continuous spawns
+    
+    purchases: {},
+    powerups: { coffee: 0, info: 0 }
+};
+
+const dom = {
+    score: document.getElementById('score-val'),
+    coins: document.getElementById('coin-val'),
+    scheduleBoard: document.getElementById('schedule-board'),
+    platforms: [document.getElementById('p1'), document.getElementById('p2'), document.getElementById('p3')],
+    gameOver: document.getElementById('game-over-screen'),
+    shop: document.getElementById('shop-screen'),
+    strikes: document.getElementById('strikes-container'),
+    timerFill: document.getElementById('wave-timer-fill')
+};
+
+/**
+ * ==========================================
+ * AUDIO & SOUND EFFECTS
+ * ==========================================
+ */
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) audioCtx = new AudioContext();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playSound(type) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    const now = audioCtx.currentTime;
+    if (type === 'coin') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1200, now);
+        osc.frequency.exponentialRampToValueAtTime(1600, now + 0.1);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now); osc.stop(now + 0.3);
+    } else if (type === 'wrong') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.exponentialRampToValueAtTime(150, now + 0.3);
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.start(now); osc.stop(now + 0.4);
+    } else if (type === 'choo') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(300, now);
+        gain.gain.setValueAtTime(0.1, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now); osc.stop(now + 0.3);
+        setTimeout(() => {
+            if(audioCtx.state !== 'running') return;
+            const o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
+            o2.type = 'square'; o2.frequency.setValueAtTime(350, audioCtx.currentTime);
+            g2.gain.setValueAtTime(0.1, audioCtx.currentTime); g2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+            o2.connect(g2); g2.connect(audioCtx.destination);
+            o2.start(); o2.stop(audioCtx.currentTime + 0.4);
+        }, 150);
+    } else if (type === 'steam') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(100, now);
+        osc.frequency.exponentialRampToValueAtTime(500, now + 0.2);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+        osc.start(now); osc.stop(now + 0.2);
+    }
+}
+
+/**
+ * ==========================================
+ * INITIALIZATION
+ * ==========================================
+ */
+window.onload = () => {
+    setTimeout(init, 100);
+};
+
+function init() {
+    window.addEventListener('resize', resize);
+    resize();
+    
+    document.getElementById('start-btn').addEventListener('click', () => { initAudio(); startGame(); });
+    
+    dom.platforms.forEach(p => {
+        p.addEventListener('touchstart', (e) => { e.preventDefault(); handlePlatformClick(p.dataset.id); }, {passive: false});
+        p.addEventListener('mousedown', (e) => { e.preventDefault(); handlePlatformClick(p.dataset.id); });
+    });
+
+    buildShopUI();
+    updateStrikes();
+}
+
+function resize() {
+    const h = window.innerHeight;
+    document.body.style.height = `${h}px`;
+    document.getElementById('game-container').style.height = `${h}px`;
+}
+
+/**
+ * ==========================================
+ * CORE PROGRESSION & WAVES
+ * ==========================================
+ */
+function getDifficulty(day) {
+    // 2 days per skill step
+    let step = 60; // default to hours
+    let trainCount = 2;
+    let decoys = 1;
+    let delays = false;
+
+    if (day <= 2) { step = 60; trainCount = 2; decoys = 1; } // Hours
+    else if (day <= 4) { step = 30; trainCount = 2; decoys = 2; } // Half hours
+    else if (day <= 6) { step = 15; trainCount = 3; decoys = 1; delays = true; } // Quarters
+    else if (day <= 8) { step = 5; trainCount = 3; decoys = 2; delays = true; } // 5-mins
+    else { step = 1; trainCount = 3; decoys = 2; delays = true; } // Exact mins
+
+    return { step, trainCount, decoys, delays };
+}
+
+/**
+ * ==========================================
+ * POWERUPS
+ * ==========================================
+ */
+function updatePowerupUI() {
+    if (state.purchases['coffee']) {
+        document.getElementById('btn-coffee').classList.add('active');
+        document.getElementById('badge-coffee').innerText = state.powerups.coffee;
+    }
+    if (state.purchases['info']) {
+        document.getElementById('btn-info').classList.add('active');
+        document.getElementById('badge-info').innerText = state.powerups.info;
+    }
+}
+
+window.useCoffee = function() {
+    if (state.powerups.coffee > 0 && state.timeMultiplier === 1 && !state.isPaused) {
+        state.powerups.coffee--;
+        updatePowerupUI();
+        state.timeMultiplier = 0.3; // Slow mo
+        document.getElementById('game-container').style.filter = "sepia(0.3) hue-rotate(-15deg)";
+        setTimeout(() => {
+            state.timeMultiplier = 1;
+            document.getElementById('game-container').style.filter = "none";
+        }, 6000);
+        showFloatingText(window.innerWidth/2, window.innerHeight/2, "CAFFEINE RUSH! ☕", varColor('--accent-color'));
+    }
+}
+
+window.useHint = function() {
+    if (state.powerups.info > 0 && !state.isPaused) {
+        state.powerups.info--;
+        updatePowerupUI();
+        
+        // Find a valid pair
+        const train = state.activeTrains.find(t => !t.matched && !t.steamActive);
+        if (train) {
+            const schedIndex = state.schedules.findIndex(s => s.targetHour === train.targetHour && s.targetMinute === train.targetMinute && !s.matched);
+            if (schedIndex !== -1) {
+                const cards = document.querySelectorAll('.schedule-card');
+                if(cards[schedIndex]) cards[schedIndex].classList.add('hint-glow');
+                const trainEl = document.getElementById(`train-${train.id}`);
+                if(trainEl) trainEl.classList.add('hint-glow');
+                setTimeout(() => {
+                    if(cards[schedIndex]) cards[schedIndex].classList.remove('hint-glow');
+                    if(trainEl) trainEl.classList.remove('hint-glow');
+                }, 3000);
+            }
+        }
+    }
+}
+
+function startGame() {
+    document.getElementById('start-screen').classList.add('hidden');
+    state.isPaused = false;
+    startNextWave();
+    requestAnimationFrame(gameLoop);
+}
+
+function startNextWave() {
+    if (state.strikes >= CONFIG.MAX_STRIKES) return;
+
+    state.currentWaveInDay++;
+    if (state.currentWaveInDay > CONFIG.WAVES_PER_DAY) {
+        showShop();
+        return;
+    }
+
+    state.activeTrains = [];
+    state.schedules = [];
+    state.selectedScheduleIndex = -1;
+    state.rushHourQueue = [];
+    dom.platforms.forEach(p => p.innerHTML = '');
+    
+    const diff = getDifficulty(state.level);
+    const existingTimes = []; // to ensure no duplicate times in a wave
+    
+    // Rush hour check (Every 3rd day, 2nd wave)
+    const isRushHour = (state.level % 3 === 0 && state.currentWaveInDay === 2);
+    const totalTrains = isRushHour ? 6 : diff.trainCount;
+    
+    if (isRushHour) {
+        const banner = document.getElementById('rush-hour-banner');
+        banner.classList.add('show');
+        setTimeout(() => banner.classList.remove('show'), 2000);
+        playSound('wrong'); // dramatic effect
+    }
+
+    // 1. Generate core trains
+    for(let i=0; i<totalTrains; i++) {
+        let tData = generateUniqueTimeData(diff, existingTimes);
+        tData.matched = false;
+        tData.id = Date.now() + i;
+        
+        // Steam Event Logic
+        tData.steamActive = Math.random() < 0.25 && state.level > 1; // 25% chance of steam after day 1
+        
+        // Assign broken clocks logic
+        if (state.level >= 5 && Math.random() < 0.3) tData.clockType = 'roman';
+        else if (state.level >= 8 && Math.random() < 0.3) tData.clockType = 'missing';
+        else if (state.level >= 10 && Math.random() < 0.2) tData.clockType = 'dizzy';
+        else tData.clockType = 'normal';
+
+        if (i < 3) {
+            tData.platformId = i; // just assign sequentially for initial 3
+            state.activeTrains.push(tData);
+        } else {
+            state.rushHourQueue.push(tData);
+        }
+        state.schedules.push({...tData}); // copy for schedule board
+    }
+
+    // 2. Generate decoys
+    const numDecoys = isRushHour ? 4 : diff.decoys;
+    for(let i=0; i<numDecoys; i++) {
+        let tData = generateUniqueTimeData(diff, existingTimes);
+        tData.id = Date.now() + 100 + i;
+        state.schedules.push(tData);
+    }
+
+    // 3. Shuffle schedules
+    state.schedules.sort(() => Math.random() - 0.5);
+
+    // 4. Setup Timer
+    let baseTime = CONFIG.BASE_WAVE_TIME;
+    if (state.purchases['statue']) baseTime += 3000; // Hero statue bonus
+
+    state.waveTimeLimit = baseTime + (totalTrains * 1500); 
+    if (isRushHour) state.waveTimeLimit += 5000; 
+
+    state.waveStartTime = Date.now();
+    state.lastFrameTime = Date.now();
+
+    renderSchedule();
+    state.activeTrains.forEach(t => renderTrainDOM(t));
+    updatePowerupUI();
+}
+
+function generateUniqueTimeData(diff, existingTimes) {
+    let maxLoops = 50;
+    while(maxLoops-- > 0) {
+        let hour = Math.floor(Math.random() * 12) + 1;
+        let minute = 0;
+        
+        if (diff.step === 30) minute = [0, 30][Math.floor(Math.random()*2)];
+        else if (diff.step === 15) minute = [0, 15, 30, 45][Math.floor(Math.random()*4)];
+        else if (diff.step === 5) minute = Math.floor(Math.random()*12)*5;
+        else if (diff.step === 1) minute = Math.floor(Math.random()*60);
+
+        let displayHour = hour;
+        let displayMinute = minute;
+        let delayAmount = 0;
+
+        // Math puzzles (late trains)
+        if (diff.delays && Math.random() < 0.3) {
+            delayAmount = [15, 30, 45][Math.floor(Math.random() * 3)];
+            const totalMins = (hour * 60 + minute) + delayAmount;
+            displayHour = Math.floor(totalMins / 60) % 12 || 12;
+            displayMinute = totalMins % 60;
+        }
+
+        const timeStr = `${displayHour}:${displayMinute}`;
+        if (!existingTimes.includes(timeStr)) {
+            existingTimes.push(timeStr);
+            return {
+                hour, minute, targetHour: displayHour, targetMinute: displayMinute, delayAmount,
+                city: CONFIG.CITIES[Math.floor(Math.random() * CONFIG.CITIES.length)],
+                color: CONFIG.TRAIN_COLORS[Math.floor(Math.random() * CONFIG.TRAIN_COLORS.length)]
+            };
+        }
+    }
+    // Fallback if loop exhausts
+    return { hour:1, minute:0, targetHour:1, targetMinute:0, delayAmount:0, city: "Fallback", color: CONFIG.TRAIN_COLORS[0] };
+}
+
+
+/**
+ * ==========================================
+ * RENDERING
+ * ==========================================
+ */
+function renderTrainDOM(train) {
+    const plat = dom.platforms[train.platformId];
+    const trainEl = document.createElement('div');
+    trainEl.className = 'train';
+    trainEl.id = `train-${train.id}`;
+    trainEl.style.backgroundColor = train.color;
+    
+    if (train.delayAmount > 0) {
+        const tag = document.createElement('div');
+        tag.className = 'delay-tag';
+        tag.innerText = `+${train.delayAmount}m Late`;
+        trainEl.appendChild(tag);
+    }
+    
+    // Clock Construction
+    const clock = document.createElement('div');
+    clock.className = 'train-clock';
+    if (train.clockType === 'dizzy') clock.classList.add('dizzy-clock');
+    if (train.clockType === 'missing') clock.classList.add('missing-number');
+    
+    const ticks = document.createElement('div');
+    ticks.className = 'clock-ticks';
+    clock.appendChild(ticks);
+    
+    const romanNumerals = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+
+    for (let i = 1; i <= 12; i++) {
+        const numContainer = document.createElement('div');
+        numContainer.className = 'clock-number';
+        if (train.clockType === 'missing' && (i === 3 || i === 6 || i === 9 || i === 12)) {
+            numContainer.classList.add('keep-number');
+        }
+        numContainer.style.transform = `rotate(${i * 30}deg)`;
+        const numSpan = document.createElement('span');
+        numSpan.innerText = train.clockType === 'roman' ? romanNumerals[i-1] : i;
+        numSpan.style.transform = `rotate(-${i * 30}deg)`;
+        numContainer.appendChild(numSpan);
+        clock.appendChild(numContainer);
+    }
+    
+    const hHand = document.createElement('div');
+    hHand.className = 'hand hour-hand';
+    const hDeg = (train.hour * 30) + (train.minute * 0.5);
+    hHand.style.transform = `translateX(-50%) rotate(${hDeg}deg)`;
+    
+    const mHand = document.createElement('div');
+    mHand.className = 'hand minute-hand';
+    mHand.style.transform = `translateX(-50%) rotate(${train.minute * 6}deg)`;
+    
+    const dot = document.createElement('div');
+    dot.className = 'center-dot';
+    
+    clock.appendChild(hHand);
+    clock.appendChild(mHand);
+    clock.appendChild(dot);
+    
+    // Add Steam Event
+    if (train.steamActive) {
+        const steam = document.createElement('div');
+        steam.className = 'steam-cloud';
+        steam.innerText = '💨';
+        steam.onclick = (e) => {
+            e.stopPropagation();
+            playSound('steam');
+            steam.remove();
+            train.steamActive = false;
+            createParticles(e.clientX, e.clientY, '#fff');
+        };
+        clock.appendChild(steam);
+    }
+    
+    trainEl.appendChild(clock);
+    plat.appendChild(trainEl);
+    
+    setTimeout(() => { trainEl.style.left = '20px'; }, 50);
+}
+
+function renderSchedule() {
+    dom.scheduleBoard.innerHTML = '';
+    state.schedules.forEach((s, idx) => {
+        const card = document.createElement('div');
+        let classes = 'schedule-card';
+        if (state.selectedScheduleIndex === idx) classes += ' selected';
+        if (s.matched) classes += ' matched';
+        card.className = classes;
+        
+        card.innerHTML = `
+            <div class="city-name">${s.city}</div>
+            <div class="time-display">${s.targetHour}:${s.targetMinute.toString().padStart(2, '0')}</div>
+        `;
+        
+        card.onpointerdown = (e) => {
+            e.stopPropagation();
+            if(s.matched) return;
+            state.selectedScheduleIndex = idx;
+            renderSchedule();
+        };
+        dom.scheduleBoard.appendChild(card);
+    });
+}
+
+function updateHUD() {
+    dom.score.innerText = state.score;
+    dom.coins.innerText = state.coins;
+    document.getElementById('level-indicator').innerText = `Day ${state.level}`;
+}
+
+function updateStrikes() {
+    let strikeStr = "";
+    for(let i=0; i<CONFIG.MAX_STRIKES; i++) {
+        strikeStr += i < state.strikes ? "❌ " : "⚪ ";
+    }
+    dom.strikes.innerText = strikeStr;
+}
+
+/**
+ * ==========================================
+ * INTERACTIONS
+ * ==========================================
+ */
+function handlePlatformClick(platId) {
+    if (state.isPaused) return;
+    
+    const train = state.activeTrains.find(t => t.platformId == platId && !t.matched);
+    if (!train) return;
+
+    if (train.steamActive) {
+        flashElement(document.getElementById(`train-${train.id}`), 'shake');
+        return; // Must clear steam first
+    }
+
+    if (state.selectedScheduleIndex === -1) {
+        flashElement(dom.scheduleBoard, 'shake');
+        return;
+    }
+
+    const selectedSchedule = state.schedules[state.selectedScheduleIndex];
+
+    // Check match: The hours and minutes of the schedule must match the calculated target of the train
+    if (selectedSchedule.targetHour === train.targetHour && selectedSchedule.targetMinute === train.targetMinute) {
+        matchSuccess(train, selectedSchedule);
+    } else {
+        matchFail();
+    }
+}
+
+function matchSuccess(train, schedule) {
+    train.matched = true;
+    schedule.matched = true;
+    state.selectedScheduleIndex = -1;
+    
+    playSound('coin');
+    playSound('choo');
+    
+    const trainEl = document.getElementById(`train-${train.id}`);
+    if (trainEl) {
+        const plat = dom.platforms[train.platformId];
+        
+        // Passenger Boarding Animation
+        for (let i = 0; i < 3; i++) {
+            setTimeout(() => {
+                const pass = document.createElement('div');
+                pass.className = 'passenger';
+                pass.style.left = '30px';
+                plat.appendChild(pass);
+                setTimeout(() => {
+                    pass.style.left = '200px';
+                    pass.style.opacity = '1';
+                    setTimeout(() => pass.remove(), 400);
+                }, 50);
+            }, i * 150);
+        }
+
+        setTimeout(() => {
+            trainEl.classList.add('leaving');
+        }, 500); // Wait slightly for passengers
+
+        const rect = trainEl.getBoundingClientRect();
+        createParticles(rect.left + rect.width / 2, rect.top + rect.height / 2, varColor('--success'));
+        showFloatingText(rect.left + rect.width / 2, rect.top, "+5 💰", varColor('--success'));
+    }
+
+    state.score++;
+    state.coins += 5;
+    updateHUD();
+    renderSchedule();
+    
+    // Handle Rush Hour Queue
+    if (state.rushHourQueue.length > 0) {
+        setTimeout(() => {
+            if (state.isPaused) return;
+            const nextTrain = state.rushHourQueue.shift();
+            nextTrain.platformId = train.platformId;
+            state.activeTrains.push(nextTrain);
+            renderTrainDOM(nextTrain);
+            playSound('steam');
+        }, 1000);
+    }
+
+    // Check if Wave is Complete
+    if (state.activeTrains.every(t => t.matched) && state.rushHourQueue.length === 0) {
+        waveComplete();
+    }
+}
+
+function waveComplete() {
+    state.isPaused = true;
+    
+    // Calculate speed bonus
+    const elapsed = Date.now() - state.waveStartTime;
+    if (elapsed < state.waveTimeLimit * 0.5) {
+        state.coins += 10;
+        showFloatingText(window.innerWidth/2, window.innerHeight/3, "SPEED BONUS! +10💰", varColor('--accent-color'));
+    }
+
+    setTimeout(() => {
+        state.isPaused = false;
+        startNextWave();
+    }, 1500);
+}
+
+function matchFail() {
+    flashElement(document.getElementById('game-container'), 'shake');
+    showFloatingText(window.innerWidth/2, window.innerHeight/3, "WRONG MATCH!", varColor('--danger'));
+    playSound('wrong');
+    
+    state.selectedScheduleIndex = -1;
+    renderSchedule();
+    triggerWaveFailure();
+}
+
+function triggerWaveFailure() {
+    state.isPaused = true;
+    state.strikes++;
+    updateStrikes();
+    
+    // All unmatched trains leave angry
+    state.activeTrains.forEach(t => {
+        if (!t.matched) {
+            const el = document.getElementById(`train-${t.id}`);
+            if(el) {
+                el.classList.add('failed');
+                const rect = el.getBoundingClientRect();
+                showFloatingText(rect.left + rect.width / 2, rect.top, "ANGRY!", varColor('--danger'));
+            }
+        }
+    });
+
+    setTimeout(() => {
+        if (state.strikes >= CONFIG.MAX_STRIKES) {
+            gameOver();
+        } else {
+            state.isPaused = false;
+            startNextWave();
+        }
+    }, 1500);
+}
+
+/**
+ * ==========================================
+ * GAME LOOP (Wave Timer)
+ * ==========================================
+ */
+function gameLoop() {
+    if (!state.isPaused && state.activeTrains.length > 0) {
+        const now = Date.now();
+        const delta = now - state.lastFrameTime;
+        state.lastFrameTime = now;
+        
+        // Adjust elapsed time by multiplier (for coffee powerup)
+        state.waveStartTime += delta * (1 - state.timeMultiplier);
+        
+        const elapsed = now - state.waveStartTime;
+        const remaining = Math.max(0, 1 - (elapsed / state.waveTimeLimit));
+        
+        dom.timerFill.style.transform = `scaleX(${remaining})`;
+        
+        if (remaining < 0.25) dom.timerFill.style.backgroundColor = varColor('--danger');
+        else if (remaining < 0.5) dom.timerFill.style.backgroundColor = varColor('--accent-color');
+        else dom.timerFill.style.backgroundColor = varColor('--success');
+
+        if (remaining === 0) {
+            triggerWaveFailure();
+        }
+    } else {
+        state.lastFrameTime = Date.now();
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+/**
+ * ==========================================
+ * STATION BUILDER (SHOP)
+ * ==========================================
+ */
+function buildShopUI() {
+    const list = document.getElementById('shop-list');
+    list.innerHTML = '';
+    
+    SHOP_ITEMS.forEach(item => {
+        const div = document.createElement('div');
+        div.className = `shop-item ${state.purchases[item.id] ? 'bought' : ''}`;
+        div.id = `shop-item-${item.id}`;
+        
+        div.innerHTML = `
+            <div>
+                <h3>${item.name}</h3>
+                <small style="color:#aaa;">Cost: ${item.cost} 💰</small>
+            </div>
+            <button class="shop-btn" onclick="buyItem('${item.id}', ${item.cost})">BUY</button>
+        `;
+        list.appendChild(div);
+    });
+}
+
+function showShop() {
+    state.isPaused = true;
+    state.level++; // Prepare for next day
+    state.currentWaveInDay = 0;
+    
+    // Grant daily powerups
+    if (state.purchases['coffee']) state.powerups.coffee = 2; // 2 coffees per day
+    if (state.purchases['info']) state.powerups.info = 2; // 2 hints per day
+    updatePowerupUI();
+    
+    document.getElementById('shop-coins').innerText = state.coins;
+    updateHUD();
+    buildShopUI(); // Refresh buttons based on coins
+    
+    // Show purchased cosmetics
+    SHOP_ITEMS.forEach(item => {
+        if (state.purchases[item.id]) {
+            item.ui.forEach(uiId => document.getElementById(uiId).style.display = 'block');
+        }
+    });
+    
+    dom.shop.classList.remove('hidden');
+}
+
+function buyItem(id, cost) {
+    if (state.coins >= cost && !state.purchases[id]) {
+        state.coins -= cost;
+        state.purchases[id] = true;
+        
+        document.getElementById('shop-coins').innerText = state.coins;
+        
+        // Mark bought
+        document.getElementById(`shop-item-${id}`).classList.add('bought');
+        
+        // Reveal cosmetic with effect
+        const itemObj = SHOP_ITEMS.find(i => i.id === id);
+        itemObj.ui.forEach(uiId => {
+            const el = document.getElementById(uiId);
+            el.style.display = 'block';
+            el.classList.add('shake');
+            setTimeout(() => el.classList.remove('shake'), 400);
+            
+            const rect = el.getBoundingClientRect();
+            createParticles(rect.left + rect.width/2, rect.top + rect.height/2, varColor('--accent-color'));
+        });
+        
+        // Init powerups immediately if bought
+        if (id === 'coffee') state.powerups.coffee = 2;
+        if (id === 'info') state.powerups.info = 2;
+        updatePowerupUI();
+
+        updateHUD();
+    }
+}
+
+function startNextDay() {
+    dom.shop.classList.add('hidden');
+    state.isPaused = false;
+    updateHUD();
+    startNextWave();
+}
+
+function gameOver() {
+    state.isPaused = true;
+    dom.gameOver.classList.remove('hidden');
+    document.getElementById('final-score').innerText = `Trains Dispatched: ${state.score}`;
+}
+
+/**
+ * ==========================================
+ * EFFECTS
+ * ==========================================
+ */
+function flashElement(el, className) {
+    el.classList.add(className);
+    setTimeout(() => el.classList.remove(className), 400);
+}
+
+function varColor(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function createParticles(x, y, color) {
+    for (let i = 0; i < 12; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        p.style.backgroundColor = color;
+        const size = Math.random() * 8 + 4;
+        p.style.width = `${size}px`; p.style.height = `${size}px`;
+        p.style.left = `${x}px`; p.style.top = `${y}px`;
+        
+        const angle = Math.random() * Math.PI * 2;
+        const velocity = Math.random() * 60 + 20;
+        const tx = Math.cos(angle) * velocity;
+        const ty = Math.sin(angle) * velocity - 30;
+        
+        p.style.transition = 'all 0.6s cubic-bezier(0.1, 0.8, 0.3, 1)';
+        document.body.appendChild(p);
+        
+        setTimeout(() => {
+            p.style.transform = `translate(${tx}px, ${ty}px) scale(0)`;
+            p.style.opacity = '0';
+        }, 10);
+        setTimeout(() => p.remove(), 600);
+    }
+}
+
+function showFloatingText(x, y, text, color) {
+    const el = document.createElement('div');
+    el.className = 'floating-text';
+    el.style.left = `${x}px`; el.style.top = `${y}px`;
+    el.style.color = color; el.innerText = text;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1000);
+}
+
+</script>
+</body>
+</html>
