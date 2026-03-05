@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pirate Math Defender Deluxe</title>
+    <style>
+        /* =========================================================
+           CSS STYLES & UI POLISH
+           ========================================================= */
+        :root {
+            --primary-color: #2b659b;
+            --wood-dark: #3e2723;
+            --wood-light: #5d4037;
+            --gold: #ffd700;
+            --danger: #d32f2f;
+            --success: #388e3c;
+            --ocean: #0277bd;
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100dvh; 
+            overflow: hidden; background-color: var(--primary-color);
+            font-family: 'Trebuchet MS', sans-serif;
+            user-select: none; -webkit-user-select: none; touch-action: none;
+        }
+
+        #app {
+            display: flex; flex-direction: column; width: 100%; height: 100%;
+            background: linear-gradient(180deg, #4fc3f7 0%, #0288d1 100%);
+        }
+
+        /* --- Combat Area (Top) --- */
+        #combat-area {
+            flex: 0 0 35%;
+            position: relative;
+            background: linear-gradient(180deg, #4fc3f7 0%, var(--ocean) 100%);
+            border-bottom: 4px solid var(--wood-dark);
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        #combat-canvas { width: 100%; height: 100%; display: block; }
+        
+        #combat-ui {
+            position: absolute; top: 10px; left: 10px; right: 10px;
+            display: flex; justify-content: space-between;
+            pointer-events: none; text-shadow: 2px 2px 0 #000; color: white;
+            font-weight: bold; font-size: 1.2rem;
+        }
+        
+        #boss-warning {
+            position: absolute; top: 40%; left: 0; width: 100%; text-align: center;
+            color: var(--danger); font-size: 2.5rem; font-weight: bold;
+            text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 0 0 20px #f00;
+            pointer-events: none; opacity: 0; transition: opacity 0.3s;
+            transform: scale(1.5); animation: pulse-warning 1s infinite alternate;
+        }
+        @keyframes pulse-warning { from { transform: scale(1); } to { transform: scale(1.2); } }
+
+        /* --- Upgrade Bar (Middle) --- */
+        #upgrade-bar {
+            flex: 0 0 auto; background: var(--wood-dark); padding: 8px 10px;
+            display: flex; justify-content: space-around; align-items: center;
+            border-bottom: 4px solid #1a100e; z-index: 20; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        .upgrade-info {
+            color: var(--gold); font-weight: bold; font-size: 1rem;
+            text-align: center; text-shadow: 1px 1px 0 #000; line-height: 1.1;
+        }
+        .upg-pts-val { font-size: 1.8rem; display: block; }
+
+        .upg-btn {
+            background: var(--wood-light); border: 2px solid #8d6e63;
+            color: white; padding: 4px 8px; border-radius: 8px;
+            cursor: pointer; font-size: 0.85rem; font-weight: bold;
+            display: flex; flex-direction: column; align-items: center;
+            transition: transform 0.1s, background 0.2s; min-width: 65px;
+        }
+        .upg-btn span { font-size: 1.3rem; margin-bottom: 2px; }
+        .upg-btn.affordable {
+            background: var(--success); border-color: #1b5e20;
+            box-shadow: 0 0 10px var(--success);
+            animation: pulse-btn 1s infinite alternate;
+        }
+        .upg-btn:active { transform: scale(0.95); }
+        @keyframes pulse-btn { 0% { transform: scale(1); } 100% { transform: scale(1.05); } }
+
+        /* --- Play Area (Bottom) --- */
+        #play-area { flex: 1; display: flex; flex-direction: column; position: relative; }
+
+        #chests-area {
+            flex: 1; display: flex; justify-content: center; align-items: center;
+            flex-wrap: wrap; padding: 10px; gap: 15px; z-index: 20;
+        }
+
+        .chest {
+            background: var(--wood-light); border: 4px solid var(--wood-dark);
+            border-radius: 10px; width: 110px; height: 90px; position: relative;
+            box-shadow: inset 0 -15px 15px rgba(0,0,0,0.4), 0 5px 5px rgba(0,0,0,0.3);
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: flex-end; padding-bottom: 5px; transition: transform 0.2s;
+        }
+        .chest.satisfied { border-color: var(--success); box-shadow: 0 0 15px var(--success); transform: scale(1.05); }
+        .chest.overfull { border-color: var(--danger); box-shadow: 0 0 15px var(--danger); }
+        .chest.highlight { border-color: var(--gold); transform: scale(1.05); }
+
+        .pirate-icon { font-size: 2.2rem; position: absolute; top: -25px; pointer-events: none; filter: drop-shadow(0 2px 2px #000); }
+        .pirate-label { background: rgba(255,255,255,0.9); color: #333; font-size: 0.75rem; font-weight: bold; padding: 2px 6px; border-radius: 10px; text-align: center; pointer-events: none; margin-bottom: 5px; border: 2px solid var(--wood-dark); }
+        
+        .spyglass-value {
+            position: absolute; top: -55px; background: rgba(0, 0, 0, 0.8);
+            color: var(--gold); padding: 3px 8px; border-radius: 6px; font-size: 1rem;
+            font-weight: bold; border: 2px solid var(--gold); pointer-events: none; z-index: 50;
+        }
+
+        #deck-area {
+            height: 45%; background: repeating-linear-gradient(0deg, #6d4c41, #6d4c41 20px, #5d4037 20px, #5d4037 22px);
+            border-top: 6px solid var(--wood-dark); position: relative; z-index: 10;
+        }
+
+        #coins-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; overflow: visible; }
+        .coin {
+            position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-weight: bold; cursor: grab; pointer-events: auto;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.6);
+            border: 2px solid rgba(0,0,0,0.2); will-change: transform; user-select: none;
+        }
+        .coin:active { cursor: grabbing; }
+
+        #footer {
+            background: var(--wood-dark); padding: 10px 15px; display: flex;
+            justify-content: space-between; align-items: center; z-index: 100;
+        }
+
+        #target-display { color: var(--gold); font-size: 1.3rem; font-weight: bold; }
+
+        #submit-btn {
+            background: var(--success); color: white; border: 4px solid #1b5e20;
+            padding: 10px 30px; font-size: 1.4rem; font-weight: bold; border-radius: 20px;
+            cursor: pointer; box-shadow: 0 4px 0 #1b5e20;
+        }
+        #submit-btn:active { transform: translateY(4px); box-shadow: 0 0 0 #1b5e20; }
+
+        /* Overlays & FX */
+        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; flex-direction: column; z-index: 2000; color: white; text-align: center; padding: 20px; box-sizing: border-box; }
+        .hidden { display: none !important; }
+        .panel { background: var(--wood-light); border: 6px solid var(--wood-dark); padding: 30px; border-radius: 15px; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }
+        .btn-large { background: var(--gold); color: #333; border: none; padding: 15px 30px; font-size: 1.5rem; font-weight: bold; border-radius: 30px; cursor: pointer; margin-top: 20px; box-shadow: 0 6px 0 #b8860b; }
+        .btn-large:active { transform: translateY(4px); box-shadow: 0 0 0 #b8860b; }
+        
+        #msg-toast { position: absolute; top: 40%; left: 50%; transform: translateX(-50%); background: rgba(211, 47, 47, 0.95); color: white; padding: 12px 25px; border-radius: 12px; font-size: 1.2rem; font-weight: bold; z-index: 1500; pointer-events: none; opacity: 0; transition: opacity 0.2s; white-space: nowrap; border: 3px solid white; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+        
+        .floating-ui-text { position: absolute; font-weight: bold; pointer-events: none; z-index: 3000; animation: floatUpUI 1.5s ease-out forwards; text-shadow: 2px 2px 0 #000; font-size: 1.5rem; text-align: center; width: 100%; left: 0;}
+        @keyframes floatUpUI { 0% { transform: translateY(0) scale(0.5); opacity: 0; } 20% { transform: translateY(-20px) scale(1.2); opacity: 1; } 80% { transform: translateY(-60px) scale(1); opacity: 1; } 100% { transform: translateY(-80px) scale(1); opacity: 0; } }
+        
+        .shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake { 10%, 90% { transform: translate3d(-3px, 0, 0); } 20%, 80% { transform: translate3d(4px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-6px, 0, 0); } 40%, 60% { transform: translate3d(6px, 0, 0); } }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <!-- Combat Area -->
+    <div id="combat-area">
+        <canvas id="combat-canvas"></canvas>
+        <div id="combat-ui">
+            <div id="wave-display">Wave 1 / 20</div>
+            <div id="hp-display" style="color: #ff5252;">❤️ 100/100</div>
+        </div>
+        <div id="boss-warning">BOSS WAVE!</div>
+    </div>
+
+    <!-- Upgrades Bar -->
+    <div id="upgrade-bar">
+        <div class="upgrade-info">Points<span class="upg-pts-val" id="upg-pts">0</span></div>
+        <button class="upg-btn" id="btn-upg-cannon" onclick="buyUpgrade('cannon')"><span>💣</span>Cannons Lvl <b id="lvl-cannon">1</b></button>
+        <button class="upg-btn" id="btn-upg-fighter" onclick="buyUpgrade('fighter')"><span>⚔️</span>Fighters Lvl <b id="lvl-fighter">1</b></button>
+        <button class="upg-btn" id="btn-upg-captain" onclick="buyUpgrade('captain')"><span>🏴‍☠️</span>Captain Lvl <b id="lvl-captain">1</b></button>
+        <button class="upg-btn" id="btn-upg-boatswain" onclick="buyUpgrade('boatswain')"><span>🔨</span>Fixer Lvl <b id="lvl-boatswain">1</b></button>
+    </div>
+
+    <!-- Play Area -->
+    <div id="play-area">
+        <div id="chests-area"></div>
+        <div id="deck-area"></div>
+    </div>
+    
+    <!-- Footer -->
+    <div id="footer">
+        <div id="target-display">Loot: 0¢</div>
+        <button id="submit-btn">Split Done! 🪙</button>
+    </div>
+
+    <div id="coins-layer"></div>
+    <div id="msg-toast">Message</div>
+
+    <!-- Screens -->
+    <div id="start-screen" class="overlay">
+        <div class="panel">
+            <h1 style="color:var(--gold); margin-top:0; font-size: 2.2rem;">Math Defender 🏴‍☠️</h1>
+            <p>Enemy ships are attacking! Survive <b>20 Waves</b>.</p>
+            <p>Your ship fights automatically. <b>Solve the split puzzles</b> at the bottom to earn Upgrade Points.</p>
+            <div style="background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; margin: 15px 0;">
+                <b style="color:var(--gold)">🌟 PERFECT SPLIT BONUS 🌟</b><br>
+                Get the puzzle right on your <b>very first guess</b> to earn <b style="color:var(--success)">+2 Points</b> instead of 1!
+            </div>
+            <ul style="text-align:left; font-size:1.1rem; color:#ddd; margin-bottom: 20px;">
+                <li><b>💣 Cannons:</b> High damage, long range</li>
+                <li><b>⚔️ Fighters:</b> Rapid close-range defense</li>
+                <li><b>🏴‍☠️ Captain:</b> +Max HP & Faster Attack Speed</li>
+                <li><b>🔨 Fixer:</b> Passively heals the ship</li>
+            </ul>
+            <button class="btn-large" id="btn-start">Set Sail & Defend!</button>
+        </div>
+    </div>
+
+    <div id="game-over-screen" class="overlay hidden">
+        <div class="panel">
+            <h1 style="color:var(--danger)">Ship Sunk! 💥</h1>
+            <p id="death-stats" style="font-size: 1.5rem;">You survived until Wave X.</p>
+            <button class="btn-large" onclick="location.reload()">Try Again</button>
+        </div>
+    </div>
+
+    <div id="victory-screen" class="overlay hidden">
+        <div class="panel">
+            <h1 style="color:var(--success)">Victory! 🏆</h1>
+            <p style="font-size: 1.2rem;">You defeated the Kraken and survived all 20 waves. You are a true Mathematical Pirate Legend!</p>
+            <button class="btn-large" onclick="location.reload()">Play Again</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    /** =========================================================
+     * CONFIGURATION & STATE
+     * ========================================================= */
+    const CONFIG = {
+        coins: {
+            25: { val: 25, color: '#e6e8fa', size: 50, text: '25¢', textColor: '#333' },
+            10: { val: 10, color: '#a9a9a9', size: 36, text: '10¢', textColor: '#222' },
+            5:  { val: 5,  color: '#c0c0c0', size: 44, text: '5¢',  textColor: '#333' },
+            1:  { val: 1,  color: '#cd7f32', size: 40, text: '1¢',  textColor: '#fff' }
+        },
+        colors: { gold: '#ffd700', danger: '#ff5252', success: '#4caf50' },
+        spring: 0.2, friction: 0.8, deckBounce: 0.5,
+        maxWaves: 20
+    };
+
+    const State = {
+        // Puzzle State
+        puzzleCount: 0,
+        attemptsThisPuzzle: 0, // Used for Perfect Split bonus
+        pirates: [], coins: [], draggedCoin: null,
+        deckRect: { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 },
+        
+        // Upgrades
+        upgPoints: 0, upgrades: { cannon: 1, fighter: 1, captain: 1, boatswain: 1 },
+
+        // Combat State
+        wave: 1,
+        ship: { hp: 100, maxHp: 100, cannonTimer: 0, fighterTimer: 0, healTimer: 0 },
+        enemies: [], projectiles: [], particles: [], dmgTexts: [],
+        waveEnemiesLeftToSpawn: 0, waveSpawnTimer: 0, isSpawning: false,
+        bgScroll: 0,
+        lastTime: 0, gameActive: false
+    };
+
+    const Els = {
+        app: document.getElementById('app'), chestsArea: document.getElementById('chests-area'),
+        deckArea: document.getElementById('deck-area'), coinsLayer: document.getElementById('coins-layer'),
+        targetDisplay: document.getElementById('target-display'), toast: document.getElementById('msg-toast'),
+        combatCanvas: document.getElementById('combat-canvas'), upgPts: document.getElementById('upg-pts'),
+        waveDisp: document.getElementById('wave-display'), hpDisp: document.getElementById('hp-display'),
+        bossWarning: document.getElementById('boss-warning')
+    };
+    
+    const combatCtx = Els.combatCanvas.getContext('2d');
+
+    /** =========================================================
+     * INITIALIZATION
+     * ========================================================= */
+    function init() {
+        resize(); window.addEventListener('resize', resize);
+        document.getElementById('btn-start').addEventListener('click', startGame);
+        document.getElementById('submit-btn').addEventListener('click', checkSplit);
+        
+        // Drag Events (Passive: false for preventDefault)
+        document.addEventListener('pointerdown', handlePointerDown, { passive: false });
+        document.addEventListener('pointermove', handlePointerMove, { passive: false });
+        document.addEventListener('pointerup', handlePointerUp);
+        document.addEventListener('pointercancel', handlePointerUp);
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    function resize() {
+        Els.app.style.height = `${window.innerHeight}px`;
+        let cbRect = document.getElementById('combat-area').getBoundingClientRect();
+        Els.combatCanvas.width = cbRect.width; Els.combatCanvas.height = cbRect.height;
+        State.deckRect = Els.deckArea.getBoundingClientRect();
+        if (State.coins) State.coins.forEach(c => { if (!c.chestId && !c.isDragging) clampToDeck(c); });
+    }
+
+    function startGame() {
+        document.getElementById('start-screen').classList.add('hidden');
+        State.gameActive = true; State.wave = 1; State.upgPoints = 0; State.ship.hp = 100;
+        updateUpgradesUI(); startWave(); generatePuzzle();
+    }
+
+    /** =========================================================
+     * PUZZLE LOGIC & PERFECT SPLIT
+     * ========================================================= */
+    function generatePuzzle() {
+        Els.chestsArea.innerHTML = ''; Els.coinsLayer.innerHTML = '';
+        State.coins = []; State.pirates = []; State.draggedCoin = null;
+        State.puzzleCount++;
+        State.attemptsThisPuzzle = 0; // Reset perfect split tracker
+
+        let numPirates = Math.min(2 + Math.floor(State.puzzleCount / 4), 4);
+        let baseValue = (Math.floor(Math.random() * 5) + 3) * 5; 
+        
+        let hasGreedy = State.puzzleCount > 3 && Math.random() < 0.4;
+        let hasLazy = State.puzzleCount > 6 && Math.random() < 0.3;
+        if (hasLazy) baseValue = (Math.random() > 0.5) ? 25 : 50;
+
+        let pool = []; let totalLoot = 0;
+        for (let i = 0; i < numPirates; i++) {
+            let type = 'normal', target = baseValue;
+            if (hasLazy && i === numPirates - 1) type = 'lazy';
+            else if (hasGreedy && i === numPirates - 2) { type = 'greedy'; target = baseValue + 10; }
+
+            let chestId = `p_${i}`;
+            State.pirates.push({ id: chestId, type: type, target: target });
+            pool = pool.concat(generateCoinsForTarget(target, type === 'lazy'));
+            totalLoot += target;
+            createChestDOM(chestId, type, target);
+        }
+
+        Els.targetDisplay.innerText = `Loot: ${totalLoot}¢`;
+        State.deckRect = Els.deckArea.getBoundingClientRect();
+        
+        pool.sort(() => Math.random() - 0.5).forEach((val, idx) => {
+            let c = {
+                id: `c_${idx}`, val: val, chestId: null, isDragging: false,
+                x: State.deckRect.left + 30 + Math.random() * (State.deckRect.width - 60),
+                y: State.deckRect.top + 20 + Math.random() * (State.deckRect.height - 60),
+                tx: 0, ty: 0, vx: 0, vy: 0, el: createCoinDOM(val, `c_${idx}`)
+            };
+            c.tx = c.x; c.ty = c.y; State.coins.push(c);
+        });
+        checkChestSatisfaction();
+    }
+
+    function generateCoinsForTarget(amount, isLazy) {
+        let coins = [], rem = amount;
+        if (isLazy) { while(rem >= 25) { coins.push(25); rem-=25; } return coins; }
+        let opts = [25, 10, 5, 1];
+        while (rem > 0) {
+            let valids = opts.filter(o => o <= rem);
+            let pick = (Math.random() < 0.7) ? valids[0] : valids[Math.floor(Math.random()*valids.length)];
+            coins.push(pick); rem -= pick;
+        }
+        return coins;
+    }
+
+    function createChestDOM(id, type, target) {
+        let chest = document.createElement('div');
+        chest.className = 'chest'; chest.id = id;
+        
+        let icon = document.createElement('div'); icon.className = 'pirate-icon';
+        let label = document.createElement('div'); label.className = 'pirate-label';
+
+        if (type === 'normal') { icon.innerText = '🏴‍☠️'; label.innerText = 'Crewmate'; }
+        else if (type === 'greedy') { icon.innerText = '🤑'; label.innerHTML = `Greedy (+10¢)`; chest.style.borderColor = '#b8860b'; }
+        else if (type === 'lazy') { icon.innerText = '😴'; label.innerHTML = `Lazy (25¢ Only)`; chest.style.opacity = '0.9'; }
+
+        let spy = document.createElement('div'); spy.className = 'spyglass-value'; spy.id = `spy_${id}`; spy.innerText = '0¢';
+        chest.append(spy, icon, label); Els.chestsArea.appendChild(chest);
+    }
+
+    function createCoinDOM(val, id) {
+        let conf = CONFIG.coins[val]; let el = document.createElement('div');
+        el.className = 'coin'; el.id = id; el.style.width = el.style.height = `${conf.size}px`;
+        el.style.backgroundColor = conf.color; el.style.color = conf.textColor;
+        el.innerText = conf.text; Els.coinsLayer.appendChild(el); return el;
+    }
+
+    // Drag Logic (Condensed)
+    function handlePointerDown(e) { let el = e.target.closest('.coin'); if (el) { e.preventDefault(); let c = State.coins.find(x => x.id === el.id); if (c) { State.draggedCoin = c; c.isDragging = true; el.style.zIndex = 1000; let r = el.getBoundingClientRect(); c.ox = e.clientX - (r.left + r.width/2); c.oy = e.clientY - (r.top + r.height/2); c.tx = e.clientX - c.ox; c.ty = e.clientY - c.oy; } } }
+    function handlePointerMove(e) { if (State.draggedCoin) { e.preventDefault(); State.draggedCoin.tx = e.clientX - State.draggedCoin.ox; State.draggedCoin.ty = e.clientY - State.draggedCoin.oy; document.querySelectorAll('.chest').forEach(c => c.classList.remove('highlight')); let chest = getChestAt(e.clientX, e.clientY); if (chest) chest.classList.add('highlight'); } }
+    function handlePointerUp(e) { if (State.draggedCoin) { let c = State.draggedCoin; c.isDragging = false; c.el.style.zIndex = ''; let chest = getChestAt(e.clientX, e.clientY); if (chest) { let pType = State.pirates.find(p => p.id === chest.id).type; if (pType === 'lazy' && c.val !== 25) { showToast(`25¢ Coins Only! 😴`); bounceToDeck(c); } else { c.chestId = chest.id; let r = chest.getBoundingClientRect(); c.tx = r.left + r.width/2 + (Math.random()-0.5)*30; c.ty = r.top + r.height/2 + 10 + (Math.random()-0.5)*20; } } else { c.chestId = null; clampToDeck(c); } document.querySelectorAll('.chest').forEach(ch => ch.classList.remove('highlight')); State.draggedCoin = null; checkChestSatisfaction(); } }
+    function getChestAt(x, y) { for (let chest of document.querySelectorAll('.chest')) { let r = chest.getBoundingClientRect(); if (x >= r.left-10 && x <= r.right+10 && y >= r.top-10 && y <= r.bottom+10) return chest; } return null; }
+    function bounceToDeck(c) { c.chestId = null; c.tx = State.deckRect.left + State.deckRect.width/2; c.ty = State.deckRect.top + State.deckRect.height/2; }
+    function clampToDeck(c) { let pad = CONFIG.coins[c.val].size / 2; if (c.tx < State.deckRect.left + pad) { c.tx = State.deckRect.left + pad; c.vx *= -CONFIG.deckBounce; } if (c.tx > State.deckRect.right - pad) { c.tx = State.deckRect.right - pad; c.vx *= -CONFIG.deckBounce; } if (c.ty < State.deckRect.top + pad) { c.ty = State.deckRect.top + pad; c.vy *= -CONFIG.deckBounce; } if (c.ty > State.deckRect.bottom - pad) { c.ty = State.deckRect.bottom - pad; c.vy *= -CONFIG.deckBounce; } }
+
+    function checkChestSatisfaction() {
+        let totals = {}; State.pirates.forEach(p => totals[p.id] = 0);
+        State.coins.forEach(c => { if (c.chestId) totals[c.chestId] += c.val; });
+        State.pirates.forEach(p => {
+            let el = document.getElementById(p.id); let spy = document.getElementById(`spy_${p.id}`);
+            if (!el) return; el.classList.remove('satisfied', 'overfull'); spy.innerText = `${totals[p.id]}¢`;
+            if (totals[p.id] === p.target) el.classList.add('satisfied');
+            else if (totals[p.id] > p.target) el.classList.add('overfull');
+        });
+    }
+
+    function checkSplit() {
+        if (State.coins.filter(c => c.chestId === null).length > 0) { showToast("Distribute ALL coins to chests!"); return; }
+        State.attemptsThisPuzzle++; // Record an attempt
+        
+        let totals = {}; State.pirates.forEach(p => totals[p.id] = 0);
+        State.coins.forEach(c => { if (c.chestId) totals[c.chestId] += c.val; });
+        let wrong = State.pirates.find(p => totals[p.id] !== p.target);
+        
+        if (!wrong) {
+            // Success! Check for Perfect Split
+            if (State.attemptsThisPuzzle === 1) {
+                State.upgPoints += 2; // Perfect Split Bonus!
+                createFloatUI(`🌟 PERFECT SPLIT! +2 Pts 🌟`, '#ffd700');
+            } else {
+                State.upgPoints += 1;
+                createFloatUI(`Good Split! +1 Pt`, '#4caf50');
+            }
+            updateUpgradesUI(); generatePuzzle();
+        } else {
+            showToast("Amounts aren't fair! Try again.");
+            document.getElementById(wrong.id).style.borderColor = CONFIG.colors.danger;
+            setTimeout(() => document.getElementById(wrong.id).style.borderColor = '', 1000);
+        }
+    }
+
+    /** =========================================================
+     * UPGRADES & COMBAT STATS
+     * ========================================================= */
+    function buyUpgrade(type) {
+        if (State.upgPoints <= 0) { showToast("Not enough points!"); return; }
+        State.upgPoints--; State.upgrades[type]++;
+        
+        // Captain instantly heals the ship 20 HP
+        if (type === 'captain') {
+            State.ship.hp = Math.min(State.ship.hp + 20, getShipMaxHP());
+            addDmgText("+20", 100, Els.combatCanvas.height/2, '#4caf50');
+        }
+
+        updateUpgradesUI();
+    }
+
+    function updateUpgradesUI() {
+        Els.upgPts.innerText = State.upgPoints;
+        Els.upgPts.style.color = State.upgPoints > 0 ? '#4caf50' : '#fff';
+        
+        ['cannon', 'fighter', 'captain', 'boatswain'].forEach(t => {
+            document.getElementById(`lvl-${t}`).innerText = State.upgrades[t];
+            let btn = document.getElementById(`btn-upg-${t}`);
+            btn.classList.toggle('affordable', State.upgPoints > 0);
+        });
+        State.ship.maxHp = getShipMaxHP(); updateShipHPUI();
+    }
+
+    function getShipMaxHP() { return 100 + ((State.upgrades.captain - 1) * 20); }
+    function getCannonDmg() { return 20 + ((State.upgrades.cannon - 1) * 15); }
+    function getCannonRate() { return Math.max(0.4, 1.5 - ((State.upgrades.captain - 1) * 0.15)); }
+    function getFighterDmg() { return 8 + ((State.upgrades.fighter - 1) * 5); }
+    function getFighterRate() { return 0.5; }
+    function getBoatswainHeal() { return (State.upgrades.boatswain - 1) * 2; }
+
+    /** =========================================================
+     * TOWER DEFENSE COMBAT LOOP
+     * ========================================================= */
+    function startWave() {
+        if(State.wave > CONFIG.maxWaves) {
+            State.gameActive = false; document.getElementById('victory-screen').classList.remove('hidden'); return;
+        }
+        
+        Els.waveDisp.innerText = `Wave ${State.wave} / ${CONFIG.maxWaves}`;
+        
+        // Boss Wave Logic
+        let isBoss = State.wave % 5 === 0;
+        if (isBoss) {
+            Els.bossWarning.style.opacity = 1;
+            setTimeout(() => Els.bossWarning.style.opacity = 0, 3000);
+            State.waveEnemiesLeftToSpawn = 1; // Only 1 massive enemy
+        } else {
+            State.waveEnemiesLeftToSpawn = 4 + Math.floor(State.wave * 1.5);
+        }
+        
+        State.isSpawning = true; State.waveSpawnTimer = 0;
+    }
+
+    function updateShipHPUI() {
+        Els.hpDisp.innerText = `❤️ ${Math.floor(State.ship.hp)}/${State.ship.maxHp}`;
+        Els.hpDisp.style.color = State.ship.hp < State.ship.maxHp * 0.3 ? '#ff5252' : '#fff';
+    }
+
+    function updateCombat(dt) {
+        if (!State.gameActive) return;
+        let cw = Els.combatCanvas.width; let ch = Els.combatCanvas.height;
+        let shipX = 70;
+        
+        State.bgScroll = (State.bgScroll + 20 * dt) % 100; // Ocean Parallax
+
+        // 1. Spawning
+        if (State.isSpawning) {
+            State.waveSpawnTimer -= dt;
+            if (State.waveSpawnTimer <= 0) {
+                let isBoss = State.wave % 5 === 0;
+                let hpMulti = 1 + (State.wave * 0.2);
+                
+                let enemy = {
+                    id: Math.random(),
+                    x: cw + 50, y: isBoss ? ch/2 : 30 + Math.random() * (ch - 80),
+                    hp: isBoss ? 200 * hpMulti : 20 * hpMulti,
+                    maxHp: isBoss ? 200 * hpMulti : 20 * hpMulti,
+                    speed: isBoss ? 15 : 35 + (State.wave * 1.5),
+                    isBoss: isBoss,
+                    emoji: isBoss ? (State.wave === 20 ? '🦑' : '🏴‍☠️') : '🚤',
+                    size: isBoss ? 70 : 35,
+                    fireTimer: 2.0 // Bosses shoot back
+                };
+                
+                State.enemies.push(enemy);
+                State.waveEnemiesLeftToSpawn--;
+                State.waveSpawnTimer = isBoss ? 999 : Math.max(0.6, 2.5 - (State.wave * 0.05));
+                if (State.waveEnemiesLeftToSpawn <= 0) State.isSpawning = false;
+            }
+        } else if (State.enemies.length === 0) {
+            State.wave++; State.upgPoints += 1; // Clear bonus
+            createFloatUI("Wave Cleared! +1 Bonus Pt", '#4fc3f7');
+            updateUpgradesUI(); setTimeout(startWave, 2500); State.isSpawning = true;
+        }
+
+        // 2. Player Auto-Attacks
+        State.ship.cannonTimer -= dt; State.ship.fighterTimer -= dt;
+        if (State.enemies.length > 0) {
+            if (State.ship.cannonTimer <= 0) {
+                let target = State.enemies.reduce((p, c) => (c.x < p.x ? c : p));
+                State.projectiles.push({ type: 'cannon', x: shipX+20, y: ch/2, tx: target.x, ty: target.y, speed: 400, dmg: getCannonDmg(), isEnemy: false, targetId: target.id });
+                spawnCombatParticles(shipX+30, ch/2, '#ffaa00', 5); // Muzzle flash
+                State.ship.cannonTimer = getCannonRate();
+            }
+            let fighterRange = cw * 0.55;
+            let closeEnemies = State.enemies.filter(e => e.x < fighterRange);
+            if (closeEnemies.length > 0 && State.ship.fighterTimer <= 0) {
+                let target = closeEnemies[Math.floor(Math.random() * closeEnemies.length)];
+                State.projectiles.push({ type: 'fighter', x: shipX+10, y: ch/2 + (Math.random()-0.5)*40, tx: target.x, ty: target.y, speed: 600, dmg: getFighterDmg(), isEnemy: false, targetId: target.id });
+                State.ship.fighterTimer = getFighterRate();
+            }
+        }
+
+        // 3. Enemy Boss Attacks
+        State.enemies.forEach(e => {
+            if (e.isBoss) {
+                e.fireTimer -= dt;
+                if (e.fireTimer <= 0) {
+                    State.projectiles.push({ type: 'boss_shot', x: e.x-20, y: e.y, tx: shipX, ty: ch/2, speed: 150, dmg: 15 + (State.wave), isEnemy: true });
+                    e.fireTimer = 2.0;
+                }
+            }
+        });
+
+        // 4. Boatswain Healing
+        State.ship.healTimer -= dt;
+        if (State.ship.healTimer <= 0) {
+            let heal = getBoatswainHeal();
+            if (heal > 0 && State.ship.hp < State.ship.maxHp) {
+                State.ship.hp = Math.min(State.ship.maxHp, State.ship.hp + heal);
+                updateShipHPUI(); addDmgText(`+${heal}`, shipX, ch/2 - 30, '#4caf50');
+            }
+            State.ship.healTimer = 1.0;
+        }
+
+        // 5. Update Projectiles
+        for (let i = State.projectiles.length - 1; i >= 0; i--) {
+            let p = State.projectiles[i];
+            let dx = p.tx - p.x; let dy = p.ty - p.y; let dist = Math.hypot(dx, dy);
+            
+            if (dist < 15) { // Hit
+                if (p.isEnemy) {
+                    State.ship.hp -= p.dmg; updateShipHPUI();
+                    Els.app.classList.remove('shake'); void Els.app.offsetWidth; Els.app.classList.add('shake');
+                    spawnCombatParticles(shipX, ch/2, '#ff0000', 15);
+                    addDmgText(`-${Math.floor(p.dmg)}`, shipX, ch/2, '#ff5252');
+                    checkGameOver();
+                } else {
+                    let target = State.enemies.find(e => e.id === p.targetId);
+                    if (target) {
+                        target.hp -= p.dmg;
+                        spawnCombatParticles(target.x, target.y, p.type === 'cannon' ? '#ff4500' : '#fff', p.type === 'cannon' ? 12 : 5);
+                        addDmgText(`${Math.floor(p.dmg)}`, target.x, target.y, p.type === 'cannon' ? '#ff9800' : '#fff');
+                    }
+                }
+                State.projectiles.splice(i, 1);
+            } else {
+                p.x += (dx / dist) * p.speed * dt; p.y += (dy / dist) * p.speed * dt;
+                if(p.type === 'cannon') spawnCombatParticles(p.x, p.y, '#888', 1); // smoke trail
+            }
+        }
+
+        // 6. Update Enemies
+        for (let i = State.enemies.length - 1; i >= 0; i--) {
+            let e = State.enemies[i];
+            if (e.hp <= 0) {
+                spawnCombatParticles(e.x, e.y, '#ffd700', e.isBoss ? 40 : 15);
+                State.enemies.splice(i, 1); continue;
+            }
+            e.x -= e.speed * dt;
+            // Wake trail
+            if (Math.random() < 0.2) spawnCombatParticles(e.x + e.size/2, e.y + e.size/3, '#fff', 1);
+
+            // Crash into player
+            if (e.x < shipX + 30) {
+                let dmg = e.isBoss ? 50 : 10;
+                State.ship.hp -= dmg; updateShipHPUI();
+                Els.app.classList.remove('shake'); void Els.app.offsetWidth; Els.app.classList.add('shake');
+                spawnCombatParticles(shipX, e.y, '#ff0000', 25);
+                addDmgText(`-${dmg}`, shipX, ch/2, '#ff5252');
+                State.enemies.splice(i, 1);
+                checkGameOver();
+            }
+        }
+
+        drawCombat();
+    }
+    
+    function checkGameOver() {
+        if (State.ship.hp <= 0) {
+            State.gameActive = false;
+            document.getElementById('death-stats').innerText = `You survived until Wave ${State.wave}.`;
+            document.getElementById('game-over-screen').classList.remove('hidden');
+        }
+    }
+
+    function drawCombat() {
+        let cw = Els.combatCanvas.width; let ch = Els.combatCanvas.height;
+        combatCtx.clearRect(0, 0, cw, ch);
+
+        // Parallax Ocean Waves
+        combatCtx.strokeStyle = 'rgba(255,255,255,0.15)'; combatCtx.lineWidth = 2;
+        for(let i=0; i<5; i++) {
+            combatCtx.beginPath();
+            for(let x=0; x<cw; x+=20) {
+                let y = (ch * 0.3) + (i * 30) + Math.sin((x + State.bgScroll * (i+1)) * 0.05) * 10;
+                if(x===0) combatCtx.moveTo(x, y); else combatCtx.lineTo(x, y);
+            }
+            combatCtx.stroke();
+        }
+
+        let shipX = 70; let shipY = ch/2;
+        
+        // Player Wake
+        combatCtx.fillStyle = 'rgba(255,255,255,0.4)';
+        combatCtx.beginPath(); combatCtx.ellipse(shipX-20, shipY+20, 30, 8, 0, 0, Math.PI*2); combatCtx.fill();
+
+        // Player Ship (Gets bigger with upgrades!)
+        let pSize = 50 + (State.upgrades.cannon * 2);
+        combatCtx.font = `${pSize}px Arial`; combatCtx.textAlign = "center"; combatCtx.textBaseline = "middle";
+        combatCtx.fillText("🚢", shipX, shipY);
+
+        // Enemies
+        State.enemies.forEach(e => {
+            combatCtx.font = `${e.size}px Arial`; combatCtx.fillText(e.emoji, e.x, e.y);
+            // Health bar
+            let bw = e.isBoss ? 60 : 30;
+            combatCtx.fillStyle = '#000'; combatCtx.fillRect(e.x - bw/2, e.y - e.size/2 - 15, bw, 6);
+            combatCtx.fillStyle = '#f00'; combatCtx.fillRect(e.x - bw/2, e.y - e.size/2 - 15, bw * (Math.max(0, e.hp)/e.maxHp), 6);
+        });
+
+        // Projectiles
+        State.projectiles.forEach(p => {
+            combatCtx.beginPath();
+            if (p.type === 'cannon') { combatCtx.fillStyle = '#111'; combatCtx.arc(p.x, p.y, 6, 0, Math.PI*2); }
+            else if (p.type === 'boss_shot') { combatCtx.fillStyle = '#8e24aa'; combatCtx.arc(p.x, p.y, 8, 0, Math.PI*2); }
+            else { combatCtx.fillStyle = '#ffeb3b'; combatCtx.fillRect(p.x-4, p.y-2, 8, 4); }
+            combatCtx.fill();
+        });
+
+        // Particles
+        for(let i = State.particles.length - 1; i >= 0; i--) {
+            let p = State.particles[i]; p.x += p.vx; p.y += p.vy; p.life -= 0.03;
+            if(p.life <= 0) { State.particles.splice(i, 1); continue; }
+            combatCtx.globalAlpha = p.life; combatCtx.fillStyle = p.c;
+            combatCtx.beginPath(); combatCtx.arc(p.x, p.y, p.s, 0, Math.PI*2); combatCtx.fill();
+        }
+        combatCtx.globalAlpha = 1.0;
+
+        // Damage Texts
+        for(let i = State.dmgTexts.length - 1; i >= 0; i--) {
+            let d = State.dmgTexts[i]; d.y -= 1; d.life -= 0.02;
+            if(d.life <= 0) { State.dmgTexts.splice(i, 1); continue; }
+            combatCtx.globalAlpha = d.life;
+            combatCtx.font = "bold 20px Arial"; combatCtx.fillStyle = d.c;
+            combatCtx.strokeStyle = '#000'; combatCtx.lineWidth = 3;
+            combatCtx.strokeText(d.txt, d.x, d.y); combatCtx.fillText(d.txt, d.x, d.y);
+        }
+        combatCtx.globalAlpha = 1.0;
+    }
+
+    function spawnCombatParticles(x, y, color, count) {
+        for(let i=0; i<count; i++) {
+            State.particles.push({ x: x, y: y, vx: (Math.random()-0.5)*12, vy: (Math.random()-0.5)*12, life: 1.0, c: color, s: Math.random()*5+2 });
+        }
+    }
+    
+    function addDmgText(txt, x, y, color) {
+        State.dmgTexts.push({ txt: txt, x: x + (Math.random()-0.5)*20, y: y - 20, c: color, life: 1.0 });
+    }
+
+    /** =========================================================
+     * MASTER LOOP (Physics + Combat)
+     * ========================================================= */
+    function gameLoop(timestamp) {
+        let dt = (timestamp - State.lastTime) / 1000;
+        if (dt > 0.1) dt = 0.016; State.lastTime = timestamp;
+
+        // Physics Update
+        State.coins.forEach(c => {
+            if (c.isDragging) { c.vx = (c.tx - c.x) * (CONFIG.spring * 3); c.vy = (c.ty - c.y) * (CONFIG.spring * 3); }
+            else { c.vx += (c.tx - c.x) * CONFIG.spring; c.vy += (c.ty - c.y) * CONFIG.spring; }
+            c.vx *= CONFIG.friction; c.vy *= CONFIG.friction; c.x += c.vx; c.y += c.vy;
+            c.el.style.transform = `translate3d(${c.x - CONFIG.coins[c.val].size/2}px, ${c.y - CONFIG.coins[c.val].size/2}px, 0) scale(${c.isDragging ? 1.1 : 1})`;
+        });
+
+        updateCombat(dt); requestAnimationFrame(gameLoop);
+    }
+
+    // Utilities
+    let tTimer;
+    function showToast(msg) { Els.toast.innerText = msg; Els.toast.style.opacity = 1; clearTimeout(tTimer); tTimer = setTimeout(() => Els.toast.style.opacity = 0, 2500); }
+    function createFloatUI(txt, color) { let el = document.createElement('div'); el.className = 'floating-ui-text'; el.innerText = txt; el.style.color = color; el.style.top = '45%'; document.body.appendChild(el); setTimeout(() => el.remove(), 1500); }
+
+    init();
+</script>
+</body>
+</html>
