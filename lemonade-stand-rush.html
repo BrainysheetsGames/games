@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Lemonade Stand Rush</title>
+    <style>
+        /* =======================================================================
+           CSS VARIABLES & THEME
+           ======================================================================= */
+        :root {
+            --sky: #4CA1AF; --sky-light: #C4E0E5;
+            --grass: #56ab2f; --grass-light: #a8e063;
+            --wood-light: #e1b382; --wood-dark: #c89666;
+            --lemon: #FFD700; --text-dark: #2C3E50;
+            --white: #FFF; --danger: #FF416C;
+            --success: #00b09b; --fever: #FF4500;
+            --copper: #d4a373; --silver: #e0e0e0;
+            --silver-dark: #a0a0a0; --gold: #FFD700;
+        }
+
+        * {
+            box-sizing: border-box; user-select: none; -webkit-user-select: none;
+            touch-action: manipulation; font-family: 'Comic Sans MS', 'Chalkboard SE', 'Marker Felt', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100vh; height: 100dvh; 
+            background-color: #111; overflow: hidden; display: flex;
+            justify-content: center; align-items: center;
+        }
+
+        #game-wrapper {
+            position: relative; width: 100%; max-width: 800px; height: 100%;
+            background: linear-gradient(to bottom, var(--sky) 0%, var(--sky-light) 40%, var(--grass-light) 40%, var(--grass) 100%);
+            overflow: hidden; box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            transition: background 0.3s, filter 0.3s;
+        }
+
+        #game-wrapper.fever-mode {
+            background: linear-gradient(to bottom, #ff4e50 0%, #f9d423 40%, #f12711 40%, #f5af19 100%);
+            box-shadow: inset 0 0 50px var(--fever), 0 0 30px rgba(0,0,0,0.8);
+            animation: pulse-fever 0.5s infinite alternate;
+        }
+
+        @keyframes pulse-fever {
+            0% { filter: contrast(1.1) brightness(1); }
+            100% { filter: contrast(1.3) brightness(1.2); }
+        }
+
+        /* =======================================================================
+           UI SCREENS
+           ======================================================================= */
+        .screen {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(10, 10, 20, 0.95); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 1000;
+            color: var(--white); text-align: center; padding: 20px;
+            backdrop-filter: blur(5px); transition: opacity 0.3s ease;
+        }
+        .hidden { display: none !important; opacity: 0; pointer-events: none; }
+
+        h1 { font-size: 3.5rem; color: var(--lemon); text-shadow: 4px 4px 0 #000; margin-bottom: 5px; line-height: 1.1; animation: float 3s ease-in-out infinite; will-change: transform;}
+        h2 { font-size: 2.2rem; margin: 10px 0; color: var(--white); text-shadow: 2px 2px 0 #000;}
+        p { font-size: 1.2rem; max-width: 500px; margin-bottom: 20px; line-height: 1.4; color: #ddd;}
+
+        .btn {
+            background: linear-gradient(to bottom, #ffe259, #ffa751);
+            color: #000; border: 4px solid #000; padding: 15px 40px;
+            font-size: 1.8rem; font-weight: 900; border-radius: 30px;
+            cursor: pointer; box-shadow: 0 8px 0 #000; text-transform: uppercase;
+            transition: transform 0.1s, box-shadow 0.1s; margin: 10px; will-change: transform;
+        }
+        .btn:active { transform: translateY(8px); box-shadow: 0 0px 0 #000; }
+
+        /* =======================================================================
+           GAMEPLAY UI & HUD
+           ======================================================================= */
+        #hud {
+            position: absolute; top: 10px; left: 10px; right: 10px;
+            display: flex; justify-content: space-between; z-index: 10; gap: 5px;
+        }
+        .hud-box {
+            background: rgba(255,255,255,0.9); border: 3px solid #000; border-radius: 12px;
+            padding: 8px 10px; font-size: 1.2rem; font-weight: 900; color: #000;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.3); display: flex; align-items: center; gap: 5px;
+        }
+        #ui-time.danger { color: var(--danger); animation: pulse-time 0.5s infinite alternate; }
+        .bounce { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        
+        @keyframes pulse-time { 0% { transform: scale3d(1,1,1); } 100% { transform: scale3d(1.2,1.2,1); } }
+
+        #combo-container {
+            position: absolute; top: 70px; right: 10px; text-align: right; z-index: 10;
+            opacity: 0; transition: opacity 0.3s; will-change: opacity;
+        }
+        #combo-container.active { opacity: 1; }
+        #combo-text { font-size: 2.5rem; font-weight: 900; color: #FF4500; text-shadow: 3px 3px 0 #FFF, -1px -1px 0 #000; font-style: italic; transition: transform 0.1s;}
+        .fever-text { animation: rainbow 2s linear infinite, shake 0.2s infinite; }
+
+        @keyframes rainbow { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }
+
+        /* =======================================================================
+           ENVIRONMENT & CUSTOMERS
+           ======================================================================= */
+        #stand-awning {
+            position: absolute; top: -20px; left: -5%; width: 110%; height: 120px;
+            background: repeating-linear-gradient(90deg, #ff416c, #ff416c 50px, #ffffff 50px, #ffffff 100px);
+            border-bottom: 6px solid #000; border-radius: 50% 50% 10% 10% / 30px 30px 10px 10px;
+            box-shadow: 0 15px 25px rgba(0,0,0,0.3); z-index: 5; transition: background 0.5s;
+        }
+
+        #customer-area {
+            position: absolute; top: 25%; width: 100%; height: 25%;
+            display: flex; justify-content: center; align-items: flex-end; z-index: 4;
+        }
+
+        #customer {
+            position: relative; font-size: 7rem; line-height: 1; will-change: transform, opacity;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s;
+            transform: translate3d(0, 100%, 0) scale3d(0.5, 0.5, 1); opacity: 0;
+        }
+        #customer.active { transform: translate3d(0, 0, 0) scale3d(1, 1, 1); opacity: 1; }
+        #customer.angry { animation: customer-angry 0.2s infinite; filter: hue-rotate(-30deg) saturate(2); }
+        
+        @keyframes customer-angry {
+            0% { transform: translate3d(2px, 2px, 0) scale3d(1.05, 1.05, 1); }
+            50% { transform: translate3d(-2px, -2px, 0) scale3d(1.05, 1.05, 1); }
+            100% { transform: translate3d(2px, -2px, 0) scale3d(1.05, 1.05, 1); }
+        }
+
+        #speech-bubble {
+            position: absolute; top: -80px; left: 50%; transform: translateX(-30%);
+            background: var(--white); border: 4px solid #000; border-radius: 25px;
+            padding: 12px 20px; font-size: 2rem; font-weight: 900; color: #000;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.2); opacity: 0; transition: opacity 0.2s; white-space: nowrap;
+        }
+        #speech-bubble::after {
+            content: ''; position: absolute; bottom: -12px; left: 25px;
+            border-width: 12px 12px 0; border-style: solid; border-color: var(--white) transparent transparent transparent;
+        }
+        #speech-bubble::before {
+            content: ''; position: absolute; bottom: -17px; left: 23px;
+            border-width: 15px 15px 0; border-style: solid; border-color: #000 transparent transparent transparent; z-index: -1;
+        }
+        #speech-bubble.active { opacity: 1; animation: bob 2s infinite ease-in-out; }
+
+        #patience-bar-container {
+            position: absolute; bottom: -15px; left: -10%; width: 120%; height: 12px;
+            background: rgba(0,0,0,0.6); border-radius: 6px; border: 2px solid #fff; overflow: hidden; opacity: 0;
+        }
+        #patience-bar-container.active { opacity: 1; }
+        #patience-bar { height: 100%; width: 100%; background: var(--success); transform-origin: left; transition: background 0.2s; will-change: width, background; }
+
+        /* =======================================================================
+           COUNTER & DRAWER
+           ======================================================================= */
+        #stand-counter {
+            position: absolute; bottom: 0; width: 100%; height: 50%;
+            background: var(--wood-light); border-top: 15px solid var(--wood-dark); z-index: 10;
+            display: flex; flex-direction: column; box-shadow: inset 0 20px 20px rgba(0,0,0,0.1);
+        }
+
+        #interaction-zone { flex: 1; display: flex; flex-direction: column; padding: 10px; gap: 10px; }
+
+        .counter-section {
+            background: rgba(255,255,255,0.4); border: 3px dashed var(--wood-dark); border-radius: 12px;
+            flex: 1; display: flex; align-items: center; padding: 15px 10px 5px 10px; position: relative;
+        }
+        .coins-container { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; align-items: center; }
+        
+        .counter-label {
+            position: absolute; top: -12px; left: 10px; background: #000; color: var(--white);
+            font-size: 0.9rem; padding: 4px 10px; border-radius: 12px; font-weight: bold; text-transform: uppercase;
+        }
+
+        #drawer {
+            height: 100px; background: #2c1e16; display: flex; justify-content: space-evenly;
+            align-items: center; padding: 10px; border-top: 6px solid #000; gap: 5px;
+            box-shadow: inset 0 10px 10px rgba(0,0,0,0.5);
+        }
+
+        /* =======================================================================
+           COINS & BILLS
+           ======================================================================= */
+        .bill {
+            background: #85bb65; color: #000; border: 2px solid #000; border-radius: 5px;
+            padding: 4px 12px; font-weight: 900; font-family: 'Courier New', Courier, monospace;
+            font-size: 1.2rem; box-shadow: 0 4px 0 rgba(0,0,0,0.4); animation: popIn 0.2s ease-out;
+            cursor: pointer; transition: transform 0.05s, box-shadow 0.05s, filter 0.05s;
+            display: flex; justify-content: center; align-items: center; height: 45px;
+        }
+        .bill:active {
+            transform: scale3d(0.95, 0.95, 1) translateY(4px);
+            box-shadow: 0 0px 0 rgba(0,0,0,0.4); filter: brightness(0.85);
+        }
+
+        .coin {
+            border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            font-weight: 900; color: #000; box-shadow: inset 0 0 8px rgba(255,255,255,0.6), 0 5px 0 rgba(0,0,0,0.4);
+            cursor: pointer; position: relative; transition: transform 0.05s, filter 0.05s; will-change: transform;
+        }
+        .coin:active { transform: scale3d(0.9, 0.9, 1) translateY(5px); box-shadow: inset 0 0 8px rgba(255,255,255,0.6), 0 0px 0 rgba(0,0,0,0.4); filter: brightness(0.8); }
+        
+        .drawer-slot { display: flex; flex-direction: column; align-items: center; color: var(--white); font-size: 0.8rem; font-weight: bold; }
+
+        .coin-1 { width: 45px; height: 45px; background: radial-gradient(circle at 30% 30%, #e6aa7d, var(--copper)); font-size: 1.1rem; border: 2px solid #8B4513; }
+        .coin-5 { width: 55px; height: 55px; background: radial-gradient(circle at 30% 30%, #ffffff, var(--silver)); font-size: 1.3rem; border: 2px solid var(--silver-dark); }
+        .coin-10 { width: 40px; height: 40px; background: radial-gradient(circle at 30% 30%, #ffffff, var(--silver)); font-size: 1rem; border: 2px solid var(--silver-dark); }
+        .coin-25 { width: 65px; height: 65px; background: radial-gradient(circle at 30% 30%, #ffffff, var(--silver)); font-size: 1.5rem; border: 2px solid var(--silver-dark); }
+        
+        /* Golden Upgrade */
+        .golden-coins .coin { background: radial-gradient(circle at 30% 30%, #ffff99, var(--gold)); border-color: #b8860b; }
+
+        .counter-section .coin, .counter-section .bill { transform: scale3d(0.85, 0.85, 1); box-shadow: 0 3px 0 rgba(0,0,0,0.3); margin: -4px; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .counter-section .coin:active, .counter-section .bill:active { transform: scale3d(0.75, 0.75, 1) translateY(3px); }
+
+        @keyframes popIn { 0% { transform: scale3d(0,0,1); } 100% { transform: scale3d(0.85,0.85,1); } }
+
+        /* Animated Flying Element */
+        .flying-element {
+            position: absolute; pointer-events: none; z-index: 200; will-change: transform, opacity;
+            animation: flyCoin 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+        @keyframes flyCoin {
+            0% { transform: scale3d(1,1,1); opacity: 1; }
+            50% { transform: scale3d(1.2,1.2,1); }
+            100% { transform: scale3d(0.8,0.8,1); opacity: 0.5; }
+        }
+
+        #action-buttons { display: flex; gap: 10px; padding: 0 10px 10px 10px; }
+        .action-btn {
+            flex: 1; padding: 12px; font-size: 1.4rem; font-weight: 900;
+            border: 4px solid #000; border-radius: 15px; cursor: pointer;
+            box-shadow: 0 6px 0 #000; transition: transform 0.05s, box-shadow 0.05s;
+            text-transform: uppercase; will-change: transform;
+        }
+        .action-btn:active { transform: translateY(6px); box-shadow: 0 0px 0 #000; }
+        #btn-give { background: linear-gradient(to bottom, #00b09b, #96c93d); color: #000; }
+        #btn-clear { background: linear-gradient(to bottom, #ff416c, #ff4b2b); color: #fff; }
+        
+        /* Auto Submit styling */
+        .auto-submit-active #btn-give { background: #555; color: #888; pointer-events: none; border-color: #333; box-shadow: 0 6px 0 #222; position: relative; overflow: hidden;}
+        .auto-submit-active #btn-give::after { content: 'AUTO'; position: absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: #fff; text-shadow: 0 0 5px #00e676; letter-spacing: 2px;}
+
+        /* =======================================================================
+           SHOP
+           ======================================================================= */
+        .shop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 600px; }
+        .shop-item {
+            background: rgba(0,0,0,0.5); border: 2px solid var(--lemon); border-radius: 15px;
+            padding: 15px; display: flex; flex-direction: column; justify-content: space-between;
+            align-items: center; text-align: center; gap: 10px;
+        }
+        .shop-item h3 { margin: 0; color: var(--lemon); font-size: 1.2rem; }
+        .shop-item p { margin: 0; font-size: 0.8rem; color: #ccc; line-height: 1.2;}
+        .buy-btn { font-size: 1.2rem; padding: 8px 15px; width: 100%; border-radius: 15px; }
+        .buy-btn:disabled { opacity: 0.4; filter: grayscale(1); cursor: not-allowed; }
+
+        /* =======================================================================
+           JUICE & EFFECTS
+           ======================================================================= */
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes bob { 0%, 100% { transform: translate3d(-30%, 0, 0); } 50% { transform: translate3d(-30%, -10px, 0); } }
+        
+        .shake { animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-3px, 0, 0); }
+            20%, 80% { transform: translate3d(5px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+            40%, 60% { transform: translate3d(8px, 0, 0); }
+        }
+
+        .floating-text {
+            position: absolute; font-size: 2.5rem; font-weight: 900; color: #00e676;
+            text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+            pointer-events: none; z-index: 300; animation: floatUpText 0.8s ease-out forwards;
+            white-space: nowrap; will-change: transform, opacity;
+        }
+        .floating-text.bad { color: #ff1744; }
+        .floating-text.bonus { color: #FFD700; font-size: 3rem; z-index: 400;}
+        @keyframes floatUpText {
+            0% { transform: translate3d(0,0,0) scale3d(0.5,0.5,1) rotate(-5deg); opacity: 1; }
+            50% { transform: translate3d(0,-60px,0) scale3d(1.3,1.3,1) rotate(5deg); opacity: 1; }
+            100% { transform: translate3d(0,-120px,0) scale3d(1,1,1) rotate(0deg); opacity: 0; }
+        }
+
+        .particle { position: absolute; pointer-events: none; z-index: 150; border-radius: 5px; will-change: transform, opacity; }
+
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <!-- UI Screens -->
+    <div id="screen-menu" class="screen">
+        <h1>🍋 Lemonade<br>Stand Rush</h1>
+        <p>Give exact change before customers lose patience. <br><br><b>The Goal:</b> Collect exactly <span style="color:var(--lemon)">2,500¢</span> by the end of Day 20!</p>
+        <button class="btn" onclick="Game.startGame()">Play Now</button>
+    </div>
+
+    <div id="screen-shop" class="screen hidden">
+        <h2>Day <span id="shop-day"></span> Complete! 🌙</h2>
+        <div style="font-size: 2rem; color: var(--lemon); font-weight: bold; margin-bottom: 10px; text-shadow: 2px 2px 0 #000;">
+            Bank: <span id="shop-funds">0</span>¢ <span style="font-size: 1.2rem; color:#ddd">/ 2500¢</span>
+        </div>
+        
+        <div class="shop-grid">
+            <div class="shop-item">
+                <div><h3>Patience Up</h3><p>Customers wait longer.</p></div>
+                <button class="btn buy-btn" id="buy-patience" onclick="Game.buyUpgrade('patience')"></button>
+            </div>
+            <div class="shop-item">
+                <div><h3>Tip Mastery</h3><p>Earn higher base tips.</p></div>
+                <button class="btn buy-btn" id="buy-tip" onclick="Game.buyUpgrade('tip')"></button>
+            </div>
+            <div class="shop-item">
+                <div><h3>Golden Coins</h3><p>Shiny coins (+20% tips).</p></div>
+                <button class="btn buy-btn" id="buy-gold" onclick="Game.buyUpgrade('gold')"></button>
+            </div>
+            <div class="shop-item" style="border-color: #00e676;">
+                <div><h3 style="color:#00e676">Auto-Submit</h3><p>Instantly accepts change.</p></div>
+                <button class="btn buy-btn" id="buy-auto" onclick="Game.buyUpgrade('auto')"></button>
+            </div>
+        </div>
+
+        <button class="btn" style="margin-top: 20px; font-size: 1.5rem; padding: 10px 30px;" onclick="Game.startDay()">Start Next Day ☀️</button>
+    </div>
+
+    <div id="screen-gameover" class="screen hidden">
+        <h1 id="gameover-title" style="color: var(--danger)">Bankrupt! 💸</h1>
+        <p id="gameover-desc">You upset too many customers or ran out of money.</p>
+        <button class="btn" onclick="Game.resetToMenu()">Main Menu</button>
+    </div>
+
+    <div id="screen-win" class="screen hidden">
+        <h1 style="color: var(--success)">You're Rich! 🤑</h1>
+        <p style="font-size: 1.5rem">You survived 20 Days and reached your goal of 2,500¢!</p>
+        <h2 id="win-stats" style="color: var(--lemon); font-size: 2.5rem; margin: 20px 0;"></h2>
+        <button class="btn" onclick="Game.resetToMenu()">Play Again</button>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div class="hud-box">Day <span id="ui-day">1/20</span></div>
+        <div class="hud-box" style="color:#009e15; flex-grow: 1; justify-content: center;">💰 <span id="ui-money">0</span>¢</div>
+        <div class="hud-box" id="ui-time-box">⏱️ <span id="ui-time">40</span>s</div>
+    </div>
+
+    <div id="combo-container">
+        <div id="combo-text">COMBO x<span id="ui-combo">0</span></div>
+    </div>
+
+    <div id="stand-awning"></div>
+
+    <!-- Customer Area -->
+    <div id="customer-area">
+        <div id="customer">
+            <div id="speech-bubble">
+                <span id="bubble-cost">0¢</span>
+            </div>
+            <div id="patience-bar-container">
+                <div id="patience-bar"></div>
+            </div>
+            <span id="customer-emoji">🧍</span>
+        </div>
+    </div>
+
+    <!-- Counter -->
+    <div id="stand-counter">
+        <div id="interaction-zone">
+            <div class="counter-section" id="zone-paid">
+                <div class="counter-label">Customer Paid</div>
+                <div class="coins-container" id="paid-coins-container"></div>
+            </div>
+            <div class="counter-section" id="zone-change">
+                <div class="counter-label" id="change-label">Change: <span id="ui-current-change" style="color:var(--danger)">0</span> / <span id="ui-target-change">0</span>¢</div>
+                <div class="coins-container" id="change-coins-container"></div>
+            </div>
+        </div>
+        <div id="action-buttons">
+            <button class="action-btn" id="btn-clear" onclick="Game.clearChange()">Clear (✗)</button>
+            <button class="action-btn" id="btn-give" onclick="Game.submitChange()">Give (✓)</button>
+        </div>
+        
+        <!-- Cash Drawer -->
+        <div id="drawer">
+            <div class="drawer-slot">
+                <div class="coin coin-1" onclick="Game.addMoney(1, this)">1¢</div>
+            </div>
+            <div class="drawer-slot">
+                <div class="coin coin-5" onclick="Game.addMoney(5, this)">5¢</div>
+            </div>
+            <div class="drawer-slot">
+                <div class="coin coin-10" onclick="Game.addMoney(10, this)">10¢</div>
+            </div>
+            <div class="drawer-slot">
+                <div class="coin coin-25" onclick="Game.addMoney(25, this)">25¢</div>
+            </div>
+            <div class="drawer-slot">
+                <div class="bill" onclick="Game.addMoney(100, this)">$1</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ============================================================================
+ * PROCEDURAL AUDIO ENGINE
+ * ============================================================================
+ */
+const AudioEngine = {
+    ctx: null,
+    init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+    playTone(freq, type, duration, vol=0.1, slideFreq=null) {
+        if (!this.ctx) return;
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        if (slideFreq) osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(); osc.stop(this.ctx.currentTime + duration);
+    },
+    clink() { this.playTone(1200, 'sine', 0.1, 0.2, 2000); this.playTone(1500, 'triangle', 0.1, 0.1); },
+    rustle() { this.playTone(400, 'sawtooth', 0.1, 0.1, 200); },
+    kaching() { 
+        this.playTone(800, 'square', 0.1, 0.1); 
+        setTimeout(() => this.playTone(1200, 'sine', 0.3, 0.2, 600), 50); 
+    },
+    error() { this.playTone(150, 'sawtooth', 0.3, 0.2, 100); },
+    tick() { this.playTone(800, 'square', 0.05, 0.05); },
+    combo() { this.playTone(400 + (Game.state.combo * 100), 'sine', 0.2, 0.2, 800 + (Game.state.combo * 100)); }
+};
+
+/**
+ * ============================================================================
+ * GAME CONFIGURATION
+ * ============================================================================
+ */
+const CONFIG = {
+    winGoal: 2500,
+    maxDays: 20,
+    dayLengthSeconds: 40,
+    basePatienceMs: 14000,
+    patienceDecreasePerDayMs: 800,
+    minPatienceMs: 4000,
+    
+    baseTip: 15,
+    penalty: 15,
+    timePenalty: 3,
+
+    costs: { patience: 50, tip: 80, gold: 200, auto: 400 },
+    upgrades: {
+        patienceMultiplier: 1.25,
+        tipMultiplierAddition: 0.5
+    },
+
+    emojis: ['🧍','🧍‍♂️','🧍‍♀️','🧑‍🦱','👩‍🦰','👨‍🦳','👵','👮','👷‍♀️','🧛','🦸‍♂️','🧟','🧙‍♀️','🕵️','👩‍🔬'],
+    
+    // Used for rendering paid bills and calculating change logic
+    bills: [
+        { value: 500, label: '$5' },
+        { value: 100, label: '$1' }
+    ],
+    // Elements used in the drawer and for rendering change given
+    changeElements: [
+        { value: 100, type: 'bill', class: 'bill', label: '$1' },
+        { value: 25, type: 'coin', class: 'coin-25', label: '25¢' },
+        { value: 10, type: 'coin', class: 'coin-10', label: '10¢' },
+        { value: 5,  type: 'coin', class: 'coin-5',  label: '5¢' },
+        { value: 1,  type: 'coin', class: 'coin-1',  label: '1¢' }
+    ]
+};
+
+/**
+ * ============================================================================
+ * GAME ENGINE
+ * ============================================================================
+ */
+const Game = {
+    state: {
+        money: 0, day: 1, timeLeft: 0, isPlaying: false, isProcessing: false,
+        cost: 0, paid: 0, changeRequired: 0, changeGiven: 0, playerCoins: [],
+        patienceLeft: 0, patienceTotal: 0, lastTick: 0, dayInterval: null,
+        combo: 0, feverMode: false,
+        upgrades: { patienceLvl: 0, tipLvl: 0, hasGold: false, hasAuto: false }
+    },
+
+    el: {},
+
+    init() {
+        this.el = {
+            wrapper: document.getElementById('game-wrapper'),
+            menu: document.getElementById('screen-menu'),
+            shop: document.getElementById('screen-shop'),
+            gameover: document.getElementById('screen-gameover'),
+            win: document.getElementById('screen-win'),
+            
+            uiMoney: document.getElementById('ui-money'),
+            uiDay: document.getElementById('ui-day'),
+            uiTime: document.getElementById('ui-time'),
+            uiTimeBox: document.getElementById('ui-time-box'),
+            uiChange: document.getElementById('ui-current-change'),
+            uiTarget: document.getElementById('ui-target-change'),
+            changeLabel: document.getElementById('change-label'),
+            
+            comboContainer: document.getElementById('combo-container'),
+            uiCombo: document.getElementById('ui-combo'),
+            comboText: document.getElementById('combo-text'),
+            
+            customer: document.getElementById('customer'),
+            speechBubble: document.getElementById('speech-bubble'),
+            bubbleCost: document.getElementById('bubble-cost'),
+            emoji: document.getElementById('customer-emoji'),
+            patienceContainer: document.getElementById('patience-bar-container'),
+            patienceBar: document.getElementById('patience-bar'),
+            
+            paidCoinsContainer: document.getElementById('paid-coins-container'),
+            changeCoinsContainer: document.getElementById('change-coins-container'),
+            zoneChange: document.getElementById('zone-change'),
+            drawer: document.getElementById('drawer'),
+            actionButtons: document.getElementById('action-buttons')
+        };
+
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        
+        // Universal Audio Unlock
+        ['click', 'touchstart', 'pointerdown'].forEach(evt => {
+            document.body.addEventListener(evt, () => AudioEngine.init(), {once:true, passive:true});
+        });
+    },
+
+    resize() {
+        document.body.style.height = `${window.innerHeight}px`;
+        this.el.wrapper.style.height = `${window.innerHeight}px`;
+    },
+
+    startGame() {
+        AudioEngine.init();
+        this.state.money = 0;
+        this.state.day = 1;
+        this.state.upgrades = { patienceLvl: 0, tipLvl: 0, hasGold: false, hasAuto: false };
+        this.el.drawer.className = ''; 
+        this.el.zoneChange.className = 'counter-section';
+        this.el.actionButtons.className = ''; 
+        
+        // Reset prices on restart
+        CONFIG.costs = { patience: 50, tip: 80, gold: 200, auto: 400 };
+
+        this.updateHUD();
+        this.startDay();
+    },
+
+    startDay() {
+        this.hideAllScreens();
+        this.state.timeLeft = CONFIG.dayLengthSeconds;
+        this.state.isPlaying = true;
+        this.state.isProcessing = false;
+        this.resetCombo();
+        this.updateHUD();
+
+        // Start Clock
+        this.state.dayInterval = setInterval(() => {
+            if(!this.state.isPlaying) return;
+            this.state.timeLeft--;
+            
+            if (this.state.timeLeft <= 10 && this.state.timeLeft > 0) {
+                AudioEngine.tick();
+                this.el.uiTimeBox.classList.add('danger');
+            } else {
+                this.el.uiTimeBox.classList.remove('danger');
+            }
+
+            this.updateHUD();
+            if (this.state.timeLeft <= 0) this.endDay();
+        }, 1000);
+
+        this.spawnCustomer();
+        this.loop();
+    },
+
+    endDay() {
+        this.state.isPlaying = false;
+        clearInterval(this.state.dayInterval);
+        this.el.customer.classList.remove('active');
+        this.el.speechBubble.classList.remove('active');
+        this.el.patienceContainer.classList.remove('active');
+        this.el.uiTimeBox.classList.remove('danger');
+        this.resetCombo();
+        
+        if (this.state.money < 0) {
+            this.gameOver("Bankrupt! 💸", "You upset too many customers or ran out of money.");
+        } else if (this.state.day >= CONFIG.maxDays) {
+            if (this.state.money >= CONFIG.winGoal) {
+                this.gameWin();
+            } else {
+                this.gameOver("Time's Up! ⏰", `You reached Day 20, but only saved ${this.state.money}¢.<br><br>You needed ${CONFIG.winGoal}¢ to win!`);
+            }
+        } else {
+            this.openShop();
+        }
+    },
+
+    openShop() {
+        AudioEngine.kaching();
+        document.getElementById('shop-day').innerText = this.state.day;
+        document.getElementById('shop-funds').innerText = this.state.money;
+        
+        this.updateShopButton('buy-patience', CONFIG.costs.patience, this.state.upgrades.patienceLvl < 5);
+        this.updateShopButton('buy-tip', CONFIG.costs.tip, this.state.upgrades.tipLvl < 5);
+        this.updateShopButton('buy-gold', CONFIG.costs.gold, !this.state.upgrades.hasGold);
+        this.updateShopButton('buy-auto', CONFIG.costs.auto, !this.state.upgrades.hasAuto);
+
+        this.showScreen('screen-shop');
+        this.state.day++;
+    },
+
+    updateShopButton(id, cost, condition) {
+        const btn = document.getElementById(id);
+        btn.innerText = condition ? `${cost}¢` : "MAXED";
+        btn.disabled = !condition || this.state.money < cost;
+    },
+
+    buyUpgrade(type) {
+        const cost = CONFIG.costs[type];
+        if (this.state.money >= cost) {
+            AudioEngine.kaching();
+            this.state.money -= cost;
+            if (type === 'patience') { this.state.upgrades.patienceLvl++; CONFIG.costs.patience = Math.floor(CONFIG.costs.patience * 1.5); }
+            if (type === 'tip') { this.state.upgrades.tipLvl++; CONFIG.costs.tip = Math.floor(CONFIG.costs.tip * 1.5); }
+            if (type === 'gold') { this.state.upgrades.hasGold = true; this.el.drawer.classList.add('golden-coins'); this.el.zoneChange.classList.add('golden-coins');}
+            if (type === 'auto') { this.state.upgrades.hasAuto = true; this.el.actionButtons.classList.add('auto-submit-active');}
+            
+            document.getElementById('shop-funds').innerText = this.state.money;
+            this.openShop();
+            this.updateHUD();
+        } else {
+            AudioEngine.error();
+        }
+    },
+
+    gameOver(title, desc) {
+        AudioEngine.error();
+        document.getElementById('gameover-title').innerHTML = title;
+        document.getElementById('gameover-desc').innerHTML = desc;
+        this.showScreen('screen-gameover');
+    },
+
+    gameWin() {
+        AudioEngine.kaching();
+        document.getElementById('win-stats').innerHTML = `Final Bank: ${this.state.money}¢`;
+        this.showScreen('screen-win');
+    },
+
+    resetToMenu() {
+        this.hideAllScreens();
+        this.showScreen('screen-menu');
+    },
+
+    // ================== CUSTOMER LOGIC ==================
+
+    spawnCustomer() {
+        this.state.isProcessing = false;
+        this.clearChange(true); // silent clear
+        this.el.customer.classList.remove('angry');
+        
+        let maxCost = 20 + (this.state.day * 20);
+        if (maxCost > 450) maxCost = 450; 
+        this.state.cost = Math.floor(Math.random() * (maxCost - 5)) + 5;
+        
+        let paymentOptions = [];
+        let next10 = Math.ceil(this.state.cost / 10) * 10;
+        let next25 = Math.ceil(this.state.cost / 25) * 25;
+        let next100 = Math.ceil(this.state.cost / 100) * 100;
+        let next500 = Math.ceil(this.state.cost / 500) * 500;
+        
+        if (next10 > this.state.cost) paymentOptions.push(next10);
+        if (next25 > this.state.cost) paymentOptions.push(next25);
+        if (next100 > this.state.cost) paymentOptions.push(next100);
+        if (this.state.day > 5 && next500 > this.state.cost) paymentOptions.push(next500); 
+        
+        paymentOptions.push(this.state.cost + [1, 5, 10, 25][Math.floor(Math.random()*4)]);
+
+        this.state.paid = paymentOptions[Math.floor(Math.random() * paymentOptions.length)];
+        this.state.changeRequired = this.state.paid - this.state.cost;
+
+        this.el.emoji.innerText = CONFIG.emojis[Math.floor(Math.random() * CONFIG.emojis.length)];
+        this.el.bubbleCost.innerText = `${this.state.cost}¢`;
+        this.el.uiTarget.innerText = this.state.changeRequired;
+
+        this.renderPaidCoins();
+
+        // Calculate Patience
+        let patience = CONFIG.basePatienceMs - (this.state.day * CONFIG.patienceDecreasePerDayMs);
+        patience *= Math.pow(CONFIG.upgrades.patienceMultiplier, this.state.upgrades.patienceLvl);
+        if (patience < CONFIG.minPatienceMs) patience = CONFIG.minPatienceMs;
+
+        this.state.patienceTotal = patience;
+        this.state.patienceLeft = patience;
+        this.state.lastTick = performance.now();
+
+        // Animate in
+        this.el.customer.classList.remove('active');
+        this.el.speechBubble.classList.remove('active');
+        this.el.patienceContainer.classList.remove('active');
+        
+        setTimeout(() => {
+            if(!this.state.isPlaying) return;
+            this.el.customer.classList.add('active');
+            setTimeout(() => {
+                this.el.speechBubble.classList.add('active');
+                this.el.patienceContainer.classList.add('active');
+            }, 200);
+        }, 50);
+    },
+
+    renderPaidCoins() {
+        let remaining = this.state.paid;
+        let html = '';
+        
+        for (let b of CONFIG.bills) {
+            while (remaining >= b.value) {
+                html += `<div class="bill">${b.label}</div>`;
+                remaining -= b.value;
+            }
+        }
+        for (let coin of CONFIG.changeElements) {
+            if (coin.type !== 'coin') continue;
+            while (remaining >= coin.value) {
+                html += `<div class="coin ${coin.class}">${coin.label}</div>`;
+                remaining -= coin.value;
+            }
+        }
+        this.el.paidCoinsContainer.innerHTML = html;
+    },
+
+    // ================== GAME LOOP ==================
+
+    loop() {
+        if (!this.state.isPlaying) return;
+
+        let now = performance.now();
+        let dt = now - this.state.lastTick;
+        this.state.lastTick = now;
+
+        if (this.el.patienceContainer.classList.contains('active') && !this.state.isProcessing) {
+            this.state.patienceLeft -= dt;
+            let percent = (this.state.patienceLeft / this.state.patienceTotal) * 100;
+            this.el.patienceBar.style.width = `${Math.max(0, percent)}%`;
+
+            if (percent > 50) {
+                this.el.patienceBar.style.background = 'var(--success)';
+                this.el.customer.classList.remove('angry');
+            } else if (percent > 25) {
+                this.el.patienceBar.style.background = '#ffa751';
+                this.el.customer.classList.remove('angry');
+            } else {
+                this.el.patienceBar.style.background = 'var(--danger)';
+                this.el.customer.classList.add('angry');
+            }
+
+            if (this.state.patienceLeft <= 0) this.handleTimeout();
+        }
+
+        requestAnimationFrame(() => this.loop());
+    },
+
+    // ================== INTERACTION LOGIC ==================
+
+    addMoney(val, btnEl) {
+        if (!this.state.isPlaying || this.state.isProcessing) return;
+        if (val >= 100) AudioEngine.rustle(); else AudioEngine.clink();
+        
+        this.state.playerCoins.push(val);
+        this.animateFlyingElement(btnEl);
+        this.updateChangeZone();
+
+        if (this.state.upgrades.hasAuto && this.state.changeGiven === this.state.changeRequired) {
+            this.state.isProcessing = true; // Lock interactions
+            setTimeout(() => { this.state.isProcessing = false; this.submitChange(); }, 100); 
+        }
+    },
+
+    animateFlyingElement(sourceEl) {
+        const rect = sourceEl.getBoundingClientRect();
+        const clone = sourceEl.cloneNode(true);
+        clone.classList.add('flying-element');
+        clone.style.left = `${rect.left}px`;
+        clone.style.top = `${rect.top}px`;
+        clone.style.margin = '0';
+        
+        document.body.appendChild(clone);
+        
+        const targetRect = this.el.zoneChange.getBoundingClientRect();
+        const tx = (targetRect.left + targetRect.width/2) - rect.left - rect.width/2 + (Math.random()*40-20);
+        const ty = (targetRect.top + targetRect.height/2) - rect.top - rect.height/2 + (Math.random()*20-10);
+        
+        clone.animate([
+            { transform: 'translate3d(0, 0, 0) scale3d(1,1,1)' },
+            { transform: `translate3d(${tx*0.5}px, ${ty - 50}px, 0) scale3d(1.3,1.3,1)` },
+            { transform: `translate3d(${tx}px, ${ty}px, 0) scale3d(0.8,0.8,1)` }
+        ], { duration: 200, easing: 'ease-in-out' }).onfinish = () => clone.remove();
+    },
+
+    removeCoin(index) {
+        if (!this.state.isPlaying || this.state.isProcessing) return;
+        AudioEngine.clink();
+        this.state.playerCoins.splice(index, 1);
+        this.updateChangeZone();
+    },
+
+    clearChange(silent = false) {
+        if (this.state.isProcessing) return;
+        if (!silent && this.state.playerCoins.length > 0) AudioEngine.clink();
+        this.state.playerCoins = [];
+        this.updateChangeZone();
+    },
+
+    updateChangeZone() {
+        this.state.changeGiven = this.state.playerCoins.reduce((a, b) => a + b, 0);
+        this.el.uiChange.innerText = this.state.changeGiven;
+        
+        if (this.state.changeGiven === this.state.changeRequired) {
+            this.el.uiChange.style.color = "var(--success)";
+            if(!this.state.upgrades.hasAuto) this.el.changeLabel.style.animation = "pulse-time 0.3s infinite alternate";
+        } else if (this.state.changeGiven > this.state.changeRequired) {
+            this.el.uiChange.style.color = "var(--danger)";
+            this.el.changeLabel.style.animation = "none";
+        } else {
+            this.el.uiChange.style.color = "#000";
+            this.el.changeLabel.style.animation = "none";
+        }
+        
+        let html = '';
+        this.state.playerCoins.forEach((val, idx) => {
+            let cDef = CONFIG.changeElements.find(c => c.value === val);
+            html += `<div class="${cDef.type} ${cDef.class}" onclick="Game.removeCoin(${idx})">${cDef.label}</div>`;
+        });
+        this.el.changeCoinsContainer.innerHTML = html;
+    },
+
+    submitChange() {
+        if (!this.state.isPlaying || this.state.isProcessing) return;
+        this.state.isProcessing = true;
+
+        if (this.state.changeGiven === this.state.changeRequired) {
+            this.handleSuccess();
+        } else {
+            this.handleError("WRONG CHANGE!");
+        }
+    },
+
+    handleSuccess() {
+        AudioEngine.kaching();
+        this.updateCombo(true);
+        
+        // Time Bonus
+        let speedPercent = this.state.patienceLeft / this.state.patienceTotal;
+        if (speedPercent > 0.8) {
+            this.state.timeLeft += 1;
+            this.spawnText("+1s", this.el.uiTimeBox, false, true);
+            this.el.uiTimeBox.classList.remove('bounce');
+            void this.el.uiTimeBox.offsetWidth;
+            this.el.uiTimeBox.classList.add('bounce');
+        }
+
+        // Calculate Tip
+        let tip = CONFIG.baseTip + Math.floor(speedPercent * 15);
+        let tipMult = 1 + (this.state.upgrades.tipLvl * CONFIG.upgrades.tipMultiplierAddition);
+        if (this.state.upgrades.hasGold) tipMult += 0.2;
+        
+        let comboBonus = this.state.combo * 2;
+        if (this.state.feverMode) tipMult *= 2;
+
+        let finalEarned = Math.floor((tip * tipMult) + comboBonus);
+        this.state.money += finalEarned;
+        
+        this.updateHUD();
+        this.spawnText(`+${finalEarned}¢`, this.el.customer, false);
+        this.spawnConfetti();
+        
+        this.el.customer.classList.remove('active');
+        setTimeout(() => this.spawnCustomer(), this.state.feverMode ? 100 : 300);
+    },
+
+    handleError(msg) {
+        AudioEngine.error();
+        this.triggerShake();
+        this.updateCombo(false);
+        this.state.money -= CONFIG.penalty;
+        this.state.timeLeft -= CONFIG.timePenalty; 
+        this.updateHUD();
+        this.spawnText(msg, this.el.zoneChange, true);
+        
+        setTimeout(() => {
+            this.clearChange();
+            this.state.isProcessing = false;
+        }, 300);
+    },
+
+    handleTimeout() {
+        this.state.isProcessing = true;
+        AudioEngine.error();
+        this.triggerShake();
+        this.updateCombo(false);
+        this.state.money -= CONFIG.penalty;
+        this.updateHUD();
+        this.spawnText("TOO SLOW!", this.el.customer, true);
+        this.el.customer.classList.remove('active');
+        setTimeout(() => this.spawnCustomer(), 400);
+    },
+
+    // ================== COMBO & FEVER LOGIC ==================
+    updateCombo(success) {
+        if (success) {
+            this.state.combo++;
+            AudioEngine.combo();
+            this.el.comboContainer.classList.add('active');
+            
+            this.el.comboText.style.transform = 'scale3d(1.5,1.5,1)';
+            setTimeout(() => this.el.comboText.style.transform = 'scale3d(1,1,1)', 100);
+
+            if (this.state.combo >= 5 && !this.state.feverMode) {
+                this.state.feverMode = true;
+                this.el.wrapper.classList.add('fever-mode');
+                this.el.comboText.classList.add('fever-text');
+                this.spawnText("FEVER MODE!", this.el.customer, false, true);
+            }
+        } else {
+            this.resetCombo();
+        }
+        this.el.uiCombo.innerText = this.state.combo;
+    },
+
+    resetCombo() {
+        this.state.combo = 0;
+        this.state.feverMode = false;
+        this.el.comboContainer.classList.remove('active');
+        this.el.wrapper.classList.remove('fever-mode');
+        this.el.comboText.classList.remove('fever-text');
+        this.el.uiCombo.innerText = this.state.combo;
+    },
+
+    // ================== JUICE & VISUALS ==================
+
+    updateHUD() {
+        this.el.uiMoney.innerText = `${this.state.money} / ${CONFIG.winGoal}`;
+        this.el.uiMoney.style.color = this.state.money < 0 ? 'var(--danger)' : '#009e15';
+        this.el.uiDay.innerText = `${this.state.day}/${CONFIG.maxDays}`;
+        this.el.uiTime.innerText = Math.max(0, this.state.timeLeft);
+    },
+
+    triggerShake() {
+        this.el.wrapper.classList.remove('shake');
+        void this.el.wrapper.offsetWidth; 
+        this.el.wrapper.classList.add('shake');
+    },
+
+    spawnText(text, parentEl, isBad, isBonus = false) {
+        const el = document.createElement('div');
+        el.className = 'floating-text ' + (isBad ? 'bad ' : '') + (isBonus ? 'bonus ' : '');
+        el.innerText = text;
+        
+        const rect = parentEl.getBoundingClientRect();
+        el.style.left = `${rect.left + rect.width/2 - 40}px`;
+        el.style.top = `${rect.top}px`;
+        
+        document.body.appendChild(el);
+        setTimeout(() => el.remove(), 800);
+    },
+
+    spawnConfetti() {
+        const colors = this.state.feverMode ? ['#FF4500', '#FFD700', '#FFF'] : ['#FFF44F', '#4ECDC4', '#FF6B6B', '#ffffff'];
+        const rect = this.el.customer.getBoundingClientRect();
+        const numParticles = this.state.feverMode ? 25 : 12;
+        
+        for(let i=0; i<numParticles; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.background = colors[Math.floor(Math.random() * colors.length)];
+            
+            let size = Math.random() * 8 + 6;
+            p.style.width = `${size}px`; p.style.height = `${size}px`;
+            if (Math.random() > 0.5) p.style.borderRadius = '50%';
+            
+            p.style.left = `${rect.left + rect.width/2}px`;
+            p.style.top = `${rect.top + rect.height/2}px`;
+            
+            document.body.appendChild(p);
+            
+            const angle = Math.random() * Math.PI * 2;
+            const velocity = Math.random() * 150 + 50;
+            const tx = Math.cos(angle) * velocity;
+            const ty = Math.sin(angle) * velocity - 150; 
+            const rot = Math.random() * 360;
+            
+            p.animate([
+                { transform: 'translate3d(0,0,0) scale3d(1,1,1) rotate(0deg)', opacity: 1 },
+                { transform: `translate3d(${tx}px, ${ty}px, 0) scale3d(0,0,1) rotate(${rot}deg)`, opacity: 0 }
+            ], { duration: 600 + Math.random()*400, easing: 'cubic-bezier(0.25, 1, 0.5, 1)' })
+             .onfinish = () => p.remove();
+        }
+    },
+
+    hideAllScreens() { document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden')); },
+    showScreen(id) { document.getElementById(id).classList.remove('hidden'); }
+};
+
+window.onload = () => Game.init();
+</script>
+</body>
+</html>
