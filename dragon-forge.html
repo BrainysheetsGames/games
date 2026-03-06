@@ -29,10 +29,9 @@
         }
 
         #game-container {
-            width: 100%; max-width: 540px; height: 100%; max-height: 760px;
+            width: 100%; max-width: 540px; height: 100%;
             display: flex; flex-direction: column; position: relative;
             background: var(--bg-color); overflow: hidden;
-            border: 1px solid #222;
         }
 
         /* ===== TOP BAR ===== */
@@ -64,7 +63,7 @@
 
         /* ===== ARENA ===== */
         #arena {
-            flex: 1.1; display: flex; flex-direction: column; position: relative;
+            flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative;
             padding: 12px; overflow: hidden;
             background: radial-gradient(ellipse at 70% 20%, rgba(60,30,30,0.6) 0%, transparent 60%),
                         radial-gradient(ellipse at 30% 80%, rgba(20,40,30,0.4) 0%, transparent 50%),
@@ -169,9 +168,9 @@
 
         /* ===== FORGE AREA ===== */
         #forge-area {
-            flex: 0.95; background: linear-gradient(to top, #140a0a, #0d0d14);
+            flex: 0 0 auto; background: linear-gradient(to top, #140a0a, #0d0d14);
             border-top: 1px solid rgba(255,255,255,0.04);
-            display: flex; flex-direction: column; padding: 8px 10px; z-index: 10;
+            display: flex; flex-direction: column; padding: 8px 10px 12px; z-index: 10;
         }
 
         /* Result preview */
@@ -261,10 +260,12 @@
         /* ===== SCREENS ===== */
         .screen {
             position: absolute; inset: 0; display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
+            align-items: center; justify-content: flex-start;
             background: rgba(8,8,12,0.97); z-index: 50; transition: opacity 0.4s;
-            padding: 20px; text-align: center;
+            padding: 20px; text-align: center; overflow-y: auto; overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
         }
+        .screen-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; width: 100%; }
         .hidden { opacity: 0; pointer-events: none; }
 
         .screen h1, .screen h2 { font-family: var(--font-display); letter-spacing: 3px; }
@@ -279,14 +280,14 @@
         .menu-btn:active { transform: translateY(3px); box-shadow: 0 0 0 #083050; }
 
         /* Dragon Roster */
-        #dragon-roster { display: flex; gap: 12px; margin: 16px 0; justify-content: center; flex-wrap: wrap; }
+        #dragon-roster { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; justify-items: center; width: 100%; max-width: 280px; }
         .roster-card {
-            background: #161620; border: 1.5px solid #2a2a36; border-radius: 8px; padding: 10px;
-            width: 105px; cursor: pointer; transition: all 0.2s; opacity: 0.35; position: relative;
+            background: #161620; border: 1.5px solid #2a2a36; border-radius: 8px; padding: 8px;
+            width: 100%; max-width: 125px; cursor: pointer; transition: all 0.2s; opacity: 0.35; position: relative;
         }
         .roster-card.unlocked { opacity: 1; }
         .roster-card.selected { border-color: var(--accent-gold); box-shadow: 0 0 20px rgba(240,192,64,0.2); transform: scale(1.05); }
-        .roster-emoji { font-size: 36px; }
+        .roster-emoji { font-size: 30px; }
         .roster-name { font-family: var(--font-display); font-size: 0.7rem; font-weight: 600; margin: 6px 0 2px; color: var(--accent-gold); letter-spacing: 1px; }
         .roster-stats { font-family: var(--font-mono); font-size: 0.6rem; color: #777; }
         .lock-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; background: rgba(0,0,0,0.5); border-radius: 8px; }
@@ -416,16 +417,19 @@
 
     <!-- Title Screen -->
     <div id="start-screen" class="screen">
-        <div style="font-size:3rem; margin-bottom:4px;">🐉</div>
-        <h1 style="color:var(--accent-gold); font-size:1.8rem; text-shadow:0 4px 12px rgba(0,0,0,0.8); margin-bottom:2px;">DRAGON FORGE</h1>
-        <p style="font-size:0.75rem; color:#666; letter-spacing:2px; text-transform:uppercase; margin-bottom:16px;">Number Battles & Evolutions</p>
-        <p style="font-size:0.8rem; color:#999; max-width:320px; line-height:1.4; margin-bottom:8px;">
+        <div class="screen-inner">
+        <div style="font-size:2.5rem; margin-bottom:2px;">🐉</div>
+        <h1 style="color:var(--accent-gold); font-size:1.6rem; text-shadow:0 4px 12px rgba(0,0,0,0.8); margin-bottom:2px;">DRAGON FORGE</h1>
+        <p style="font-size:0.7rem; color:#666; letter-spacing:2px; text-transform:uppercase; margin-bottom:10px;">Number Battles & Evolutions</p>
+        <p style="font-size:0.75rem; color:#999; max-width:300px; line-height:1.4; margin-bottom:8px;">
             Place number cards into slots to forge attack values within the dragon's weakness range.
             Hit the sweet spot for critical damage. Evolve your champion between battles.
         </p>
         <div id="dragon-roster"></div>
         <div id="best-score" style="font-family:var(--font-mono); font-size:0.7rem; color:#555; margin-top:4px;"></div>
         <button class="menu-btn" id="start-btn">ENTER THE FORGE</button>
+        <div style="height:20px;"></div>
+        </div>
     </div>
 
     <!-- Tutorial -->
@@ -437,27 +441,33 @@
 
     <!-- Loot -->
     <div id="loot-screen" class="screen hidden">
+        <div class="screen-inner">
         <div style="font-size:2rem; margin-bottom:4px;">⚔️</div>
         <h2 style="color:var(--accent-gold); font-size:1.3rem;">BOSS DEFEATED</h2>
         <p style="font-size:0.75rem; color:#888; margin-top:4px;">Choose an evolution:</p>
         <div class="loot-cards-container" id="loot-container"></div>
+        </div>
     </div>
 
     <!-- Game Over -->
     <div id="game-over-screen" class="screen hidden">
+        <div class="screen-inner">
         <div style="font-size:2.5rem; margin-bottom:8px;">💀</div>
         <h1 style="color:var(--accent-red); font-size:2rem;">DEFEATED</h1>
         <div class="stats-grid" id="gameover-stats"></div>
         <button class="menu-btn" onclick="showScreen('start')">TRY AGAIN</button>
+        </div>
     </div>
 
     <!-- Victory -->
     <div id="victory-screen" class="screen hidden">
+        <div class="screen-inner">
         <div style="font-size:2.5rem; margin-bottom:8px;">🏆</div>
         <h1 style="color:var(--accent-gold); font-size:1.8rem;">FORGE MASTER</h1>
         <p id="unlock-message" style="color:var(--accent-green); font-weight:700; margin:8px 0; font-size:0.9rem;"></p>
         <div class="stats-grid" id="victory-stats"></div>
         <button class="menu-btn" onclick="showScreen('start')">PLAY AGAIN</button>
+        </div>
     </div>
 
     <div id="flash-overlay"></div>
@@ -708,6 +718,7 @@ function addBattleLog(text, color='#666') {
 function showScreen(id) {
     Object.values(els.screens).forEach(s => s.classList.add('hidden'));
     if(id && els.screens[id]) els.screens[id].classList.remove('hidden');
+    if(id === 'start') initMenu();
 }
 
 /* ==========================================================================
