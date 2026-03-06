@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Place Value Pirates 🏴‍☠️</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Rye&family=Cabin+Sketch:wght@700&display=swap');
+
+        :root {
+            --bg-ocean: linear-gradient(180deg, #0a1628 0%, #0d2847 30%, #0a3a5c 60%, #064a4e 100%);
+            --wood-dark: #2a1a0e;
+            --wood-light: #4a3020;
+            --gold: #ffd54f;
+            --gold-bright: #ffe082;
+            --danger: #ef5350;
+            --success: #66bb6a;
+            --text-light: #f5f5f5;
+            --player-skin: linear-gradient(135deg, #4a3020, #2a1a0e);
+            --enemy-skin: linear-gradient(135deg, #3e1010, #1a0505);
+            --accent-cyan: #00e5ff;
+            --accent-purple: #ce93d8;
+        }
+
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: manipulation; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100%; height: 100vh; height: 100dvh;
+            background: var(--bg-ocean);
+            font-family: 'Fredoka One', cursive;
+            overflow: hidden; color: var(--text-light);
+        }
+
+        #app {
+            width: 100%; height: 100%; position: relative;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            max-width: 864px; margin: 0 auto;
+        }
+
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+        .screen.active { display: flex; }
+
+        h1, h2, h3 { font-family: 'Rye', cursive; text-align: center; text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; }
+
+        .btn {
+            background: linear-gradient(to bottom, #ffca28, #ff8f00);
+            border: 4px solid #2a1a0e; border-radius: 14px;
+            padding: 14px 28px; font-size: 1.4rem;
+            font-family: 'Fredoka One', cursive; color: #2a1a0e;
+            cursor: pointer; box-shadow: 0 6px 0 #1a0a00, 0 10px 15px rgba(0,0,0,0.6);
+            transition: transform 0.08s, box-shadow 0.08s; text-transform: uppercase; margin: 8px;
+            position: relative; overflow: hidden;
+        }
+        .btn::after { content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); transition: left 0.5s; }
+        .btn:hover::after { left: 100%; }
+        .btn:active { transform: translateY(6px); box-shadow: 0 0px 0 #1a0a00, 0 4px 4px rgba(0,0,0,0.5); }
+        .btn:disabled { filter: grayscale(1); opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-small { padding: 8px 16px; font-size: 1rem; }
+        .btn-danger { background: linear-gradient(to bottom, #ef5350, #b71c1c); color: #fff; }
+
+        #hud {
+            position: absolute; top: 8px; left: 8px; right: 8px;
+            display: flex; justify-content: space-between; z-index: 20; pointer-events: none;
+        }
+        .hud-panel {
+            background: rgba(10, 10, 30, 0.85); border: 2px solid var(--gold);
+            padding: 8px 14px; border-radius: 10px; font-size: 1.1rem;
+            color: var(--gold); text-shadow: 1px 1px 0 #000; pointer-events: auto;
+            backdrop-filter: blur(4px);
+        }
+        .hud-panel.clickable { cursor: pointer; transition: transform 0.15s; }
+        .hud-panel.clickable:hover { transform: scale(1.05); }
+
+        /* ===== STARS BACKGROUND ===== */
+        .stars { position: absolute; top: 0; left: 0; width: 100%; height: 40%; pointer-events: none; z-index: 0; }
+        .star { position: absolute; background: #fff; border-radius: 50%; animation: twinkle var(--dur) ease-in-out infinite alternate; }
+        @keyframes twinkle { 0% { opacity: 0.2; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1.2); } }
+
+        .ocean-bg { position: absolute; bottom: 0; left: 0; width: 100%; height: 180px; z-index: 0; pointer-events: none; overflow: hidden; }
+        .wave { position: absolute; bottom: 0; left: 0; width: 200%; height: 100%;
+            background: url('data:image/svg+xml;utf8,<svg viewBox="0 0 800 150" xmlns="http://www.w3.org/2000/svg"><path d="M0,50 C150,150 250,0 400,50 C550,100 650,-50 800,50 L800,150 L0,150 Z" fill="rgba(100,200,255,0.08)"/></svg>') repeat-x;
+            background-size: 50% 100%;
+        }
+        .wave:nth-child(1) { animation: wave-move 12s linear infinite; }
+        .wave:nth-child(2) { bottom: -15px; opacity: 0.6; animation: wave-move 18s linear infinite reverse; }
+        .wave:nth-child(3) { bottom: -30px; opacity: 0.3; animation: wave-move 9s linear infinite; }
+        @keyframes wave-move { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+        /* ===== TITLE SCREEN ===== */
+        #main-menu { z-index: 15; }
+        .title-pirate { font-size: 6rem; animation: title-bob 3s ease-in-out infinite; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.7)); }
+        @keyframes title-bob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-15px) rotate(2deg); } }
+        .title-text { font-size: clamp(2.5rem, 8vw, 4.5rem); color: var(--gold); margin: 10px 0; letter-spacing: 2px; }
+        .title-sub { font-size: 1.1rem; max-width: 85%; text-align: center; line-height: 1.6; color: #b0bec5; margin-bottom: 30px; }
+        .title-best { font-size: 0.9rem; color: var(--accent-cyan); margin-top: 10px; }
+
+        /* ===== MAP SCREEN ===== */
+        #map-container { width: 100%; height: 100%; position: relative; overflow: hidden; }
+        .map-path { position: absolute; z-index: 1; pointer-events: none; }
+        .island {
+            position: absolute; width: 70px; height: 70px;
+            transform: translate(-50%, -50%);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2.2rem; cursor: pointer; transition: transform 0.25s, filter 0.25s; z-index: 2;
+        }
+        .island:hover:not(.locked) { transform: translate(-50%, -50%) scale(1.25); }
+        .island.locked { filter: grayscale(0.8) brightness(0.5); cursor: not-allowed; }
+        .island.completed .island-ring { border-color: var(--success); box-shadow: 0 0 12px var(--success); }
+        .island.current .island-ring { border-color: var(--gold); box-shadow: 0 0 15px var(--gold); animation: pulse-island 2s infinite; }
+        @keyframes pulse-island { 0%,100% { box-shadow: 0 0 10px var(--gold); } 50% { box-shadow: 0 0 25px var(--gold); } }
+        .island-ring { position: absolute; width: 60px; height: 60px; border-radius: 50%; border: 3px solid #555; transition: all 0.3s; }
+        .island-label {
+            position: absolute; bottom: -22px; white-space: nowrap; font-size: 0.7rem;
+            background: rgba(0,0,0,0.8); padding: 2px 8px; border-radius: 8px; pointer-events: none;
+        }
+        .island-type { position: absolute; top: -18px; font-size: 0.6rem; color: var(--accent-cyan); background: rgba(0,0,0,0.7); padding: 1px 6px; border-radius: 5px; white-space: nowrap; }
+        #player-ship-icon {
+            position: absolute; font-size: 2.8rem;
+            transform: translate(-50%, -100%); transition: all 1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            z-index: 3; pointer-events: none; filter: drop-shadow(0 8px 12px rgba(0,0,0,0.6));
+        }
+
+        /* ===== SHOP ===== */
+        #shop-content {
+            background: rgba(10, 10, 30, 0.95); border: 4px solid var(--gold); border-radius: 20px;
+            padding: 20px; width: 92%; max-width: 620px; max-height: 80vh; overflow-y: auto; text-align: center;
+            backdrop-filter: blur(8px);
+        }
+        .shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-top: 15px; }
+        .shop-item {
+            background: rgba(255,255,255,0.05); border: 2px solid rgba(255,213,79,0.3);
+            border-radius: 12px; padding: 12px; display: flex; flex-direction: column; align-items: center;
+            transition: border-color 0.2s, transform 0.2s;
+        }
+        .shop-item:hover { border-color: var(--gold); transform: translateY(-2px); }
+        .shop-item.owned { border-color: var(--success); }
+        .shop-item-icon { font-size: 2.8rem; margin-bottom: 4px; }
+        .shop-item-name { font-size: 0.9rem; margin-bottom: 4px; min-height: 36px; display: flex; align-items: center; }
+        .shop-item-desc { font-size: 0.7rem; color: #aaa; margin-bottom: 6px; }
+
+        /* ===== GAME SCREEN ===== */
+        #game-layout {
+            display: flex; flex-direction: column; width: 100%; height: 100%;
+            max-width: 800px; padding: 60px 10px 10px 10px; justify-content: space-between;
+        }
+        .round-tracker { text-align: center; font-size: 1.1rem; color: var(--gold); text-shadow: 1px 1px 0 #000; margin-bottom: 4px; }
+        .round-dots { display: flex; justify-content: center; gap: 8px; margin-top: 4px; }
+        .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #666; transition: all 0.3s; }
+        .dot.win { background: var(--success); border-color: var(--success); box-shadow: 0 0 6px var(--success); }
+        .dot.loss { background: var(--danger); border-color: var(--danger); box-shadow: 0 0 6px var(--danger); }
+
+        .ship-area {
+            border: 3px solid rgba(255,255,255,0.15); border-radius: 16px;
+            padding: 12px; width: 100%;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4), inset 0 0 20px rgba(0,0,0,0.6);
+            position: relative;
+        }
+        #player-area { background: var(--player-skin); }
+        #enemy-area { background: var(--enemy-skin); opacity: 0.92; }
+        .ship-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px; border-bottom: 2px dashed rgba(255,255,255,0.15); padding-bottom: 5px; font-size: 0.95rem;
+        }
+        .enemy-dialogue {
+            position: absolute; top: -35px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.9); border: 2px solid var(--danger); color: #fff;
+            padding: 4px 14px; border-radius: 12px; font-size: 0.8rem; white-space: nowrap;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 30;
+        }
+        .enemy-dialogue.visible { opacity: 1; }
+        .enemy-dialogue::after {
+            content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+            border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 8px solid var(--danger);
+        }
+
+        .slots-container { display: flex; justify-content: space-around; gap: 4px; }
+        .slot-wrapper { display: flex; flex-direction: column; align-items: center; flex: 1; }
+        .slot-label { font-size: 0.65rem; color: #999; text-transform: uppercase; margin-bottom: 4px; text-align: center; letter-spacing: 0.5px; }
+        .digit-slot {
+            width: 100%; aspect-ratio: 1/1.15; max-width: 75px;
+            background: rgba(0, 0, 0, 0.5); border: 3px solid rgba(255,255,255,0.15);
+            border-radius: 10px; display: flex; align-items: center; justify-content: center;
+            font-size: clamp(1.8rem, 5vw, 2.8rem); color: var(--gold);
+            text-shadow: 2px 2px 4px #000; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
+        }
+        .player-slot:hover:not(.filled) { background: rgba(255, 213, 79, 0.15); border-color: var(--gold); transform: scale(1.06); }
+        .player-slot.filled { cursor: default; }
+
+        body.swapping .player-slot.filled { cursor: pointer; animation: pulse-swap 1s infinite; border-color: var(--accent-cyan); }
+        @keyframes pulse-swap { 0% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.6); } 70% { box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); } }
+
+        #center-area { display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1; position: relative; min-height: 140px; }
+
+        /* Draw 2 Choose 1 */
+        .draw-choices { display: flex; gap: 20px; align-items: center; justify-content: center; }
+        .draw-choice {
+            width: 80px; height: 100px; background: rgba(0,0,0,0.6); border: 4px solid var(--gold);
+            border-radius: 14px; display: flex; align-items: center; justify-content: center;
+            font-size: 3rem; color: var(--gold); cursor: pointer; transition: all 0.2s;
+            text-shadow: 0 0 15px var(--gold); position: relative;
+        }
+        .draw-choice:hover { transform: scale(1.1); border-color: var(--accent-cyan); box-shadow: 0 0 20px rgba(0,229,255,0.4); }
+        .draw-choice .discard-label { position: absolute; bottom: -22px; font-size: 0.6rem; color: #999; }
+        .draw-choice.selected { border-color: var(--success); box-shadow: 0 0 20px rgba(102,187,106,0.5); }
+        .draw-choice.discarded { opacity: 0.3; transform: scale(0.8) rotate(5deg); border-color: var(--danger); cursor: default; }
+
+        #chest-container { position: relative; width: 100px; height: 100px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        #chest-emoji { font-size: 4.5rem; transition: transform 0.2s; filter: drop-shadow(0 8px 12px rgba(0,0,0,0.6)); }
+        #chest-container.shake #chest-emoji { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
+        #chest-glow { position: absolute; width: 180px; height: 180px; background: radial-gradient(circle, rgba(255,215,0,0.5) 0%, rgba(255,215,0,0) 70%); border-radius: 50%; z-index: -1; opacity: 0; transition: all 0.5s; }
+        #chest-container.open #chest-glow { opacity: 1; transform: scale(1.3); }
+
+        #cards-container { position: absolute; right: 0px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; }
+        .power-card {
+            background: linear-gradient(135deg, #fff8e1, #ffe0b2); border: 3px solid #ffb300;
+            border-radius: 10px; padding: 4px 6px; text-align: center; color: #333;
+            font-size: 0.7rem; width: 55px; cursor: pointer;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.4); transition: transform 0.15s;
+        }
+        .power-card:hover { transform: scale(1.1); }
+        .power-card:active { transform: scale(0.9); }
+        .power-card span { font-size: 1.4rem; display: block; }
+        .card-count { position: absolute; top: -7px; right: -7px; background: #d32f2f; color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border: 2px solid white; }
+
+        .combo-display {
+            position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+            background: rgba(0,0,0,0.8); border: 2px solid var(--accent-purple);
+            border-radius: 10px; padding: 6px 10px; text-align: center; min-width: 60px;
+        }
+        .combo-count { font-size: 1.5rem; color: var(--accent-purple); text-shadow: 0 0 10px var(--accent-purple); }
+        .combo-label { font-size: 0.6rem; color: #ccc; }
+        .combo-mult { font-size: 0.8rem; color: var(--gold); }
+
+        /* ===== BATTLE SCREEN ===== */
+        #battle-content {
+            background: rgba(10, 10, 30, 0.95); border: 4px solid var(--gold);
+            border-radius: 20px; padding: 25px; text-align: center; width: 92%; max-width: 500px;
+            backdrop-filter: blur(8px);
+        }
+        .battle-reveal-container { margin: 15px 0; }
+        .battle-slots-row {
+            display: flex; justify-content: center; gap: 6px; margin: 8px 0;
+            align-items: center;
+        }
+        .battle-digit {
+            width: 45px; height: 55px; background: rgba(0,0,0,0.6);
+            border: 2px solid rgba(255,255,255,0.2); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.8rem; color: var(--gold); transition: all 0.4s;
+        }
+        .battle-digit.revealed { border-color: var(--gold); background: rgba(255,213,79,0.15); }
+        .battle-digit.winning { border-color: var(--success); color: var(--success); box-shadow: 0 0 10px var(--success); }
+        .battle-digit.losing { border-color: var(--danger); color: var(--danger); }
+        .battle-label { font-size: 0.9rem; margin-right: 8px; min-width: 50px; text-align: right; }
+        .battle-running-total { font-size: 1.2rem; color: var(--gold); margin-left: 10px; min-width: 80px; text-align: left; transition: all 0.3s; }
+
+        .battle-row-big { display: flex; justify-content: space-between; align-items: center; font-size: 1.5rem; margin: 15px 0; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 12px; }
+        .battle-score { font-size: 2.5rem; text-shadow: 0 0 15px currentColor; }
+        .battle-winner { color: var(--success); }
+        .battle-loser { color: var(--danger); }
+
+        /* ===== EVENT POPUP ===== */
+        #event-popup {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 50; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            backdrop-filter: blur(4px);
+        }
+        #event-popup.active { display: flex; }
+        .event-card {
+            background: linear-gradient(135deg, #1a237e, #0d47a1); border: 4px solid var(--gold);
+            border-radius: 20px; padding: 30px; text-align: center; max-width: 400px; width: 90%;
+        }
+        .event-icon { font-size: 5rem; margin-bottom: 10px; animation: title-bob 2s ease-in-out infinite; }
+        .event-title { font-size: 1.8rem; color: var(--gold); margin-bottom: 10px; }
+        .event-desc { font-size: 1rem; color: #ccc; margin-bottom: 20px; line-height: 1.5; }
+
+        /* ===== TUTORIAL ===== */
+        .tutorial-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 60; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            backdrop-filter: blur(6px);
+        }
+        .tutorial-overlay.active { display: flex; }
+        .tutorial-card {
+            background: rgba(10,10,30,0.95); border: 3px solid var(--accent-cyan);
+            border-radius: 20px; padding: 25px; max-width: 450px; width: 90%; text-align: center;
+        }
+        .tutorial-step { margin: 15px 0; font-size: 1rem; color: #ddd; line-height: 1.6; }
+        .tutorial-step em { color: var(--gold); font-style: normal; }
+
+        /* ===== ANIMATIONS ===== */
+        @keyframes shake { 10%, 90% { transform: translate3d(-3px, 0, 0); } 20%, 80% { transform: translate3d(5px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-7px, 0, 0); } 40%, 60% { transform: translate3d(7px, 0, 0); } }
+        @keyframes popIn { 0% { transform: scale(0); opacity: 0; } 80% { transform: scale(1.15); } 100% { transform: scale(1); opacity: 1; } }
+        .pop-in { animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        body.screen-shake { animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both; }
+        @keyframes slideUp { 0% { opacity: 0; transform: translateY(30px); } 100% { opacity: 1; transform: translateY(0); } }
+
+        .particle { position: absolute; pointer-events: none; z-index: 9999; border-radius: 50%; }
+        .floating-text {
+            position: absolute; font-family: 'Fredoka One', cursive; font-size: 1.8rem; font-weight: bold;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+            pointer-events: none; z-index: 1000; animation: floatUpAndFade 1.5s ease-out forwards;
+        }
+        @keyframes floatUpAndFade { 0% { opacity: 0; transform: translateY(0) scale(0.5); } 20% { opacity: 1; transform: translateY(-15px) scale(1.15); } 100% { opacity: 0; transform: translateY(-70px) scale(0.9); } }
+
+        .ai-thinking { animation: pulse-border 0.4s alternate infinite; }
+        @keyframes pulse-border { 0% { border-color: rgba(255,255,255,0.15); box-shadow: none; } 100% { border-color: var(--danger); box-shadow: 0 0 12px var(--danger); } }
+
+        #toast {
+            position: absolute; top: 18%; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.9); color: #fff; padding: 10px 24px; border-radius: 20px;
+            border: 2px solid var(--gold); font-size: 1.1rem; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s; z-index: 100; backdrop-filter: blur(4px);
+        }
+        #toast.show { opacity: 1; }
+
+        /* Streak bar */
+        .streak-bar {
+            position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 4px; align-items: center; z-index: 20;
+        }
+        .streak-fire { font-size: 1.2rem; }
+        .streak-text { font-size: 0.8rem; color: var(--gold); }
+    </style>
+</head>
+<body>
+
+<div id="hud">
+    <div class="hud-panel">💰 <span id="gold-display">0</span></div>
+    <div class="hud-panel clickable" id="shop-btn-panel" onclick="SFX.click(); openShop()">🛒 Shop</div>
+</div>
+
+<div id="app">
+    <div class="stars" id="stars-container"></div>
+    <div class="ocean-bg"><div class="wave"></div><div class="wave"></div><div class="wave"></div></div>
+
+    <!-- TITLE -->
+    <div id="main-menu" class="screen active">
+        <div class="title-pirate">🏴‍☠️</div>
+        <h1 class="title-text">Place Value<br>Pirates</h1>
+        <p class="title-sub">
+            Conquer 15 islands across the Great Sea!<br>
+            Draw digits, place them wisely, and build the biggest number to defeat rival pirates!
+        </p>
+        <button class="btn" onclick="SFX.click(); startGame()">Set Sail ⚓</button>
+        <div class="title-best" id="title-best"></div>
+    </div>
+
+    <!-- MAP -->
+    <div id="map-screen" class="screen">
+        <h2 style="position:absolute;top:65px;color:#fff;z-index:5;font-size:1.4rem;">The Great Sea</h2>
+        <div id="map-container">
+            <div id="player-ship-icon">🚢</div>
+        </div>
+    </div>
+
+    <!-- SHOP -->
+    <div id="shop-screen" class="screen">
+        <div id="shop-content">
+            <h2 style="color:var(--gold);">Pirate Outpost 🛒</h2>
+            <p style="color:var(--gold);margin-top:5px;">Your Loot: 💰<span id="shop-gold">0</span></p>
+            <div class="shop-grid" id="shop-grid"></div>
+            <button class="btn" style="margin-top:15px;" onclick="SFX.click(); openMap()">Back to Map</button>
+        </div>
+    </div>
+
+    <!-- GAME -->
+    <div id="game-screen" class="screen">
+        <div id="game-layout">
+            <div class="round-tracker">
+                Level <span id="level-display">1</span> — Round <span id="round-display">1</span>
+                <div class="round-dots" id="player-round-dots"></div>
+            </div>
+
+            <div class="ship-area" id="enemy-area">
+                <div class="enemy-dialogue" id="enemy-dialogue"></div>
+                <div class="ship-header">
+                    <span>🏴‍☠️ <span id="enemy-name">Blackbeard</span></span>
+                    <span id="enemy-emotion">😠</span>
+                </div>
+                <div class="slots-container" id="enemy-slots"></div>
+            </div>
+
+            <div id="center-area">
+                <div class="combo-display" id="combo-display" style="display:none;">
+                    <div class="combo-count" id="combo-count">0</div>
+                    <div class="combo-label">COMBO</div>
+                    <div class="combo-mult" id="combo-mult">x1</div>
+                </div>
+
+                <div id="draw-area">
+                    <div id="chest-container" onclick="drawDigit()">
+                        <div id="chest-glow"></div>
+                        <div id="chest-emoji">🧰</div>
+                    </div>
+                </div>
+                <div class="draw-choices" id="draw-choices" style="display:none;"></div>
+
+                <p id="action-prompt" style="margin-top:10px;color:var(--gold);text-shadow:1px 1px 0 #000;font-size:0.95rem;height:1.4rem;">
+                    Tap chest to draw!
+                </p>
+                <div id="cards-container"></div>
+            </div>
+
+            <div class="ship-area" id="player-area">
+                <div class="ship-header">
+                    <span>🚢 Captain You</span>
+                    <span style="color:var(--gold)">Your Vault</span>
+                </div>
+                <div class="slots-container" id="player-slots"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BATTLE -->
+    <div id="battle-screen" class="screen">
+        <div id="battle-content">
+            <h1 id="battle-title" style="font-size:2.5rem;margin-bottom:15px;color:var(--gold);">⚔️ BATTLE ⚔️</h1>
+            <div class="battle-reveal-container" id="battle-reveal-container"></div>
+            <div class="battle-row-big" id="battle-final-row" style="display:none;">
+                <span>You:</span>
+                <span id="battle-player-num" class="battle-score">0</span>
+            </div>
+            <div class="battle-row-big" id="battle-final-row2" style="display:none;">
+                <span>Enemy:</span>
+                <span id="battle-enemy-num" class="battle-score">0</span>
+            </div>
+            <p id="battle-result-text" style="font-size:1.3rem;margin:15px 0;min-height:2rem;"></p>
+            <button class="btn" id="next-action-btn" style="display:none;" onclick="SFX.click(); handleBattleNext()">Next Round</button>
+        </div>
+    </div>
+
+    <!-- EVENT POPUP -->
+    <div id="event-popup">
+        <div class="event-card" id="event-card"></div>
+    </div>
+
+    <!-- TUTORIAL -->
+    <div class="tutorial-overlay" id="tutorial-overlay">
+        <div class="tutorial-card" id="tutorial-card"></div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ==================================================================
+   SOUND ENGINE (Web Audio API)
+   ================================================================== */
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx;
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); if (audioCtx.state === 'suspended') audioCtx.resume(); }
+
+const SFX = {
+    click() { ensureAudio(); this._tone(600, 0.08, 'square', 0.15); },
+    draw() { ensureAudio(); this._tone(400, 0.1, 'triangle', 0.2); setTimeout(() => this._tone(600, 0.1, 'triangle', 0.15), 80); },
+    place() { ensureAudio(); this._tone(800, 0.08, 'sine', 0.2); setTimeout(() => this._tone(1000, 0.06, 'sine', 0.15), 60); },
+    placeGood() { ensureAudio(); this._tone(600, 0.1, 'sine', 0.2); setTimeout(() => this._tone(800, 0.1, 'sine', 0.18), 100); setTimeout(() => this._tone(1000, 0.15, 'sine', 0.15), 200); },
+    placeBad() { ensureAudio(); this._tone(300, 0.15, 'sawtooth', 0.12); setTimeout(() => this._tone(200, 0.2, 'sawtooth', 0.1), 100); },
+    cannon() { ensureAudio(); this._noise(0.3, 0.25); this._tone(80, 0.3, 'sawtooth', 0.3); },
+    win() { ensureAudio(); [523,659,784,1047].forEach((f,i) => setTimeout(() => this._tone(f, 0.2, 'sine', 0.2), i*120)); },
+    lose() { ensureAudio(); [400,350,300,200].forEach((f,i) => setTimeout(() => this._tone(f, 0.25, 'sawtooth', 0.12), i*150)); },
+    combo() { ensureAudio(); this._tone(1200, 0.06, 'sine', 0.15); setTimeout(() => this._tone(1500, 0.08, 'sine', 0.12), 60); },
+    powerup() { ensureAudio(); [800,1000,1200,1400].forEach((f,i) => setTimeout(() => this._tone(f, 0.08, 'sine', 0.15), i*50)); },
+    reveal() { ensureAudio(); this._tone(500, 0.06, 'triangle', 0.15); },
+    event() { ensureAudio(); this._tone(440, 0.15, 'sine', 0.2); setTimeout(() => this._tone(554, 0.15, 'sine', 0.18), 150); setTimeout(() => this._tone(659, 0.2, 'sine', 0.15), 300); },
+    coin() { ensureAudio(); this._tone(1400, 0.05, 'square', 0.1); setTimeout(() => this._tone(1800, 0.08, 'square', 0.08), 50); },
+
+    _tone(freq, dur, type, vol) {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = type; o.frequency.value = freq;
+        g.gain.setValueAtTime(vol, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + dur);
+    },
+    _noise(dur, vol) {
+        const bufferSize = audioCtx.sampleRate * dur;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(vol, audioCtx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+        source.connect(g); g.connect(audioCtx.destination);
+        source.start();
+    }
+};
+
+/* ==================================================================
+   DATA & CONFIG
+   ================================================================== */
+const LEVELS = [
+    { id:0, slots:3, scramble:false, x:12,y:82, name:"Tortuga", type:"normal", emoji:"🏝️" },
+    { id:1, slots:3, scramble:false, x:30,y:72, name:"Crab Bay", type:"normal", emoji:"🦀" },
+    { id:2, slots:4, scramble:false, x:48,y:82, name:"Parrot Peak", type:"normal", emoji:"🦜" },
+    { id:3, slots:4, scramble:false, x:68,y:68, name:"Shark Fin", type:"challenge", emoji:"🦈" },
+    { id:4, slots:5, scramble:false, x:85,y:55, name:"Mermaid Reef", type:"normal", emoji:"🧜" },
+    { id:5, slots:3, scramble:true,  x:70,y:42, name:"Chaos Cove", type:"scramble", emoji:"🌀" },
+    { id:6, slots:4, scramble:true,  x:50,y:52, name:"Twister Isle", type:"scramble", emoji:"🌪️" },
+    { id:7, slots:4, scramble:true,  x:28,y:42, name:"Jumble Jungle", type:"treasure", emoji:"💎" },
+    { id:8, slots:5, scramble:true,  x:12,y:28, name:"Riddle Rock", type:"scramble", emoji:"🗿" },
+    { id:9, slots:5, scramble:true,  x:32,y:18, name:"Kraken's Maw", type:"challenge", emoji:"🐙" },
+    { id:10,slots:6, scramble:false, x:52,y:28, name:"Gold Shore", type:"treasure", emoji:"💰" },
+    { id:11,slots:6, scramble:true,  x:72,y:18, name:"Madman's Atoll", type:"scramble", emoji:"🤪" },
+    { id:12,slots:6, scramble:true,  x:88,y:32, name:"Ghost Ship", type:"challenge", emoji:"👻" },
+    { id:13,slots:7, scramble:true,  x:82,y:12, name:"Dragon's Tooth", type:"challenge", emoji:"🐉" },
+    { id:14,slots:7, scramble:true,  x:50,y:6,  name:"Pirate King", type:"boss", emoji:"👑" }
+];
+
+const SHOP_ITEMS = [
+    { id:'skin_gold', type:'skin', name:'Golden Galleon', cost:400, color:'linear-gradient(135deg, #ffca28, #ff8f00)', icon:'🟡' },
+    { id:'skin_ghost', type:'skin', name:'Ghost Ship', cost:1000, color:'linear-gradient(135deg, #1a237e, #0d47a1)', icon:'👻' },
+    { id:'skin_ruby', type:'skin', name:'Ruby Hull', cost:2000, color:'linear-gradient(135deg, #b71c1c, #880e4f)', icon:'🔴' },
+    { id:'skin_emerald', type:'skin', name:'Emerald Tide', cost:3000, color:'linear-gradient(135deg, #1b5e20, #004d40)', icon:'💚' },
+    { id:'map', type:'power', name:'Treasure Map', cost:80, icon:'🗺️', desc:'Peek at next digit' },
+    { id:'kraken', type:'power', name:'Kraken Ink', cost:180, icon:'🐙', desc:'Destroy enemy highest' },
+    { id:'swap', type:'power', name:'Storm Swap', cost:120, icon:'🌪️', desc:'Swap 2 of your digits' },
+    { id:'double', type:'power', name:'Double Draw', cost:150, icon:'🎰', desc:'Draw 2, choose 1' },
+];
+
+const PV_NAMES = {1:"Ones",2:"Tens",3:"Hunds",4:"Thous",5:"10K",6:"100K",7:"Mills"};
+
+const ENEMIES = [
+    { name:"Barnacle Bill", personality:"timid", lines:{good:"Blast it!",bad:"Ha, rookie move!",start:"Y-you won't beat me!",win:"No fair!",lose:"Knew I'd win..."} },
+    { name:"Calico Jack", personality:"cocky", lines:{good:"Lucky shot...",bad:"Ahaha pathetic!",start:"Prepare to lose, dog!",win:"Impossible!",lose:"As expected."} },
+    { name:"Anne Bonny", personality:"strategic", lines:{good:"Impressive...",bad:"Tsk, poor choice.",start:"Let's see your strategy.",win:"Well played.",lose:"Calculated."} },
+    { name:"Davy Jones", personality:"menacing", lines:{good:"Grrr...",bad:"The sea takes the weak!",start:"Your soul is MINE!",win:"CURSE YOU!",lose:"To the locker with ye!"} },
+    { name:"Captain Hook", personality:"dramatic", lines:{good:"Confound it!",bad:"Tick tock, you're done!",start:"Smee! Battle stations!",win:"Nooooo!",lose:"Elementary, dear pirate."} },
+    { name:"Redbeard", personality:"wild", lines:{good:"ARGH!",bad:"BAHAHAHA!",start:"RAAAAAGE!",win:"IMPOSSIBLE!",lose:"FIRE EVERYTHING!"} },
+];
+
+const EVENTS = [
+    { type:'merchant', icon:'🚢', title:'Merchant Ship!', desc:'A friendly trader offers wares.', gold:0, items:{map:1} },
+    { type:'storm', icon:'⛈️', title:'Storm Ahead!', desc:'Rough seas! But you find driftwood with gold.', gold:75, items:{} },
+    { type:'bottle', icon:'🍾', title:'Message in a Bottle!', desc:'A secret treasure map was inside!', gold:0, items:{map:1,double:1} },
+    { type:'treasure', icon:'💎', title:'Floating Treasure!', desc:'Lucky find! Gold doubloons float by.', gold:150, items:{} },
+    { type:'whale', icon:'🐋', title:'Friendly Whale!', desc:'A whale guides you and shares bounty.', gold:100, items:{kraken:1} },
+];
+
+const GAME_CONFIG = { goldPerWin:150, goldPerLoss:40, chestAnim:350, aiDelay:900, comboGold:25 };
+
+/* ==================================================================
+   STATE
+   ================================================================== */
+let state = {
+    gold: 0, unlockedLevel: 0, currentLevelIndex: 0,
+    levelWins: 0, levelLosses: 0, round: 1,
+    slotsConfig: [], playerNumber: [], aiNumber: [],
+    currentDigit: null, digit2: null, digitsPlaced: 0,
+    isPlayerTurn: false, waitingForChoice: false,
+    inventory: { map:0, kraken:0, swap:0, double:0 },
+    ownedSkins: ['skin_default'], equippedSkin: 'skin_default',
+    swappingMode: false, swapIndex1: null,
+    combo: 0, maxCombo: 0, totalGoodPlacements: 0,
+    currentEnemy: null, hasSeenTutorial: false,
+    streakWins: 0, captainFury: false,
+    bestScore: 0
+};
+
+function saveGame() {
+    try {
+        const save = { gold:state.gold, unlockedLevel:state.unlockedLevel, inventory:state.inventory, ownedSkins:state.ownedSkins, equippedSkin:state.equippedSkin, hasSeenTutorial:state.hasSeenTutorial, streakWins:state.streakWins, bestScore:state.bestScore };
+        localStorage.setItem('pvp_save', JSON.stringify(save));
+    } catch(e) {}
+}
+function loadGame() {
+    try {
+        const d = JSON.parse(localStorage.getItem('pvp_save'));
+        if (d) { Object.assign(state, d); if (state.equippedSkin !== 'skin_default') { const item = SHOP_ITEMS.find(i=>i.id===state.equippedSkin); if(item) document.documentElement.style.setProperty('--player-skin', item.color); } }
+    } catch(e) {}
+}
+
+/* ==================================================================
+   INIT
+   ================================================================== */
+function init() {
+    loadGame();
+    updateHUD();
+    generateStars();
+    const best = state.bestScore;
+    if (best > 0) document.getElementById('title-best').innerText = `Best Score: ${best.toLocaleString()} | Islands: ${state.unlockedLevel}/15`;
+}
+
+function generateStars() {
+    const c = document.getElementById('stars-container');
+    for (let i = 0; i < 60; i++) {
+        const s = document.createElement('div');
+        s.className = 'star';
+        const size = Math.random() * 3 + 1;
+        s.style.cssText = `width:${size}px;height:${size}px;left:${Math.random()*100}%;top:${Math.random()*100}%;--dur:${1+Math.random()*3}s;animation-delay:${Math.random()*3}s;`;
+        c.appendChild(s);
+    }
+}
+
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    const shopBtn = document.getElementById('shop-btn-panel');
+    shopBtn.style.display = (id === 'map-screen' || id === 'main-menu') ? 'block' : 'none';
+}
+function updateHUD() { document.getElementById('gold-display').innerText = state.gold; }
+function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ==================================================================
+   TUTORIAL
+   ================================================================== */
+function showTutorial() {
+    const overlay = document.getElementById('tutorial-overlay');
+    const card = document.getElementById('tutorial-card');
+    card.innerHTML = `
+        <h2 style="color:var(--accent-cyan);font-size:1.6rem;">How to Play</h2>
+        <div class="tutorial-step">🧰 Tap the <em>chest</em> to draw a random digit (0-9)</div>
+        <div class="tutorial-step">📍 Place it in a <em>slot</em> on your board — each slot has a place value (ones, tens, hundreds...)</div>
+        <div class="tutorial-step">🎯 Goal: Build a <em>bigger number</em> than the enemy pirate!</div>
+        <div class="tutorial-step">🌀 <em>Scrambled</em> islands shuffle the place value order — read labels carefully!</div>
+        <div class="tutorial-step">🔥 Place digits wisely for <em>combos</em> — earn bonus gold!</div>
+        <div class="tutorial-step">🎰 Use <em>power cards</em> from the shop for special abilities!</div>
+        <div class="tutorial-step">⚡ Win 3 rounds in a row for <em>Captain's Fury</em> — draw 2, choose 1!</div>
+        <button class="btn" onclick="SFX.click(); closeTutorial();" style="margin-top:15px;">Got it! ⚓</button>
+    `;
+    overlay.classList.add('active');
+}
+function closeTutorial() {
+    document.getElementById('tutorial-overlay').classList.remove('active');
+    state.hasSeenTutorial = true; saveGame();
+}
+
+/* ==================================================================
+   MAP
+   ================================================================== */
+function startGame() {
+    if (!state.hasSeenTutorial) { showTutorial(); setTimeout(() => openMap(), 100); return; }
+    openMap();
+}
+
+function openMap() {
+    showScreen('map-screen'); updateHUD();
+    const container = document.getElementById('map-container');
+    const ship = document.getElementById('player-ship-icon');
+    container.innerHTML = ''; container.appendChild(ship);
+
+    // Draw path lines via SVG
+    const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+    svg.setAttribute("class","map-path");
+    svg.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;";
+    svg.setAttribute("viewBox","0 0 100 100");
+    svg.setAttribute("preserveAspectRatio","none");
+    for (let i = 0; i < LEVELS.length - 1; i++) {
+        const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+        line.setAttribute("x1",LEVELS[i].x); line.setAttribute("y1",LEVELS[i].y);
+        line.setAttribute("x2",LEVELS[i+1].x); line.setAttribute("y2",LEVELS[i+1].y);
+        line.setAttribute("stroke", i < state.unlockedLevel ? "rgba(255,213,79,0.4)" : "rgba(255,255,255,0.1)");
+        line.setAttribute("stroke-width","0.5");
+        line.setAttribute("stroke-dasharray", i < state.unlockedLevel ? "none" : "2,2");
+        svg.appendChild(line);
+    }
+    container.appendChild(svg);
+
+    LEVELS.forEach((lvl, i) => {
+        const el = document.createElement('div');
+        const isCurrent = i === state.unlockedLevel;
+        const isCompleted = i < state.unlockedLevel;
+        const isLocked = i > state.unlockedLevel;
+        el.className = `island ${isLocked?'locked':''} ${isCompleted?'completed':''} ${isCurrent?'current':''}`;
+        el.style.left = `${lvl.x}%`; el.style.top = `${lvl.y}%`;
+        el.innerHTML = `<div class="island-ring"></div>${lvl.emoji}`;
+
+        const lbl = document.createElement('div');
+        lbl.className = 'island-label';
+        lbl.innerText = `${i+1}. ${lvl.name}`;
+        el.appendChild(lbl);
+
+        if (lvl.type !== 'normal') {
+            const typeLabel = document.createElement('div');
+            typeLabel.className = 'island-type';
+            const typeMap = {scramble:'🌀 Scrambled',challenge:'⚔️ Challenge',treasure:'💎 Treasure',boss:'👑 Boss'};
+            typeLabel.innerText = typeMap[lvl.type] || lvl.type;
+            el.appendChild(typeLabel);
+        }
+
+        if (!isLocked) el.onclick = () => { SFX.click(); confirmLevelStart(i); };
+        container.appendChild(el);
+    });
+
+    const shipTarget = LEVELS[Math.min(state.unlockedLevel, LEVELS.length-1)];
+    setTimeout(() => { ship.style.left = `${shipTarget.x}%`; ship.style.top = `${shipTarget.y}%`; }, 100);
+}
+
+/* ==================================================================
+   SHOP
+   ================================================================== */
+function openShop() {
+    showScreen('shop-screen');
+    document.getElementById('shop-gold').innerText = state.gold;
+    const grid = document.getElementById('shop-grid');
+    grid.innerHTML = '';
+
+    SHOP_ITEMS.forEach(item => {
+        const el = document.createElement('div');
+        const isOwned = state.ownedSkins.includes(item.id);
+        const isEquipped = state.equippedSkin === item.id;
+        el.className = `shop-item ${isOwned ? 'owned' : ''}`;
+
+        let btnHtml = '';
+        if (item.type === 'skin') {
+            if (isEquipped) btnHtml = `<button class="btn btn-small" disabled>Equipped</button>`;
+            else if (isOwned) btnHtml = `<button class="btn btn-small" onclick="SFX.click();equipSkin('${item.id}')">Equip</button>`;
+            else btnHtml = `<button class="btn btn-small" ${state.gold<item.cost?'disabled':''} onclick="SFX.coin();buyItem('${item.id}')">${item.cost} 💰</button>`;
+        } else {
+            btnHtml = `<p style="font-size:0.75rem;color:#aaa;">Owned: ${state.inventory[item.id]}</p>
+            <button class="btn btn-small" ${state.gold<item.cost?'disabled':''} onclick="SFX.coin();buyItem('${item.id}')">${item.cost} 💰</button>`;
+        }
+
+        el.innerHTML = `<div class="shop-item-icon">${item.icon}</div><div class="shop-item-name">${item.name}</div>${item.desc?`<div class="shop-item-desc">${item.desc}</div>`:''}${btnHtml}`;
+        grid.appendChild(el);
+    });
+}
+
+function buyItem(id) {
+    const item = SHOP_ITEMS.find(i => i.id === id);
+    if (state.gold >= item.cost) {
+        state.gold -= item.cost;
+        if (item.type === 'skin') { state.ownedSkins.push(id); equipSkin(id); }
+        else state.inventory[id]++;
+        updateHUD(); saveGame(); openShop();
+        showToast(`Bought ${item.name}!`);
+    }
+}
+function equipSkin(id) {
+    state.equippedSkin = id;
+    const item = SHOP_ITEMS.find(i => i.id === id);
+    if (item) document.documentElement.style.setProperty('--player-skin', item.color);
+    saveGame(); openShop();
+}
+
+/* ==================================================================
+   EVENTS (Random Sea Encounters)
+   ================================================================== */
+function maybeSeaEvent(callback) {
+    if (Math.random() > 0.35) { callback(); return; }
+    const evt = EVENTS[Math.floor(Math.random() * EVENTS.length)];
+    SFX.event();
+    const popup = document.getElementById('event-popup');
+    const card = document.getElementById('event-card');
+
+    let rewardText = '';
+    if (evt.gold > 0) rewardText += `+${evt.gold} 💰 `;
+    Object.entries(evt.items).forEach(([k,v]) => {
+        const item = SHOP_ITEMS.find(i=>i.id===k);
+        if(item) rewardText += `+${v} ${item.icon} `;
+    });
+
+    card.innerHTML = `
+        <div class="event-icon">${evt.icon}</div>
+        <div class="event-title">${evt.title}</div>
+        <div class="event-desc">${evt.desc}</div>
+        <p style="color:var(--gold);font-size:1.2rem;margin-bottom:15px;">${rewardText}</p>
+        <button class="btn" onclick="SFX.click(); acceptEvent(${evt.gold}, ${JSON.stringify(evt.items).replace(/"/g, "'")})">Continue ⚓</button>
+    `;
+    popup.classList.add('active');
+    window._eventCallback = callback;
+}
+
+function acceptEvent(gold, items) {
+    state.gold += gold;
+    if (typeof items === 'string') items = JSON.parse(items.replace(/'/g, '"'));
+    Object.entries(items).forEach(([k,v]) => { if(state.inventory[k] !== undefined) state.inventory[k] += v; });
+    updateHUD(); saveGame();
+    document.getElementById('event-popup').classList.remove('active');
+    if (window._eventCallback) { setTimeout(window._eventCallback, 300); window._eventCallback = null; }
+}
+
+/* ==================================================================
+   GAME LOOP
+   ================================================================== */
+function confirmLevelStart(index) {
+    state.currentLevelIndex = index;
+    state.levelWins = 0; state.levelLosses = 0; state.round = 1;
+    state.combo = 0; state.maxCombo = 0; state.totalGoodPlacements = 0;
+
+    const ship = document.getElementById('player-ship-icon');
+    ship.style.left = `${LEVELS[index].x}%`; ship.style.top = `${LEVELS[index].y}%`;
+
+    maybeSeaEvent(() => startNextRound());
+}
+
+function startNextRound() {
+    showScreen('game-screen');
+    const lvl = LEVELS[state.currentLevelIndex];
+    state.currentEnemy = ENEMIES[Math.floor(Math.random() * ENEMIES.length)];
+
+    document.getElementById('level-display').innerText = state.currentLevelIndex + 1;
+    document.getElementById('round-display').innerText = state.round;
+    document.getElementById('enemy-name').innerText = state.currentEnemy.name;
+    document.getElementById('enemy-emotion').innerText = '😠';
+
+    const dotsC = document.getElementById('player-round-dots');
+    dotsC.innerHTML = '';
+    for (let i = 0; i < 3; i++) {
+        let s = '';
+        // Show wins and losses in order
+        if (i < state.levelWins) s = 'win';
+        else if (i - state.levelWins < state.levelLosses) s = 'loss';
+        dotsC.innerHTML += `<div class="dot ${s}"></div>`;
+    }
+
+    state.digitsPlaced = 0;
+    state.playerNumber = new Array(lvl.slots).fill(null);
+    state.aiNumber = new Array(lvl.slots).fill(null);
+    state.currentDigit = null; state.digit2 = null;
+    state.isPlayerTurn = false; state.waitingForChoice = false;
+    state.swappingMode = false; state.swapIndex1 = null;
+    state.captainFury = state.streakWins >= 3;
+    document.body.classList.remove('swapping');
+
+    state.slotsConfig = [];
+    for (let i = 0; i < lvl.slots; i++) {
+        state.slotsConfig.push({ pv: lvl.slots - i, name: PV_NAMES[lvl.slots - i] });
+    }
+    if (lvl.scramble) {
+        for (let i = state.slotsConfig.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [state.slotsConfig[i], state.slotsConfig[j]] = [state.slotsConfig[j], state.slotsConfig[i]];
+        }
+    }
+
+    renderBoard(); renderPowerups(); resetChest();
+    showEnemyDialogue(state.currentEnemy.lines.start);
+
+    document.getElementById('draw-choices').style.display = 'none';
+    document.getElementById('draw-area').style.display = 'flex';
+
+    updateComboDisplay();
+}
+
+/* ==================================================================
+   ENEMY DIALOGUE & EMOTION
+   ================================================================== */
+function showEnemyDialogue(text) {
+    const el = document.getElementById('enemy-dialogue');
+    el.innerText = text; el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 2500);
+}
+function updateEnemyEmotion(type) {
+    const el = document.getElementById('enemy-emotion');
+    const map = {neutral:'😐',angry:'😡',worried:'😰',smug:'😏',shocked:'😱'};
+    el.innerText = map[type] || '😠';
+}
+
+/* ==================================================================
+   RENDERING
+   ================================================================== */
+function renderBoard() {
+    const pc = document.getElementById('player-slots');
+    const ec = document.getElementById('enemy-slots');
+    pc.innerHTML = ''; ec.innerHTML = '';
+
+    for (let i = 0; i < state.slotsConfig.length; i++) {
+        pc.appendChild(createSlot(i, state.slotsConfig[i].name, state.playerNumber[i], true));
+        ec.appendChild(createSlot(i, state.slotsConfig[i].name, state.aiNumber[i], false));
+    }
+}
+
+function createSlot(index, label, value, isPlayer) {
+    const w = document.createElement('div'); w.className = 'slot-wrapper';
+    const l = document.createElement('div'); l.className = 'slot-label'; l.innerText = label;
+    const s = document.createElement('div');
+    s.className = `digit-slot ${isPlayer ? 'player-slot' : 'enemy-slot'}`;
+    if (value !== null) { s.innerText = value; s.classList.add('filled'); }
+    if (isPlayer) s.onclick = () => handleSlotClick(index, s);
+    w.appendChild(l); w.appendChild(s);
+    return w;
+}
+
+function renderPowerups() {
+    const c = document.getElementById('cards-container');
+    c.innerHTML = '';
+    const items = ['map','kraken','swap','double'];
+    items.forEach(id => {
+        let count = state.inventory[id];
+        if (id === 'double' && state.captainFury) count = Math.max(count, 99);
+        if (count > 0) {
+            const item = SHOP_ITEMS.find(i=>i.id===id);
+            const card = document.createElement('div');
+            card.className = 'power-card'; card.style.position = 'relative';
+            card.innerHTML = `<span>${item.icon}</span>${item.name.split(' ')[0]}<div class="card-count">${state.captainFury && id==='double' ? '∞' : count}</div>`;
+            card.onclick = () => activatePowerup(id);
+            c.appendChild(card);
+        }
+    });
+    if (state.captainFury && !state.inventory.double) {
+        const item = SHOP_ITEMS.find(i=>i.id==='double');
+        const card = document.createElement('div');
+        card.className = 'power-card'; card.style.position = 'relative';
+        card.innerHTML = `<span>${item.icon}</span>Fury!<div class="card-count">∞</div>`;
+        card.onclick = () => activatePowerup('double');
+        c.appendChild(card);
+    }
+}
+
+function updateComboDisplay() {
+    const el = document.getElementById('combo-display');
+    if (state.combo > 0) {
+        el.style.display = 'block';
+        document.getElementById('combo-count').innerText = state.combo;
+        const mult = Math.min(1 + Math.floor(state.combo / 2) * 0.5, 4);
+        document.getElementById('combo-mult').innerText = `x${mult}`;
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function resetChest() {
+    document.getElementById('chest-emoji').innerText = '🧰';
+    document.getElementById('chest-container').className = '';
+    document.getElementById('action-prompt').innerText = "Tap chest to draw!";
+    state.isPlayerTurn = false;
+}
+
+/* ==================================================================
+   DRAW & PLACE
+   ================================================================== */
+function drawDigit() {
+    if (state.isPlayerTurn || state.waitingForChoice || state.digitsPlaced >= state.slotsConfig.length || state.swappingMode) return;
+
+    SFX.draw();
+    const cc = document.getElementById('chest-container');
+    cc.classList.add('shake');
+
+    state.currentDigit = Math.floor(Math.random() * 10);
+
+    setTimeout(() => {
+        cc.classList.remove('shake'); cc.classList.add('open');
+        document.getElementById('chest-emoji').innerText = '📦';
+
+        // Check for double draw (Captain's Fury or item)
+        const hasDouble = state.captainFury || state.inventory.double > 0;
+
+        if (hasDouble && !state.captainFury && state.inventory.double > 0) {
+            // If using item (not fury), don't auto-use
+        }
+
+        // Show single digit, player places it
+        document.getElementById('action-prompt').innerText = `Drew a ${state.currentDigit}! Place it!`;
+        state.isPlayerTurn = true;
+
+        // Visual: show the digit above the chest
+        spawnFloatingText(state.currentDigit, cc.getBoundingClientRect().left + 50, cc.getBoundingClientRect().top, '#FFD54F');
+    }, GAME_CONFIG.chestAnim);
+}
+
+function activateDoubleDraw() {
+    if (state.waitingForChoice) return;
+    state.digit2 = Math.floor(Math.random() * 10);
+    state.waitingForChoice = true;
+    state.isPlayerTurn = false;
+
+    document.getElementById('draw-area').style.display = 'none';
+    const choices = document.getElementById('draw-choices');
+    choices.style.display = 'flex';
+    choices.innerHTML = `
+        <div class="draw-choice pop-in" onclick="SFX.click(); chooseDigit(0)">
+            ${state.currentDigit}
+            <div class="discard-label">Choose</div>
+        </div>
+        <span style="color:#999;font-size:1.5rem;">OR</span>
+        <div class="draw-choice pop-in" onclick="SFX.click(); chooseDigit(1)" style="animation-delay:0.1s;">
+            ${state.digit2}
+            <div class="discard-label">Choose</div>
+        </div>
+    `;
+    document.getElementById('action-prompt').innerText = "Pick one digit!";
+}
+
+function chooseDigit(which) {
+    if (!state.waitingForChoice) return;
+    state.currentDigit = which === 0 ? state.currentDigit : state.digit2;
+    state.waitingForChoice = false;
+    state.isPlayerTurn = true;
+
+    const cards = document.querySelectorAll('.draw-choice');
+    cards[which].classList.add('selected');
+    cards[1-which].classList.add('discarded');
+
+    document.getElementById('action-prompt').innerText = `Chose ${state.currentDigit}! Place it!`;
+
+    setTimeout(() => {
+        document.getElementById('draw-choices').style.display = 'none';
+        document.getElementById('draw-area').style.display = 'flex';
+    }, 600);
+}
+
+function handleSlotClick(index, slotEl) {
+    if (state.swappingMode) {
+        if (state.playerNumber[index] === null) return;
+        if (state.swapIndex1 === null) {
+            state.swapIndex1 = index;
+            slotEl.style.borderColor = 'var(--accent-cyan)';
+            showToast("Tap second digit!");
+        } else {
+            if (state.swapIndex1 === index) return;
+            [state.playerNumber[state.swapIndex1], state.playerNumber[index]] = [state.playerNumber[index], state.playerNumber[state.swapIndex1]];
+            state.swappingMode = false; state.swapIndex1 = null;
+            document.body.classList.remove('swapping');
+            SFX.powerup(); renderBoard(); showToast("Swapped!");
+        }
+        return;
+    }
+
+    if (!state.isPlayerTurn || state.playerNumber[index] !== null) return;
+
+    SFX.place();
+    state.playerNumber[index] = state.currentDigit;
+    slotEl.innerText = state.currentDigit;
+    slotEl.classList.add('filled', 'pop-in');
+
+    const rect = slotEl.getBoundingClientRect();
+    createParticles(rect.left + rect.width/2, rect.top + rect.height/2, '#FFD700', 6);
+
+    // Evaluate placement quality for combos & feedback
+    const highestPv = Math.max(...state.slotsConfig.map(s=>s.pv));
+    const lowestPv = Math.min(...state.slotsConfig.map(s=>s.pv));
+    const placedPv = state.slotsConfig[index].pv;
+    let isGoodPlacement = false;
+
+    if (placedPv >= highestPv - 1 && state.currentDigit >= 7) {
+        isGoodPlacement = true;
+        SFX.placeGood();
+        spawnFloatingText(state.currentDigit === 9 ? "MAX POWER!" : "BRILLIANT!", rect.left, rect.top - 20, "#00e5ff");
+        updateEnemyEmotion('worried');
+        showEnemyDialogue(state.currentEnemy.lines.good);
+    } else if (placedPv <= lowestPv + 1 && state.currentDigit <= 2) {
+        isGoodPlacement = true;
+        SFX.placeGood();
+        spawnFloatingText("SMART!", rect.left, rect.top - 20, "#66bb6a");
+    } else if (placedPv >= highestPv - 1 && state.currentDigit <= 2) {
+        SFX.placeBad();
+        spawnFloatingText("UH OH...", rect.left, rect.top - 20, "#ef5350");
+        updateEnemyEmotion('smug');
+        showEnemyDialogue(state.currentEnemy.lines.bad);
+        state.combo = 0;
+    } else if (state.currentDigit >= 5 && placedPv >= Math.ceil(state.slotsConfig.length / 2)) {
+        isGoodPlacement = true;
+    }
+
+    if (isGoodPlacement) {
+        state.combo++;
+        state.totalGoodPlacements++;
+        if (state.combo > state.maxCombo) state.maxCombo = state.combo;
+        if (state.combo >= 2) { SFX.combo(); spawnFloatingText(`${state.combo}x COMBO!`, rect.left + 40, rect.top - 40, '#ce93d8'); }
+    }
+    updateComboDisplay();
+
+    state.isPlayerTurn = false;
+    document.getElementById('action-prompt').innerText = "Enemy thinking...";
+    setTimeout(aiTurn, 300);
+}
+
+/* ==================================================================
+   AI TURN
+   ================================================================== */
+function aiTurn() {
+    const aiDigit = Math.floor(Math.random() * 10);
+    let empty = [];
+    for (let i = 0; i < state.slotsConfig.length; i++) {
+        if (state.aiNumber[i] === null) empty.push(i);
+    }
+
+    empty.sort((a, b) => state.slotsConfig[b].pv - state.slotsConfig[a].pv);
+
+    let chosen;
+    const personality = state.currentEnemy.personality;
+    if (personality === 'strategic') {
+        if (aiDigit >= 7) chosen = empty[0];
+        else if (aiDigit <= 2) chosen = empty[empty.length - 1];
+        else { const mid = Math.floor(empty.length / 2); chosen = empty[mid]; }
+    } else if (personality === 'wild') {
+        chosen = empty[Math.floor(Math.random() * empty.length)];
+    } else {
+        if (aiDigit >= 6) chosen = empty[0];
+        else if (aiDigit <= 3) chosen = empty[empty.length - 1];
+        else chosen = empty[Math.floor(Math.random() * empty.length)];
+    }
+
+    const eSlots = document.querySelectorAll('#enemy-slots .digit-slot');
+    if (eSlots[chosen]) {
+        eSlots[chosen].classList.add('ai-thinking');
+        setTimeout(() => {
+            eSlots[chosen].classList.remove('ai-thinking');
+            state.aiNumber[chosen] = aiDigit;
+            renderBoard();
+
+            const r = eSlots[chosen].getBoundingClientRect();
+            createParticles(r.left + r.width/2, r.top + r.height/2, '#ef5350', 4);
+
+            state.digitsPlaced++;
+            if (state.digitsPlaced >= state.slotsConfig.length) {
+                setTimeout(endRoundBattle, 800);
+            } else {
+                resetChest();
+            }
+        }, GAME_CONFIG.aiDelay);
+    }
+}
+
+/* ==================================================================
+   POWERUPS
+   ================================================================== */
+function activatePowerup(id) {
+    if (state.swappingMode) return;
+
+    if (id === 'double') {
+        if (!state.isPlayerTurn) { showToast("Draw a digit first!"); return; }
+        if (!state.captainFury) state.inventory.double--;
+        SFX.powerup();
+        renderPowerups();
+        activateDoubleDraw();
+        return;
+    }
+
+    if (state.inventory[id] <= 0) return;
+    state.inventory[id]--;
+    SFX.powerup(); renderPowerups();
+
+    if (id === 'map') {
+        const next = Math.floor(Math.random() * 10);
+        showToast(`Next digit will be: ${next}`);
+    } else if (id === 'kraken') {
+        let best = -1, bestIdx = -1;
+        for (let i = 0; i < state.slotsConfig.length; i++) {
+            if (state.aiNumber[i] !== null && state.slotsConfig[i].pv > best) { best = state.slotsConfig[i].pv; bestIdx = i; }
+        }
+        if (bestIdx !== -1) {
+            state.aiNumber[bestIdx] = 0;
+            renderBoard(); screenShake();
+            showToast("Kraken zeroed enemy's best!");
+            showEnemyDialogue("CURSE YOU!");
+            updateEnemyEmotion('shocked');
+        } else { state.inventory.kraken++; renderPowerups(); showToast("No digits to attack!"); }
+    } else if (id === 'swap') {
+        const filled = state.playerNumber.filter(n => n !== null).length;
+        if (filled < 2) { state.inventory.swap++; renderPowerups(); showToast("Need 2 digits first!"); return; }
+        state.swappingMode = true; state.swapIndex1 = null;
+        document.body.classList.add('swapping');
+        showToast("Tap two digits to swap!");
+    }
+}
+
+/* ==================================================================
+   BATTLE - DRAMATIC DIGIT-BY-DIGIT REVEAL
+   ================================================================== */
+function calculateScore(numArray) {
+    let total = 0;
+    for (let i = 0; i < numArray.length; i++) {
+        if (numArray[i] !== null) total += numArray[i] * Math.pow(10, state.slotsConfig[i].pv - 1);
+    }
+    return total;
+}
+
+function endRoundBattle() {
+    for (let i = 0; i < state.slotsConfig.length; i++) {
+        if (state.aiNumber[i] === null) state.aiNumber[i] = 0;
+    }
+
+    showScreen('battle-screen');
+    document.getElementById('battle-title').innerHTML = '⚔️ FIRE CANNONS! ⚔️';
+    document.getElementById('battle-result-text').innerText = '';
+    document.getElementById('next-action-btn').style.display = 'none';
+    document.getElementById('battle-final-row').style.display = 'none';
+    document.getElementById('battle-final-row2').style.display = 'none';
+
+    // Build reveal container - sort by place value (lowest first for drama)
+    const revealC = document.getElementById('battle-reveal-container');
+    revealC.innerHTML = '';
+
+    const sortedIndices = [...Array(state.slotsConfig.length).keys()];
+    sortedIndices.sort((a,b) => state.slotsConfig[a].pv - state.slotsConfig[b].pv);
+
+    // Player row
+    const pRow = document.createElement('div');
+    pRow.className = 'battle-slots-row';
+    pRow.innerHTML = '<span class="battle-label">You:</span>';
+    sortedIndices.forEach((si, i) => {
+        const d = document.createElement('div');
+        d.className = 'battle-digit'; d.id = `bp-${i}`; d.innerText = '?';
+        pRow.appendChild(d);
+    });
+    const pTotal = document.createElement('span');
+    pTotal.className = 'battle-running-total'; pTotal.id = 'bp-total'; pTotal.innerText = '0';
+    pRow.appendChild(pTotal);
+    revealC.appendChild(pRow);
+
+    // Enemy row
+    const eRow = document.createElement('div');
+    eRow.className = 'battle-slots-row';
+    eRow.innerHTML = '<span class="battle-label">Enemy:</span>';
+    sortedIndices.forEach((si, i) => {
+        const d = document.createElement('div');
+        d.className = 'battle-digit'; d.id = `be-${i}`; d.innerText = '?';
+        eRow.appendChild(d);
+    });
+    const eTotal = document.createElement('span');
+    eTotal.className = 'battle-running-total'; eTotal.id = 'be-total'; eTotal.innerText = '0';
+    eRow.appendChild(eTotal);
+    revealC.appendChild(eRow);
+
+    // Place value labels
+    const labelRow = document.createElement('div');
+    labelRow.className = 'battle-slots-row';
+    labelRow.innerHTML = '<span class="battle-label"></span>';
+    sortedIndices.forEach(si => {
+        const l = document.createElement('div');
+        l.style.cssText = 'width:45px;text-align:center;font-size:0.6rem;color:#999;';
+        l.innerText = state.slotsConfig[si].name;
+        labelRow.appendChild(l);
+    });
+    labelRow.innerHTML += '<span style="min-width:80px;"></span>';
+    revealC.appendChild(labelRow);
+
+    // Animate reveal
+    let pRunning = 0, eRunning = 0;
+    SFX.cannon();
+
+    sortedIndices.forEach((si, i) => {
+        setTimeout(() => {
+            SFX.reveal();
+            const pDigit = state.playerNumber[si];
+            const eDigit = state.aiNumber[si];
+            const pvMult = Math.pow(10, state.slotsConfig[si].pv - 1);
+
+            const pEl = document.getElementById(`bp-${i}`);
+            const eEl = document.getElementById(`be-${i}`);
+
+            pEl.innerText = pDigit; pEl.classList.add('revealed', 'pop-in');
+            eEl.innerText = eDigit; eEl.classList.add('revealed', 'pop-in');
+
+            const pVal = pDigit * pvMult;
+            const eVal = eDigit * pvMult;
+            pRunning += pVal; eRunning += eVal;
+
+            document.getElementById('bp-total').innerText = pRunning.toLocaleString();
+            document.getElementById('be-total').innerText = eRunning.toLocaleString();
+
+            if (pVal > eVal) { pEl.classList.add('winning'); eEl.classList.add('losing'); }
+            else if (eVal > pVal) { eEl.classList.add('winning'); pEl.classList.add('losing'); }
+
+            // Last digit revealed
+            if (i === sortedIndices.length - 1) {
+                setTimeout(() => finalizeBattle(pRunning, eRunning), 800);
+            }
+        }, 800 + i * 700);
+    });
+}
+
+function finalizeBattle(pNum, eNum) {
+    SFX.cannon();
+    screenShake();
+
+    // Track best score
+    if (pNum > state.bestScore) state.bestScore = pNum;
+
+    const pSpan = document.getElementById('battle-player-num');
+    const eSpan = document.getElementById('battle-enemy-num');
+    document.getElementById('battle-final-row').style.display = 'flex';
+    document.getElementById('battle-final-row2').style.display = 'flex';
+    pSpan.innerText = pNum.toLocaleString();
+    eSpan.innerText = eNum.toLocaleString();
+    pSpan.className = 'battle-score'; eSpan.className = 'battle-score';
+
+    const resText = document.getElementById('battle-result-text');
+    const btn = document.getElementById('next-action-btn');
+    let comboBonus = state.combo > 0 ? Math.floor(state.combo * GAME_CONFIG.comboGold) : 0;
+
+    if (pNum > eNum) {
+        SFX.win();
+        pSpan.classList.add('battle-winner'); eSpan.classList.add('battle-loser');
+        state.gold += GAME_CONFIG.goldPerWin + comboBonus;
+        state.levelWins++;
+        state.streakWins++;
+        let bonusText = comboBonus > 0 ? ` (+${comboBonus} combo bonus!)` : '';
+        fireCannons(true);
+
+        if (state.levelWins >= 2) {
+            resText.innerHTML = `🎉 ISLAND CONQUERED! +${GAME_CONFIG.goldPerWin}${bonusText}`;
+            btn.innerText = "Back to Map";
+            if (state.currentLevelIndex === state.unlockedLevel) state.unlockedLevel++;
+        } else {
+            resText.innerHTML = `⚔️ ROUND WON! +${GAME_CONFIG.goldPerWin}${bonusText}`;
+            btn.innerText = "Next Round"; state.round++;
+        }
+    } else if (pNum < eNum) {
+        SFX.lose();
+        pSpan.classList.add('battle-loser'); eSpan.classList.add('battle-winner');
+        state.gold += GAME_CONFIG.goldPerLoss;
+        state.levelLosses++;
+        state.streakWins = 0;
+        fireCannons(false);
+
+        if (state.levelLosses >= 2) {
+            resText.innerHTML = `💀 DEFEATED! +${GAME_CONFIG.goldPerLoss} consolation gold`;
+            btn.innerText = "Back to Map";
+        } else {
+            resText.innerHTML = `🏴‍☠️ Round lost! +${GAME_CONFIG.goldPerLoss}`;
+            btn.innerText = "Next Round"; state.round++;
+        }
+    } else {
+        resText.innerHTML = "⚖️ It's a DRAW! Re-match!";
+        btn.innerText = "Re-match!";
+    }
+
+    if (state.streakWins === 3) showToast("🔥 CAPTAIN'S FURY UNLOCKED! Free Double Draws!");
+    updateHUD(); saveGame();
+    btn.style.display = 'inline-block';
+}
+
+function handleBattleNext() {
+    if (state.levelWins >= 2 || state.levelLosses >= 2) {
+        openMap();
+    } else {
+        maybeSeaEvent(() => startNextRound());
+    }
+}
+
+/* ==================================================================
+   VFX
+   ================================================================== */
+function screenShake() {
+    document.body.classList.remove('screen-shake');
+    void document.body.offsetWidth;
+    document.body.classList.add('screen-shake');
+    setTimeout(() => document.body.classList.remove('screen-shake'), 500);
+}
+
+function fireCannons(playerWon) {
+    screenShake();
+    const flash = document.createElement('div');
+    flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.8);z-index:99999;pointer-events:none;transition:opacity 0.4s;';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.style.opacity = '0', 30);
+    setTimeout(() => flash.remove(), 450);
+
+    for (let i = 0; i < 6; i++) {
+        setTimeout(() => {
+            const x = Math.random() * window.innerWidth;
+            const y = playerWon ? Math.random() * window.innerHeight * 0.5 : window.innerHeight * 0.5 + Math.random() * window.innerHeight * 0.5;
+            createParticles(x, y, playerWon ? '#FFD700' : '#FF4500', 12);
+        }, i * 180);
+    }
+}
+
+function createParticles(x, y, color, amount) {
+    for (let i = 0; i < amount; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        const size = Math.random() * 8 + 3;
+        p.style.width = `${size}px`; p.style.height = `${size}px`;
+        p.style.backgroundColor = color;
+        p.style.left = `${x}px`; p.style.top = `${y}px`;
+        document.body.appendChild(p);
+
+        const angle = Math.random() * Math.PI * 2;
+        const vel = Math.random() * 8 + 4;
+        let vx = Math.cos(angle) * vel, vy = Math.sin(angle) * vel, op = 1;
+        let cx = x, cy = y;
+
+        function anim() {
+            if (op <= 0) { p.remove(); return; }
+            vy += 0.4; cx += vx; cy += vy;
+            p.style.left = `${cx}px`; p.style.top = `${cy}px`;
+            op -= 0.025; p.style.opacity = op;
+            requestAnimationFrame(anim);
+        }
+        requestAnimationFrame(anim);
+    }
+}
+
+function spawnFloatingText(text, x, y, color) {
+    const el = document.createElement('div');
+    el.className = 'floating-text'; el.innerText = text;
+    el.style.left = `${x}px`; el.style.top = `${y}px`; el.style.color = color;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 1500);
+}
+
+/* ==================================================================
+   RESIZE & INIT
+   ================================================================== */
+function resizeApp() {
+    const vh = window.innerHeight;
+    document.body.style.height = `${vh}px`;
+    const app = document.getElementById('app');
+    if (app) app.style.height = `${vh}px`;
+}
+window.addEventListener('resize', resizeApp);
+setTimeout(resizeApp, 50);
+
+init();
+</script>
+</body>
+</html>
