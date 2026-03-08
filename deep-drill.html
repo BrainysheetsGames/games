@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deep Drill: Core Descent</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+  #game-container { position: relative; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="game-container"></div>
+<script>
+const TILE = 32;
+const MAP_W = 32;
+const MAP_H = 300;
+const SURFACE_Y = 8;
+const GRAVITY = 550;
+const FLY_FORCE = -380;
+const MOVE_SPEED = 150;
+const DRILL_TIME_BASE = 250;
+const GW = 800;
+const GH = 600;
+
+const MINERALS = {
+  ironium:     { name:'Ironium',     color:'#9B8465', glow:'#6B5435', minD:0,   maxD:80,  rarity:0.25, value:30,     hardness:1,   tier:0 },
+  bronzium:    { name:'Bronzium',    color:'#CD7F32', glow:'#A05A10', minD:0,   maxD:120, rarity:0.18, value:60,     hardness:1,   tier:0 },
+  silverium:   { name:'Silverium',   color:'#D0D0D0', glow:'#FFFFFF', minD:15,  maxD:150, rarity:0.12, value:100,    hardness:1.2, tier:1 },
+  goldium:     { name:'Goldium',     color:'#FFD700', glow:'#FFFF44', minD:30,  maxD:180, rarity:0.08, value:250,    hardness:1.5, tier:1 },
+  platinium:   { name:'Platinium',   color:'#E8E8E0', glow:'#FFFFFF', minD:50,  maxD:200, rarity:0.05, value:750,    hardness:2,   tier:2 },
+  einsteinium: { name:'Einsteinium', color:'#00FF88', glow:'#00FF88', minD:70,  maxD:220, rarity:0.03, value:2000,   hardness:2.5, tier:2 },
+  emerald:     { name:'Emerald',     color:'#50C878', glow:'#80FFA8', minD:90,  maxD:240, rarity:0.02, value:5000,   hardness:3,   tier:3 },
+  ruby:        { name:'Ruby',        color:'#E0115F', glow:'#FF4488', minD:110, maxD:260, rarity:0.015,value:8000,   hardness:3,   tier:3 },
+  diamond:     { name:'Diamond',     color:'#B9F2FF', glow:'#EEFFFF', minD:140, maxD:280, rarity:0.01, value:20000,  hardness:4,   tier:4 },
+  amazonite:   { name:'Amazonite',   color:'#00C4B0', glow:'#44FFE0', minD:180, maxD:290, rarity:0.006,value:50000,  hardness:5,   tier:4 },
+  unobtanium:  { name:'Unobtanium',  color:'#DD44FF', glow:'#FF88FF', minD:220, maxD:300, rarity:0.003,value:100000, hardness:6,   tier:5 },
+};
+
+const UPGRADES = {
+  drill:    { name:'Drill',     icon:'D', levels:[{cost:0,label:'Basic Drill',bonus:1},{cost:1000,label:'Steel Drill',bonus:1.5},{cost:3000,label:'Titanium Drill',bonus:2.2},{cost:8000,label:'Diamond Drill',bonus:3.2},{cost:25000,label:'Plasma Drill',bonus:4.5},{cost:80000,label:'Quantum Drill',bonus:6.5},{cost:250000,label:'Neutron Drill',bonus:10}]},
+  hull:     { name:'Hull',      icon:'H', levels:[{cost:0,label:'Tin Hull',bonus:100},{cost:800,label:'Copper Hull',bonus:200},{cost:2500,label:'Iron Hull',bonus:350},{cost:7000,label:'Steel Hull',bonus:500},{cost:20000,label:'Titanium Hull',bonus:750},{cost:60000,label:'Diamond Hull',bonus:1000},{cost:200000,label:'Plasma Shield',bonus:1500}]},
+  fuel:     { name:'Fuel Tank', icon:'F', levels:[{cost:0,label:'Tiny Tank',bonus:100},{cost:600,label:'Small Tank',bonus:175},{cost:2000,label:'Medium Tank',bonus:275},{cost:5000,label:'Large Tank',bonus:400},{cost:15000,label:'Huge Tank',bonus:600},{cost:50000,label:'Mega Tank',bonus:900},{cost:175000,label:'Quantum Tank',bonus:1500}]},
+  cargo:    { name:'Cargo Bay', icon:'C', levels:[{cost:0,label:'Tiny Bay',bonus:7},{cost:500,label:'Small Bay',bonus:12},{cost:1500,label:'Medium Bay',bonus:18},{cost:4000,label:'Large Bay',bonus:25},{cost:12000,label:'Huge Bay',bonus:35},{cost:40000,label:'Mega Bay',bonus:50},{cost:150000,label:'Quantum Bay',bonus:75}]},
+  engine:   { name:'Engine',    icon:'E', levels:[{cost:0,label:'Basic Engine',bonus:1},{cost:1200,label:'Turbo Engine',bonus:1.3},{cost:4000,label:'Jet Engine',bonus:1.6},{cost:12000,label:'Rocket Engine',bonus:2},{cost:35000,label:'Ion Engine',bonus:2.5},{cost:100000,label:'Fusion Engine',bonus:3},{cost:300000,label:'Warp Engine',bonus:4}]},
+  radiator: { name:'Radiator',  icon:'R', levels:[{cost:0,label:'No Radiator',bonus:0},{cost:2000,label:'Basic Radiator',bonus:0.25},{cost:8000,label:'Copper Radiator',bonus:0.5},{cost:25000,label:'Silver Radiator',bonus:0.75},{cost:75000,label:'Gold Radiator',bonus:0.9},{cost:200000,label:'Plasma Radiator',bonus:1}]},
+};
+
+const ITEMS = {
+  repair:   { name:'Repair Nanobots', cost:1500,  desc:'Repairs 200 hull' },
+  fuel_res: { name:'Reserve Fuel',    cost:500,   desc:'Emergency +50 fuel' },
+  dynamite: { name:'Dynamite',        cost:2000,  desc:'3x3 explosion' },
+  c4:       { name:'Plastic C4',      cost:5000,  desc:'5x5 explosion' },
+  teleport: { name:'Teleporter',      cost:3000,  desc:'Return to surface' },
+};
+
+const TRANSMISSIONS = [
+  { depth:100,  msg:"Mr. Natas: \"Good progress, miner. Keep digging.\"", color:'#44ff88' },
+  { depth:300,  msg:"Mr. Natas: \"Don't worry about the tremors...\"", color:'#44ff88' },
+  { depth:600,  msg:"Mr. Natas: \"Something ancient sleeps below...\"", color:'#88cc44' },
+  { depth:1000, msg:"Mr. Natas: \"$3000 bonus for your dedication!\"", color:'#ffdd44', bonus:3000 },
+  { depth:1500, msg:"Mr. Natas: \"Your sensors may detect anomalies. Ignore them.\"", color:'#ccaa44' },
+  { depth:2000, msg:"Mr. Natas: \"$10,000 bonus! Don't stop now.\"", color:'#ffdd44', bonus:10000 },
+  { depth:2500, msg:"Mr. Natas: \"Bring me the artifacts. I'll pay handsomely.\"", color:'#cc8844' },
+  { depth:3000, msg:"WARNING: Extreme heat detected.", color:'#ff6644' },
+  { depth:3500, msg:"Mr. Natas: \"You're close now. DO NOT TURN BACK.\"", color:'#ff4444' },
+];
+
+const ARTIFACTS = [
+  { name:'Ancient Compass', desc:'Reveals minerals on minimap', effect:'xray', minD:80, rarity:0.001 },
+  { name:'Nano Repair Bot', desc:'Slowly regenerates hull', effect:'regen', minD:160, rarity:0.0006 },
+  { name:'Fuel Recycler', desc:'25% less fuel consumption', effect:'fuel_save', minD:200, rarity:0.0005 },
+];
+
+// ─── Grade Level & Rounding System ───
+let GRADE_LEVEL = '2-3';
+
+function generateRoundingQ() {
+  if (GRADE_LEVEL === '2-3') return genG23();
+  return genG45();
+}
+
+function genG23() {
+  const types = [
+    () => { const n=Math.floor(Math.random()*90)+10; const a=Math.round(n/10)*10;
+      return {q:`Round ${n} to the nearest 10`,a,hint:'Look at the ones digit. 5+ rounds up!'}; },
+    () => { const n=Math.floor(Math.random()*900)+100; const a=Math.round(n/100)*100;
+      return {q:`Round ${n} to the nearest 100`,a,hint:'Look at the tens digit. 5+ rounds up!'}; },
+    () => { const n=Math.floor(Math.random()*400)+100; const a=Math.round(n/10)*10;
+      return {q:`Round ${n} to the nearest 10`,a,hint:'Look at the ones digit to decide!'}; },
+    () => { const d=Math.floor(Math.random()*50)+5; const c=Math.floor(Math.random()*99)+1;
+      const n=d+c/100; const a=c>=50?d+1:d;
+      return {q:`Round $${n.toFixed(2)} to the nearest dollar`,a,hint:'50 cents or more rounds up!',prefix:'$'}; },
+    () => { const n=Math.floor(Math.random()*9000)+1000; const a=Math.round(n/1000)*1000;
+      return {q:`Round ${n.toLocaleString()} to the nearest 1,000`,a,hint:'Look at the hundreds digit!'}; },
+  ];
+  const r=types[Math.floor(Math.random()*types.length)]();
+  r.choices=makeChoices(r.a,'2-3'); return r;
+}
+
+function genG45() {
+  const types = [
+    () => { const n=Math.random()*50+5; const a=Math.round(n);
+      return {q:`Round ${n.toFixed(2)} to the nearest whole number`,a,hint:'Look at the tenths digit.'}; },
+    () => { const n=Math.random()*30+2; const a=Math.round(n*10)/10;
+      return {q:`Round ${n.toFixed(2)} to the nearest tenth`,a,hint:'Look at the hundredths digit!',dec:1}; },
+    () => { const n=Math.random()*20+1; const a=Math.round(n*100)/100;
+      return {q:`Round ${n.toFixed(3)} to the nearest hundredth`,a,hint:'Look at the thousandths digit!',dec:2}; },
+    () => { const ps=[10,100,1000]; const p=ps[Math.floor(Math.random()*ps.length)];
+      const nm={10:'ten',100:'hundred',1000:'thousand'}; const n=Math.floor(Math.random()*9000)+1000;
+      const a=Math.round(n/p)*p;
+      return {q:`Round ${n.toLocaleString()} to the nearest ${nm[p]}`,a,hint:`Look at the digit right of the ${nm[p]}s place.`}; },
+    () => { const n=Math.random()*100+10; const a=Math.round(n*10)/10;
+      return {q:`Round $${n.toFixed(2)} to the nearest 10 cents`,a,hint:'Look at the pennies digit!',prefix:'$',dec:1}; },
+  ];
+  const r=types[Math.floor(Math.random()*types.length)]();
+  r.choices=makeChoices(r.a,GRADE_LEVEL); return r;
+}
+
+function makeChoices(correct, grade) {
+  const ch=[correct], used=new Set([correct]);
+  const offs=grade==='2-3'?[10,-10,20,-20,5,-5,1,-1,100,-100]:[0.1,-0.1,1,-1,10,-10,0.01,-0.01,5,-5];
+  let tries=0;
+  while(ch.length<4&&tries<30){tries++;
+    const o=offs[Math.floor(Math.random()*offs.length)];
+    let w=correct+o; w=Math.round(w*1000)/1000;
+    if(w>0&&!used.has(w)){ch.push(w);used.add(w);}
+  }
+  while(ch.length<4) ch.push(correct + ch.length * 3);
+  for(let i=ch.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ch[i],ch[j]]=[ch[j],ch[i]];}
+  return ch;
+}
+
+function fmtChoice(val, q) {
+  const p=q.prefix||'';
+  if(q.dec===2) return p+val.toFixed(2);
+  if(q.dec===1) return p+val.toFixed(1);
+  if(Number.isInteger(val)) return p+val.toLocaleString();
+  return p+val.toFixed(2);
+}
+
+function getSoilColor(depth) {
+  const colors = [
+    {d:0,r:180,g:120,b:65},{d:20,r:160,g:100,b:50},{d:50,r:140,g:80,b:42},
+    {d:80,r:115,g:65,b:35},{d:120,r:95,g:52,b:30},{d:160,r:75,g:40,b:28},
+    {d:200,r:60,g:32,b:24},{d:250,r:50,g:25,b:22},{d:280,r:55,g:20,b:18},
+  ];
+  for (let i = colors.length-1; i >= 0; i--) {
+    if (depth >= colors[i].d) {
+      if (i < colors.length-1) {
+        const a=colors[i], b=colors[i+1], t=(depth-a.d)/(b.d-a.d);
+        return {r:Math.floor(a.r+(b.r-a.r)*t),g:Math.floor(a.g+(b.g-a.g)*t),b:Math.floor(a.b+(b.b-a.b)*t)};
+      }
+      return colors[i];
+    }
+  }
+  return colors[0];
+}
+
+function hexToRgb(hex){return{r:parseInt(hex.slice(1,3),16),g:parseInt(hex.slice(3,5),16),b:parseInt(hex.slice(5,7),16)};}
+function rgb(r,g,b){return(r<<16)|(g<<8)|b;}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+// ─── TEXTURES ───
+class Tex {
+  static gen(scene) {
+    this.soils(scene); this.minerals(scene); this.hazards(scene);
+    this.player(scene); this.env(scene); this.buildings(scene);
+  }
+  static soils(scene) {
+    for (let d=0; d<MAP_H; d+=5) {
+      const c=getSoilColor(d); const g=scene.make.graphics({add:false});
+      g.fillStyle(rgb(c.r,c.g,c.b)); g.fillRect(0,0,TILE,TILE);
+      for(let i=0;i<18;i++){
+        const s=(Math.random()-0.5)*30;
+        g.fillStyle(rgb(clamp(c.r+s,0,255),clamp(c.g+s,0,255),clamp(c.b+s,0,255)),0.6);
+        g.fillRect(Math.random()*TILE,Math.random()*TILE,1+Math.random()*4,1+Math.random()*4);
+      }
+      for(let i=0;i<3;i++){g.fillStyle(rgb(clamp(c.r-25,0,255),clamp(c.g-25,0,255),clamp(c.b-25,0,255)),0.4);g.fillCircle(4+Math.random()*24,4+Math.random()*24,1+Math.random()*2);}
+      g.lineStyle(1,rgb(clamp(c.r-20,0,255),clamp(c.g-20,0,255),clamp(c.b-20,0,255)),0.15);
+      g.strokeRect(0.5,0.5,TILE-1,TILE-1);
+      g.generateTexture('soil_'+d,TILE,TILE); g.destroy();
+    }
+  }
+  static minerals(scene) {
+    for(const[key,m] of Object.entries(MINERALS)){
+      const mc=hexToRgb(m.color),gc=hexToRgb(m.glow),g=scene.make.graphics({add:false});
+      g.fillStyle(0x2a1e15); g.fillRect(0,0,TILE,TILE);
+      for(let i=0;i<8;i++){g.fillStyle(0x1e1510,0.5);g.fillRect(Math.random()*TILE,Math.random()*TILE,2+Math.random()*4,2+Math.random()*4);}
+      const n=3+Math.floor(Math.random()*4);
+      for(let i=0;i<n;i++){
+        const cx=5+Math.random()*22,cy=5+Math.random()*22,sz=3+Math.random()*7;
+        g.fillStyle(rgb(mc.r,mc.g,mc.b),0.9);
+        if(m.tier>=3){g.fillTriangle(cx,cy-sz,cx+sz*0.7,cy,cx-sz*0.7,cy);g.fillTriangle(cx,cy+sz*0.7,cx+sz*0.7,cy,cx-sz*0.7,cy);}
+        else g.fillRect(cx-sz/2,cy-sz/2,sz,sz);
+        g.fillStyle(rgb(clamp(mc.r+80,0,255),clamp(mc.g+80,0,255),clamp(mc.b+80,0,255)),0.7);
+        g.fillRect(cx-sz/4,cy-sz/4,sz*0.3,sz*0.3);
+      }
+      if(m.tier>=2){g.fillStyle(rgb(gc.r,gc.g,gc.b),0.08);g.fillCircle(TILE/2,TILE/2,TILE*0.6);}
+      for(let i=0;i<(m.tier>=3?6:3);i++){g.fillStyle(0xffffff,0.5+Math.random()*0.5);g.fillRect(3+Math.random()*26,3+Math.random()*26,1,1);}
+      g.lineStyle(1,rgb(mc.r,mc.g,mc.b),0.35); g.strokeRect(0.5,0.5,TILE-1,TILE-1);
+      g.generateTexture('mineral_'+key,TILE,TILE); g.destroy();
+    }
+  }
+  static hazards(scene) {
+    let g=scene.make.graphics({add:false});
+    g.fillStyle(0x4a4a5a);g.fillRect(0,0,TILE,TILE);
+    for(let i=0;i<20;i++){g.fillStyle(0x3a3a4a+Math.floor(Math.random()*0x202020),0.7);g.fillRect(Math.random()*TILE,Math.random()*TILE,2+Math.random()*6,2+Math.random()*6);}
+    g.lineStyle(1,0x333344,0.4);g.lineBetween(5,8,20,15);g.lineBetween(12,22,28,28);
+    g.generateTexture('stone',TILE,TILE); g.destroy();
+
+    g=scene.make.graphics({add:false});
+    g.fillStyle(0xcc2200);g.fillRect(0,0,TILE,TILE);
+    for(let i=0;i<12;i++){g.fillStyle([0xff4400,0xff6600,0xff2200,0xdd0000][Math.floor(Math.random()*4)],0.7);g.fillRect(Math.random()*TILE,Math.random()*TILE,3+Math.random()*8,3+Math.random()*6);}
+    g.fillStyle(0xffaa00,0.4);g.fillCircle(10,12,5);g.fillCircle(22,20,6);
+    g.generateTexture('lava',TILE,TILE); g.destroy();
+
+    g=scene.make.graphics({add:false});
+    g.fillStyle(0x443300);g.fillRect(0,0,TILE,TILE);
+    for(let i=0;i<10;i++){g.fillStyle(0x665500,0.2+Math.random()*0.3);g.fillCircle(Math.random()*TILE,Math.random()*TILE,3+Math.random()*6);}
+    g.generateTexture('gas',TILE,TILE); g.destroy();
+  }
+  static player(scene) {
+    let g=scene.make.graphics({add:false});
+    g.fillStyle(0x333333);g.fillRect(1,11,5,17);g.fillRect(26,11,5,17);
+    g.fillStyle(0x444444);for(let y=12;y<27;y+=3){g.fillRect(1,y,5,1);g.fillRect(26,y,5,1);}
+    g.fillStyle(0xcc4400);g.fillRect(5,6,22,18);
+    g.fillStyle(0xdd5511);g.fillRect(6,7,20,4);
+    g.fillStyle(0xaa3300);g.fillRect(6,20,20,3);
+    g.fillStyle(0x226688);g.fillRect(9,8,14,9);
+    g.fillStyle(0x44aadd);g.fillRect(10,9,12,7);
+    g.fillStyle(0x88ddff,0.6);g.fillRect(11,10,5,3);
+    g.fillStyle(0x888888);g.fillRect(12,24,8,4);
+    g.fillStyle(0xaaaaaa);g.fillRect(14,26,4,4);
+    g.fillStyle(0xcccccc);g.fillRect(15,28,2,3);
+    g.fillStyle(0x555555);g.fillRect(8,2,3,5);g.fillRect(21,2,3,5);
+    g.fillStyle(0x888888);g.fillRect(16,0,1,7);
+    g.fillStyle(0xff4444);g.fillCircle(16,0,2);
+    g.generateTexture('player',32,32); g.destroy();
+
+    g=scene.make.graphics({add:false});
+    g.fillStyle(0xff4400,0.9);g.fillTriangle(6,0,10,16,2,16);
+    g.fillStyle(0xff8800,0.7);g.fillTriangle(6,3,9,12,3,12);
+    g.fillStyle(0xffcc00,0.5);g.fillTriangle(6,5,8,10,4,10);
+    g.generateTexture('flame',12,16); g.destroy();
+
+    g=scene.make.graphics({add:false});
+    g.fillStyle(0xffcc44);g.fillCircle(3,3,3);
+    g.fillStyle(0xffffff,0.7);g.fillCircle(3,3,1.5);
+    g.generateTexture('spark',6,6); g.destroy();
+  }
+  static env(scene) {
+    let g=scene.make.graphics({add:false});
+    g.fillStyle(0xBB6633);g.fillRect(0,0,TILE,TILE);
+    g.fillStyle(0xCC7744);g.fillRect(0,0,TILE,4);
+    for(let i=0;i<12;i++){g.fillStyle(Math.random()>0.5?0xCC7744:0xAA5522,0.6);g.fillRect(Math.random()*TILE,Math.random()*TILE,2+Math.random()*5,1+Math.random()*3);}
+    g.generateTexture('surface',TILE,TILE); g.destroy();
+
+    g=scene.make.graphics({add:false});g.fillStyle(0xffffff);g.fillCircle(4,4,4);
+    g.generateTexture('particle',8,8); g.destroy();
+
+    g=scene.make.graphics({add:false});g.fillStyle(0xffffff);g.fillCircle(2,2,2);
+    g.generateTexture('particle_sm',4,4); g.destroy();
+  }
+  static buildings(scene) {
+    const blds = [
+      { key:'bld_fuel',    base:0x2a3a4a, inner:0x354555, sign:0x22aa44, signH:0x33cc55 },
+      { key:'bld_sell',    base:0x3a2a1a, inner:0x4a3a2a, sign:0xddaa22, signH:0xeecc44 },
+      { key:'bld_upgrade', base:0x1a2a44, inner:0x2a3a55, sign:0x4488ff, signH:0x66aaff },
+      { key:'bld_item',    base:0x2a1a3a, inner:0x3a2a4a, sign:0xaa44ff, signH:0xcc66ff },
+    ];
+    blds.forEach(b => {
+      const g=scene.make.graphics({add:false});
+      g.fillStyle(b.base);g.fillRect(0,12,64,52);
+      g.fillStyle(b.inner);g.fillRect(2,14,60,48);
+      g.fillStyle(b.sign);g.fillRect(8,0,48,14);
+      g.fillStyle(b.signH);g.fillRect(10,2,44,10);
+      // Window
+      g.fillStyle(0x88ccff,0.3);g.fillRect(20,28,24,16);
+      g.fillStyle(0xaaddff,0.2);g.fillRect(22,30,10,6);
+      // Door
+      g.fillStyle(0x111111);g.fillRect(26,46,12,18);
+      g.fillStyle(0x888888);g.fillCircle(36,55,1);
+      g.generateTexture(b.key,64,64); g.destroy();
+    });
+  }
+}
+
+// ─── SCENES ───
+class BootScene extends Phaser.Scene {
+  constructor(){super('BootScene');}
+  create(){Tex.gen(this);this.scene.start('MenuScene');}
+}
+
+class MenuScene extends Phaser.Scene {
+  constructor(){super('MenuScene');}
+  create(){
+    const cx=GW/2,cy=GH/2;
+    this.cameras.main.setBackgroundColor('#050208');
+    this.selectedGrade = '2-3';
+
+    for(let i=0;i<150;i++){
+      const d=0.3+Math.random()*0.7;
+      const s=this.add.circle(Math.random()*GW,Math.random()*GH,d*1.5,0xffffff,d*0.6);
+      this.tweens.add({targets:s,alpha:0.05+Math.random()*0.2,duration:800+Math.random()*2500,yoyo:true,repeat:-1});
+    }
+    // Mars
+    this.add.circle(cx,cy+200,250,0x882200);
+    this.add.circle(cx-60,cy+140,240,0xaa3311,0.25);
+    this.add.circle(cx-80,cy+220,20,0x771a00,0.3);
+    this.add.circle(cx+60,cy+260,30,0x661500,0.2);
+
+    // Title
+    this.add.text(cx,cy-195,'DEEP DRILL',{fontSize:'64px',fontFamily:'monospace',fontStyle:'bold',color:'#ff4400',
+      shadow:{offsetX:0,offsetY:0,color:'#ff660066',blur:20,fill:true}}).setOrigin(0.5);
+    this.add.text(cx,cy-140,'C O R E   D E S C E N T',{
+      fontSize:'16px',fontFamily:'monospace',color:'#cc5533',letterSpacing:3}).setOrigin(0.5);
+
+    // Pod
+    const pod=this.add.image(cx,cy-60,'player').setScale(2.5);
+    this.tweens.add({targets:pod,y:cy-52,duration:2000,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+    const fl1=this.add.image(cx-6,cy-20,'flame').setScale(1.8).setAlpha(0.8);
+    const fl2=this.add.image(cx+6,cy-20,'flame').setScale(1.8).setAlpha(0.8);
+    this.tweens.add({targets:[fl1,fl2],y:cy-12,duration:2000,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+    this.tweens.add({targets:fl1,alpha:0.5,duration:100,yoyo:true,repeat:-1});
+
+    // Grade Level Selection
+    this.add.text(cx, cy+22, 'SELECT YOUR GRADE LEVEL:', {
+      fontSize:'14px',fontFamily:'monospace',fontStyle:'bold',color:'#ffaa44'
+    }).setOrigin(0.5);
+
+    // Grade 2-3 button
+    const g23bg = this.add.rectangle(cx-100, cy+60, 170, 44, 0x44aa44, 0.9).setInteractive({useHandCursor:true});
+    const g23border = this.add.rectangle(cx-100, cy+60, 174, 48, 0x66cc66, 0).setStrokeStyle(2, 0x66cc66);
+    const g23text = this.add.text(cx-100, cy+60, 'Grades 2-3', {
+      fontSize:'16px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff'
+    }).setOrigin(0.5);
+    const g23desc = this.add.text(cx-100, cy+90, 'Round to nearest 10, 100, 1000', {
+      fontSize:'9px',fontFamily:'monospace',color:'#88cc88'
+    }).setOrigin(0.5);
+
+    // Grade 4-5 button
+    const g45bg = this.add.rectangle(cx+100, cy+60, 170, 44, 0x335588, 0.6).setInteractive({useHandCursor:true});
+    const g45border = this.add.rectangle(cx+100, cy+60, 174, 48, 0x5588bb, 0).setStrokeStyle(2, 0x5588bb, 0.3);
+    const g45text = this.add.text(cx+100, cy+60, 'Grades 4-5', {
+      fontSize:'16px',fontFamily:'monospace',fontStyle:'bold',color:'#aabbcc'
+    }).setOrigin(0.5);
+    const g45desc = this.add.text(cx+100, cy+90, 'Decimals, tenths, hundredths', {
+      fontSize:'9px',fontFamily:'monospace',color:'#6688aa'
+    }).setOrigin(0.5);
+
+    const selectGrade = (grade) => {
+      this.selectedGrade = grade;
+      if(grade === '2-3') {
+        g23bg.setFillStyle(0x44aa44, 0.9); g23border.setStrokeStyle(2, 0x66cc66); g23text.setColor('#ffffff');
+        g45bg.setFillStyle(0x335588, 0.6); g45border.setStrokeStyle(2, 0x5588bb, 0.3); g45text.setColor('#aabbcc');
+      } else {
+        g45bg.setFillStyle(0x4488cc, 0.9); g45border.setStrokeStyle(2, 0x66aaee); g45text.setColor('#ffffff');
+        g23bg.setFillStyle(0x336633, 0.6); g23border.setStrokeStyle(2, 0x448844, 0.3); g23text.setColor('#88aa88');
+      }
+    };
+
+    g23bg.on('pointerdown', () => selectGrade('2-3'));
+    g45bg.on('pointerdown', () => selectGrade('4-5'));
+    g23bg.on('pointerover', () => g23bg.setAlpha(1));
+    g23bg.on('pointerout', () => g23bg.setAlpha(0.9));
+    g45bg.on('pointerover', () => g45bg.setAlpha(1));
+    g45bg.on('pointerout', () => g45bg.setAlpha(0.9));
+
+    // Start button
+    const btn=this.add.rectangle(cx,cy+140,260,50,0xff5500,0.9).setInteractive({useHandCursor:true});
+    this.add.rectangle(cx,cy+140,264,54,0xff8844,0).setStrokeStyle(2,0xff8844,0.5);
+    this.add.text(cx,cy+140,'START MINING',{fontSize:'20px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff'}).setOrigin(0.5);
+    btn.on('pointerover',()=>btn.setFillStyle(0xff7722));
+    btn.on('pointerout',()=>btn.setFillStyle(0xff5500));
+    btn.on('pointerdown',()=>{
+      GRADE_LEVEL = this.selectedGrade;
+      this.cameras.main.fadeOut(600);
+      this.time.delayedCall(600,()=>this.scene.start('GameScene'));
+    });
+
+    this.add.text(cx,cy+190,'ARROWS/WASD: Move & Drill  |  UP/W: Fly  |  E: Use Item\n1-5: Select Item  |  M: Minimap  |  ESC: Close',{
+      fontSize:'10px',fontFamily:'monospace',color:'#554433',align:'center',lineSpacing:3}).setOrigin(0.5);
+    this.add.text(cx,cy+230,'Mine deep. Solve math. Earn big. Survive.',{
+      fontSize:'12px',fontFamily:'monospace',color:'#443322',fontStyle:'italic'}).setOrigin(0.5);
+    this.cameras.main.fadeIn(600);
+  }
+}
+
+class GameScene extends Phaser.Scene {
+  constructor(){super('GameScene');}
+  create(){
+    this.cameras.main.fadeIn(600);
+    // State
+    this.money=50; this.score=0; this.depth=0; this.maxDepth=0;
+    this.upgLvl={drill:0,hull:0,fuel:0,cargo:0,engine:0,radiator:0};
+    this.maxHull=UPGRADES.hull.levels[0].bonus; this.hull=this.maxHull;
+    this.maxFuel=UPGRADES.fuel.levels[0].bonus; this.fuel=this.maxFuel;
+    this.maxCargo=UPGRADES.cargo.levels[0].bonus; this.cargo=[];
+    this.inventory={repair:2,fuel_res:1,dynamite:0,c4:0,teleport:0};
+    this.selItem='repair';
+    this.isDrilling=false; this.drillTarget=null; this.drillDir=null;
+    this.drillTimer=0; this.drillTimerMax=0; this.drillStartPos=null;
+    this.inShop=false; this.gameOver=false; this.isExploding=false;
+    this.lastMineral=null; this.comboCount=0; this.comboTimer=0;
+    this.artifacts=[]; this.transmissionsSeen=new Set();
+    this.showMinimap=true; this.explored=new Set();
+    this.screenShake=0; this.msgs=[]; this.msgTimer=0;
+    this.lowFuelWarn=false; this.lowHullWarn=false;
+    this.mathStreak=0;
+    this.emergencyTimer=0; this.emergencyActive=false; this.emergencyQ=null;
+    this.checkpointsPassed=new Set();
+    this.questionsAnswered=0; this.questionsCorrect=0;
+
+    this.generateMap(); this.createWorld(); this.createPlayer();
+    this.createLighting(); this.createUI(); this.createMinimap();
+
+    // Input
+    this.cursors=this.input.keyboard.createCursorKeys();
+    this.wasd={up:this.input.keyboard.addKey('W'),down:this.input.keyboard.addKey('S'),
+      left:this.input.keyboard.addKey('A'),right:this.input.keyboard.addKey('D')};
+    this.keyE=this.input.keyboard.addKey('E');
+    this.keyESC=this.input.keyboard.addKey('ESC');
+    this.keyM=this.input.keyboard.addKey('M');
+    this.key1=this.input.keyboard.addKey('ONE');this.key2=this.input.keyboard.addKey('TWO');
+    this.key3=this.input.keyboard.addKey('THREE');this.key4=this.input.keyboard.addKey('FOUR');
+    this.key5=this.input.keyboard.addKey('FIVE');
+
+    this.cameras.main.startFollow(this.player,true,0.08,0.08);
+    this.cameras.main.setDeadzone(40,40);
+    this.addMsg("Welcome to Mars, miner! Refuel and start digging!",'#ffaa00');
+    this.addMsg("Arrow/WASD to move. DOWN near shops to enter.",'#88aacc');
+  }
+
+  generateMap(){
+    this.map=[];
+    // Caves
+    this.caves=[];
+    for(let i=0;i<25;i++){
+      this.caves.push({cx:3+Math.floor(Math.random()*(MAP_W-6)),
+        cy:SURFACE_Y+15+Math.floor(Math.random()*(MAP_H-SURFACE_Y-30)),
+        rw:2+Math.floor(Math.random()*3),rh:1+Math.floor(Math.random()*2),
+        hasTreasure:Math.random()<0.4});
+    }
+    for(let y=0;y<MAP_H;y++){
+      this.map[y]=[];
+      for(let x=0;x<MAP_W;x++){
+        if(y<SURFACE_Y){this.map[y][x]={type:'air'};continue;}
+        if(y===SURFACE_Y){this.map[y][x]={type:'surface'};continue;}
+        const dfs=y-SURFACE_Y;
+        // Cave check
+        let inCave=false;
+        for(const cave of this.caves){
+          const dx=(x-cave.cx)/cave.rw,dy=(y-cave.cy)/cave.rh;
+          if(dx*dx+dy*dy<1){
+            inCave=true;
+            if(cave.hasTreasure&&Math.abs(x-cave.cx)<=1&&y===cave.cy){
+              let best=null;
+              for(const[k,m] of Object.entries(MINERALS))if(dfs>=m.minD&&dfs<=m.maxD)best=k;
+              this.map[y][x]=best?{type:'mineral',mineral:best}:{type:'air'};
+            } else this.map[y][x]={type:'air'};
+            break;
+          }
+        }
+        if(inCave)continue;
+
+        let placed=false;
+        if(dfs>25&&Math.random()<0.025+dfs*0.00015){this.map[y][x]={type:'stone'};placed=true;}
+        if(!placed&&dfs>100&&Math.random()<0.008+(dfs-100)*0.00025){this.map[y][x]={type:'lava'};placed=true;}
+        if(!placed&&dfs>55&&Math.random()<0.006+(dfs-55)*0.00015){this.map[y][x]={type:'gas'};placed=true;}
+        if(!placed){
+          for(const art of ARTIFACTS){
+            if(dfs>=art.minD&&Math.random()<art.rarity){this.map[y][x]={type:'artifact',artifact:art};placed=true;break;}
+          }
+        }
+        if(!placed){
+          for(const[key,m] of Object.entries(MINERALS)){
+            if(dfs>=m.minD&&dfs<=m.maxD){
+              const peak=(m.minD+m.maxD)/2,spread=(m.maxD-m.minD)/2;
+              const df=1-Math.abs(dfs-peak)/spread;
+              if(Math.random()<m.rarity*(0.5+df*0.5)){this.map[y][x]={type:'mineral',mineral:key};placed=true;break;}
+            }
+          }
+        }
+        if(!placed)this.map[y][x]={type:'dirt'};
+      }
+    }
+    for(let y=SURFACE_Y+1;y<SURFACE_Y+3;y++)
+      for(let x=0;x<MAP_W;x++)
+        if(['stone','lava','gas'].includes(this.map[y][x].type))this.map[y][x]={type:'dirt'};
+
+    // Create mine entrance hole at center of map
+    const holeX = Math.floor(MAP_W / 2); // column 16
+    // Clear a 3-wide shaft through the surface and first few rows
+    for(let dx = -1; dx <= 1; dx++){
+      const mx = holeX + dx;
+      if(mx >= 0 && mx < MAP_W){
+        // Clear the surface tile
+        this.map[SURFACE_Y][mx] = { type: 'air' };
+        // Clear a few rows below for the entrance shaft
+        for(let dy = 1; dy <= 3; dy++){
+          if(SURFACE_Y + dy < MAP_H){
+            this.map[SURFACE_Y + dy][mx] = { type: 'air' };
+          }
+        }
+      }
+    }
+  }
+
+  createWorld(){
+    // Sky
+    const skyG=this.add.graphics().setDepth(-20);
+    for(let y=0;y<SURFACE_Y*TILE;y++){
+      const t=y/(SURFACE_Y*TILE);
+      skyG.fillStyle(Phaser.Display.Color.GetColor(Math.floor(10+t*50),Math.floor(3+t*20),Math.floor(25+t*25)));
+      skyG.fillRect(0,y,MAP_W*TILE,1);
+    }
+    // Mountains
+    const mG=this.add.graphics().setDepth(-15);
+    mG.fillStyle(0x331a10,0.4);
+    for(let i=0;i<8;i++){const mx=i*MAP_W*TILE/8+Math.random()*60,mh=30+Math.random()*50,mw=60+Math.random()*100;
+      mG.fillTriangle(mx-mw/2,SURFACE_Y*TILE,mx,SURFACE_Y*TILE-mh,mx+mw/2,SURFACE_Y*TILE);}
+    mG.fillStyle(0x442211,0.5);
+    for(let i=0;i<12;i++){const mx=i*MAP_W*TILE/12+Math.random()*40,mh=15+Math.random()*30,mw=40+Math.random()*70;
+      mG.fillTriangle(mx-mw/2,SURFACE_Y*TILE,mx,SURFACE_Y*TILE-mh,mx+mw/2,SURFACE_Y*TILE);}
+    // Stars
+    for(let i=0;i<60;i++){
+      const s=this.add.circle(Math.random()*MAP_W*TILE,Math.random()*SURFACE_Y*TILE*0.7,0.5+Math.random(),0xffffff,0.2+Math.random()*0.5).setDepth(-18);
+      this.tweens.add({targets:s,alpha:0.05,duration:800+Math.random()*3000,yoyo:true,repeat:-1});
+    }
+    // Underground bg
+    this.add.rectangle(MAP_W*TILE/2,(SURFACE_Y+MAP_H/2)*TILE,MAP_W*TILE+100,MAP_H*TILE,0x0e0a06).setDepth(-10);
+    // Tiles
+    this.tileSprites={}; this.lastRenderBounds=null; this.renderTiles();
+
+    // Mine entrance visual
+    const holeX = Math.floor(MAP_W / 2);
+    const entranceX = holeX * TILE + TILE / 2;
+    const entranceY = SURFACE_Y * TILE;
+    // Entrance frame - wooden beams
+    const eg = this.add.graphics().setDepth(1);
+    // Left post
+    eg.fillStyle(0x664422); eg.fillRect(entranceX - TILE * 1.5 - 4, entranceY - 48, 8, 48);
+    // Right post
+    eg.fillStyle(0x664422); eg.fillRect(entranceX + TILE * 1.5 - 4, entranceY - 48, 8, 48);
+    // Top beam
+    eg.fillStyle(0x775533); eg.fillRect(entranceX - TILE * 1.5 - 6, entranceY - 52, TILE * 3 + 12, 8);
+    // Cross beam
+    eg.fillStyle(0x554422); eg.fillRect(entranceX - TILE * 1.5 - 2, entranceY - 30, TILE * 3 + 4, 4);
+    // Bolts
+    eg.fillStyle(0x888888);
+    eg.fillCircle(entranceX - TILE * 1.5, entranceY - 48, 2);
+    eg.fillCircle(entranceX + TILE * 1.5, entranceY - 48, 2);
+    eg.fillCircle(entranceX - TILE * 1.5, entranceY - 28, 2);
+    eg.fillCircle(entranceX + TILE * 1.5, entranceY - 28, 2);
+    // Sign
+    this.add.text(entranceX, entranceY - 62, 'MINE ENTRANCE', {
+      fontSize: '9px', fontFamily: 'monospace', fontStyle: 'bold', color: '#ffdd44',
+      backgroundColor: '#442200cc', padding: { x: 6, y: 2 }
+    }).setOrigin(0.5).setDepth(2);
+    // Warning light
+    const warnLight = this.add.circle(entranceX, entranceY - 50, 3, 0xff4400).setDepth(3);
+    this.tweens.add({ targets: warnLight, alpha: 0.2, duration: 600, yoyo: true, repeat: -1 });
+    // Arrow pointing down
+    this.add.text(entranceX, entranceY - 8, '▼', {
+      fontSize: '16px', fontFamily: 'monospace', color: '#ffaa00'
+    }).setOrigin(0.5).setDepth(2);
+
+    // Buildings
+    this.buildings=[];
+    const bY=SURFACE_Y*TILE-2;
+    [{tex:'bld_fuel',type:'fuel',x:2,label:'FUEL STATION'},{tex:'bld_sell',type:'sell',x:8,label:'MINERAL BUYER'},
+     {tex:'bld_upgrade',type:'upgrade',x:14,label:'UPGRADES'},{tex:'bld_item',type:'math',x:20,label:'MATH WORKSHOP'},{tex:'bld_item',type:'items',x:27,label:'SUPPLY DEPOT'}].forEach(b=>{
+      const spr=this.add.image(b.x*TILE+16,bY,b.tex).setOrigin(0.5,1).setDepth(1);
+      this.buildings.push({sprite:spr,type:b.type,x:b.x});
+      this.add.text(b.x*TILE+16,bY-68,b.label,{fontSize:'9px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff',
+        backgroundColor:'#00000099',padding:{x:5,y:2}}).setOrigin(0.5).setDepth(2);
+      const light=this.add.circle(b.x*TILE+16,bY-56,2,0x44ff44).setDepth(3);
+      this.tweens.add({targets:light,alpha:0.2,duration:500+Math.random()*500,yoyo:true,repeat:-1});
+    });
+    this.physics.world.setBounds(0,0,MAP_W*TILE,MAP_H*TILE);
+  }
+
+  renderTiles(){
+    const cam=this.cameras.main, m=5;
+    const sx=Math.max(0,Math.floor(cam.scrollX/TILE)-m),ex=Math.min(MAP_W-1,Math.ceil((cam.scrollX+GW)/TILE)+m);
+    const sy=Math.max(0,Math.floor(cam.scrollY/TILE)-m),ey=Math.min(MAP_H-1,Math.ceil((cam.scrollY+GH)/TILE)+m);
+    const bounds=`${sx},${sy},${ex},${ey}`;
+    if(bounds===this.lastRenderBounds)return;
+    this.lastRenderBounds=bounds;
+    for(const key in this.tileSprites){
+      const[kx,ky]=key.split(',').map(Number);
+      if(kx<sx-m*2||kx>ex+m*2||ky<sy-m*2||ky>ey+m*2){
+        const s=this.tileSprites[key]; if(s.shimmer)s.shimmer.destroy(); if(s.glow)s.glow.destroy();
+        s.destroy(); delete this.tileSprites[key];
+      }
+    }
+    for(let y=sy;y<=ey;y++)for(let x=sx;x<=ex;x++){
+      const key=x+','+y;
+      if(!this.tileSprites[key])this.makeTile(x,y);
+    }
+  }
+
+  makeTile(x,y){
+    const cell=this.map[y][x],key=x+','+y;
+    if(cell.type==='air')return;
+    let tex;
+    if(cell.type==='surface')tex='surface';
+    else if(cell.type==='dirt'){const d=y-SURFACE_Y;tex='soil_'+Math.min(Math.floor(d/5)*5,MAP_H-5);}
+    else if(cell.type==='mineral')tex='mineral_'+cell.mineral;
+    else if(cell.type==='artifact')tex='mineral_diamond';
+    else if(cell.type==='stone')tex='stone';
+    else if(cell.type==='lava')tex='lava';
+    else if(cell.type==='gas')tex='gas';
+    else return;
+
+    const spr=this.add.image(x*TILE+TILE/2,y*TILE+TILE/2,tex).setDepth(0);
+    this.tileSprites[key]=spr;
+
+    // Shimmer for high-tier minerals
+    if(cell.type==='mineral'&&MINERALS[cell.mineral].tier>=2){
+      const sh=this.add.circle(x*TILE+8+Math.random()*16,y*TILE+8+Math.random()*16,1.5,0xffffff,0).setDepth(0.5);
+      this.tweens.add({targets:sh,alpha:0.6,duration:600+Math.random()*800,yoyo:true,repeat:-1,delay:Math.random()*1000});
+      spr.shimmer=sh;
+    }
+    // Artifact glow
+    if(cell.type==='artifact'){
+      const gl=this.add.circle(x*TILE+TILE/2,y*TILE+TILE/2,TILE*0.6,0x88aaff,0).setDepth(0.5);
+      this.tweens.add({targets:gl,alpha:0.15,duration:1000,yoyo:true,repeat:-1}); spr.glow=gl;
+    }
+    // Lava glow
+    if(cell.type==='lava'){
+      const gl=this.add.circle(x*TILE+TILE/2,y*TILE+TILE/2,TILE*0.7,0xff4400,0).setDepth(-0.5);
+      this.tweens.add({targets:gl,alpha:0.08,duration:800+Math.random()*400,yoyo:true,repeat:-1}); spr.glow=gl;
+    }
+  }
+
+  removeTile(x,y){
+    const key=x+','+y,spr=this.tileSprites[key];
+    if(spr){
+      if(spr.shimmer)spr.shimmer.destroy(); if(spr.glow)spr.glow.destroy();
+      this.tweens.add({targets:spr,alpha:0,scaleX:0.3,scaleY:0.3,duration:120,onComplete:()=>spr.destroy()});
+      delete this.tileSprites[key];
+    }
+  }
+
+  createPlayer(){
+    this.player=this.physics.add.sprite(Math.floor(MAP_W/2)*TILE+TILE/2,(SURFACE_Y-1)*TILE,'player');
+    this.player.setCollideWorldBounds(true);
+    this.player.body.setSize(20,24).setOffset(6,4);
+    this.player.setDepth(5);
+    this.player.body.setMaxVelocity(350,500);
+    this.flame1=this.add.image(0,0,'flame').setDepth(4).setVisible(false).setScale(0.8);
+    this.flame2=this.add.image(0,0,'flame').setDepth(4).setVisible(false).setScale(0.8);
+    this.drillEmitter=this.add.particles(0,0,'spark',{speed:{min:20,max:100},scale:{start:0.8,end:0},lifespan:300,quantity:0,tint:[0xffcc44,0xff8833,0xffffff],blendMode:'ADD'});
+    this.exhaustEmitter=this.add.particles(0,0,'particle_sm',{speed:{min:5,max:30},scale:{start:0.5,end:0},lifespan:500,quantity:0,tint:0x888888,alpha:{start:0.3,end:0},angle:{min:-100,max:-80}});
+  }
+
+  createLighting(){
+    // Use a simple vignette overlay that darkens the screen edges underground
+    // Draw BEHIND the player (depth 3) so the player is always visible
+    this.darkGfx=this.add.graphics().setDepth(3);
+  }
+
+  updateLighting(){
+    const g=this.darkGfx; g.clear();
+    const cam=this.cameras.main;
+    const pd=(this.player.y/TILE)-SURFACE_Y;
+    if(pd<=2)return; // No darkness near surface
+
+    // Subtle depth-based darkness on corners/edges only (vignette effect)
+    // This darkens the periphery but leaves the center (around player) clear
+    const di=Math.min(0.55, pd*0.002); // Much more subtle than before
+    const px=this.player.x, py=this.player.y;
+
+    // Draw dark rectangles around the edges of screen, far from player
+    // Top edge
+    g.fillStyle(0x000000, di * 0.6);
+    g.fillRect(cam.scrollX, cam.scrollY, GW, 60);
+    // Bottom edge
+    g.fillStyle(0x000000, di * 0.4);
+    g.fillRect(cam.scrollX, cam.scrollY + GH - 80, GW, 80);
+    // Left edge
+    g.fillStyle(0x000000, di * 0.3);
+    g.fillRect(cam.scrollX, cam.scrollY, 80, GH);
+    // Right edge
+    g.fillStyle(0x000000, di * 0.3);
+    g.fillRect(cam.scrollX + GW - 80, cam.scrollY, 80, GH);
+  }
+
+  createMinimap(){
+    this.mmW=110;this.mmH=150;
+    this.mmBg=this.add.rectangle(GW-this.mmW/2-8,8+this.mmH/2,this.mmW+4,this.mmH+4,0x000000,0.7).setScrollFactor(0).setDepth(90).setStrokeStyle(1,0x444444);
+    this.mmGfx=this.add.graphics().setScrollFactor(0).setDepth(91);
+  }
+
+  updateMinimap(){
+    if(!this.showMinimap){this.mmBg.setVisible(false);this.mmGfx.setVisible(false);return;}
+    this.mmBg.setVisible(true);this.mmGfx.setVisible(true);
+    const g=this.mmGfx; g.clear();
+    const mx=GW-this.mmW-8,my=10;
+    const sx=this.mmW/MAP_W,sy=this.mmH/MAP_H;
+    g.fillStyle(0x1a1008,0.8);g.fillRect(mx,my,this.mmW,this.mmH);
+    const hasXray=this.artifacts.some(a=>a.effect==='xray');
+    const pty=Math.floor(this.player.y/TILE);
+    for(let y=Math.max(0,pty-50);y<Math.min(MAP_H,pty+50);y++){
+      for(let x=0;x<MAP_W;x++){
+        const k=x+','+y,exp=this.explored.has(k),cell=this.map[y][x];
+        if(cell.type==='air'&&exp){g.fillStyle(0x1a1008);g.fillRect(mx+x*sx,my+y*sy,Math.max(1,sx),Math.max(1,sy));}
+        else if(cell.type==='mineral'&&(exp||hasXray)){const mc=hexToRgb(MINERALS[cell.mineral].color);g.fillStyle(rgb(mc.r,mc.g,mc.b));g.fillRect(mx+x*sx,my+y*sy,Math.max(1,sx),Math.max(1,sy));}
+        else if(cell.type==='lava'&&exp){g.fillStyle(0xff3300);g.fillRect(mx+x*sx,my+y*sy,Math.max(1,sx),Math.max(1,sy));}
+        else if(cell.type==='artifact'&&(exp||hasXray)){g.fillStyle(0x88aaff);g.fillRect(mx+x*sx,my+y*sy,2,2);}
+        else if(exp&&cell.type!=='air'){const sc=getSoilColor(y-SURFACE_Y);g.fillStyle(rgb(sc.r,sc.g,sc.b),0.4);g.fillRect(mx+x*sx,my+y*sy,Math.max(1,sx),Math.max(1,sy));}
+      }
+    }
+    g.fillStyle(0xBB6633);g.fillRect(mx,my+SURFACE_Y*sy,this.mmW,1);
+    const ppx=mx+(this.player.x/TILE)*sx,ppy=my+(this.player.y/TILE)*sy;
+    g.fillStyle(0x44ff44);g.fillCircle(ppx,ppy,2.5);
+    g.fillStyle(0xffffff,0.5);g.fillCircle(ppx,ppy,1);
+  }
+
+  createUI(){
+    const ui=this.add.container(0,0).setDepth(100).setScrollFactor(0);
+    this.uiC=ui;
+    ui.add(this.add.rectangle(GW/2,0,GW,60,0x000000,0.75).setOrigin(0.5,0).setScrollFactor(0));
+
+    this.moneyT=this.add.text(14,6,'',{fontSize:'17px',fontFamily:'monospace',fontStyle:'bold',color:'#ffdd44'}).setScrollFactor(0); ui.add(this.moneyT);
+    this.depthT=this.add.text(14,28,'',{fontSize:'12px',fontFamily:'monospace',color:'#999999'}).setScrollFactor(0); ui.add(this.depthT);
+    this.scoreT=this.add.text(14,44,'',{fontSize:'11px',fontFamily:'monospace',color:'#667788'}).setScrollFactor(0); ui.add(this.scoreT);
+
+    const bx=200,bw=140;
+    ui.add(this.add.text(bx,5,'FUEL',{fontSize:'10px',fontFamily:'monospace',fontStyle:'bold',color:'#44cc44'}).setScrollFactor(0));
+    this.fuelBg=this.add.rectangle(bx,20,bw,11,0x1a1a1a).setOrigin(0,0).setScrollFactor(0).setStrokeStyle(1,0x333333);
+    this.fuelBar=this.add.rectangle(bx+1,21,bw-2,9,0x44cc44).setOrigin(0,0).setScrollFactor(0);
+    this.fuelT=this.add.text(bx+bw/2,20,'',{fontSize:'9px',fontFamily:'monospace',color:'#fff'}).setOrigin(0.5,0).setScrollFactor(0);
+    ui.add([this.fuelBg,this.fuelBar,this.fuelT]);
+
+    ui.add(this.add.text(bx,34,'HULL',{fontSize:'10px',fontFamily:'monospace',fontStyle:'bold',color:'#ff6644'}).setScrollFactor(0));
+    this.hullBg=this.add.rectangle(bx,48,bw,11,0x1a1a1a).setOrigin(0,0).setScrollFactor(0).setStrokeStyle(1,0x333333);
+    this.hullBar=this.add.rectangle(bx+1,49,bw-2,9,0xff6644).setOrigin(0,0).setScrollFactor(0);
+    this.hullT=this.add.text(bx+bw/2,48,'',{fontSize:'9px',fontFamily:'monospace',color:'#fff'}).setOrigin(0.5,0).setScrollFactor(0);
+    ui.add([this.hullBg,this.hullBar,this.hullT]);
+
+    const cx=370;
+    ui.add(this.add.text(cx,5,'CARGO',{fontSize:'10px',fontFamily:'monospace',fontStyle:'bold',color:'#cc88ff'}).setScrollFactor(0));
+    this.cargoBg=this.add.rectangle(cx,20,100,11,0x1a1a1a).setOrigin(0,0).setScrollFactor(0).setStrokeStyle(1,0x333333);
+    this.cargoBar=this.add.rectangle(cx+1,21,98,9,0xcc88ff).setOrigin(0,0).setScrollFactor(0);
+    this.cargoT=this.add.text(cx+50,20,'',{fontSize:'9px',fontFamily:'monospace',color:'#fff'}).setOrigin(0.5,0).setScrollFactor(0);
+    this.cargoVT=this.add.text(cx,34,'',{fontSize:'11px',fontFamily:'monospace',color:'#ffdd44'}).setScrollFactor(0);
+    this.comboT=this.add.text(cx,48,'',{fontSize:'12px',fontFamily:'monospace',fontStyle:'bold',color:'#ff8844'}).setScrollFactor(0);
+    ui.add([this.cargoBg,this.cargoBar,this.cargoT,this.cargoVT,this.comboT]);
+
+    this.artT=this.add.text(500,5,'',{fontSize:'10px',fontFamily:'monospace',color:'#88aaff'}).setScrollFactor(0);
+    ui.add(this.artT);
+
+    // Item bar
+    ui.add(this.add.rectangle(GW/2,GH-18,GW,36,0x000000,0.7).setScrollFactor(0));
+    this.itemTexts={};
+    const ik=Object.keys(ITEMS);
+    ui.add(this.add.text(10,GH-25,'ITEMS:',{fontSize:'10px',fontFamily:'monospace',fontStyle:'bold',color:'#666666'}).setScrollFactor(0));
+    ik.forEach((key,i)=>{
+      const t=this.add.text(70+i*140,GH-25,'',{fontSize:'11px',fontFamily:'monospace',color:'#555555'}).setScrollFactor(0);
+      this.itemTexts[key]=t; ui.add(t);
+    });
+    this.updateItems();
+
+    this.msgT=this.add.text(GW/2,72,'',{fontSize:'13px',fontFamily:'monospace',color:'#ffaa00',align:'center',
+      wordWrap:{width:600},backgroundColor:'#00000099',padding:{x:12,y:6}}).setOrigin(0.5,0).setScrollFactor(0).setDepth(101).setVisible(false);
+
+    this.bldHint=this.add.text(0,0,'PRESS DOWN TO ENTER',{fontSize:'11px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff',
+      backgroundColor:'#000000aa',padding:{x:8,y:4}}).setOrigin(0.5).setDepth(50).setVisible(false);
+
+    this.shopC=this.add.container(0,0).setDepth(200).setScrollFactor(0).setVisible(false);
+  }
+
+  addMsg(t,c='#ffaa00'){this.msgs.push({text:t,color:c,time:3500});this.showMsg();}
+  showMsg(){if(this.msgs.length>0&&!this.msgT.visible){const m=this.msgs.shift();this.msgT.setText(m.text).setColor(m.color).setVisible(true);this.msgTimer=m.time;}}
+
+  getTile(){return{x:Math.floor(this.player.x/TILE),y:Math.floor(this.player.y/TILE)};}
+  isSolid(tx,ty){if(tx<0||tx>=MAP_W||ty<0||ty>=MAP_H)return true;return this.map[ty][tx].type!=='air';}
+  onGround(){const by=Math.floor((this.player.y+14)/TILE),cx=Math.floor(this.player.x/TILE);
+    const pt=this.getTile(); return this.isSolid(cx,by+(by===pt.y?1:0));}
+
+  startDrill(tx,ty,dir){
+    if(tx<0||tx>=MAP_W||ty<0||ty>=MAP_H)return;
+    const cell=this.map[ty][tx];
+    if(cell.type==='air')return;
+    if(cell.type==='stone'&&this.upgLvl.drill<4){this.addMsg("Can't drill stone! Need Plasma Drill.",'#ff4444');return;}
+    this.isDrilling=true;this.drillTarget={x:tx,y:ty};this.drillDir=dir||'down';
+    this.drillStartPos={x:this.player.x,y:this.player.y};
+    let h=1;
+    if(cell.type==='stone')h=5;else if(cell.type==='surface')h=0.4;
+    else if(cell.type==='mineral')h=MINERALS[cell.mineral].hardness;
+    else if(cell.type==='artifact')h=2;
+    const dp=UPGRADES.drill.levels[this.upgLvl.drill].bonus;
+    this.drillTimer=(DRILL_TIME_BASE*h)/dp; this.drillTimerMax=this.drillTimer;
+    this.fuel-=0.3;
+    this.drillEmitter.setPosition(tx*TILE+TILE/2,ty*TILE+TILE/2);this.drillEmitter.setQuantity(3);
+    const key=tx+','+ty;
+    if(this.tileSprites[key])this.tweens.add({targets:this.tileSprites[key],alpha:0.5,duration:this.drillTimer*0.8});
+  }
+
+  completeDrill(){
+    if(!this.drillTarget)return;
+    const{x:tx,y:ty}=this.drillTarget;const cell=this.map[ty][tx];const dir=this.drillDir;
+    if(cell.type==='lava'){const rad=UPGRADES.radiator.levels[this.upgLvl.radiator].bonus;const d=80*(1-rad);this.hull-=d;if(d>0)this.addMsg(`Lava! -${Math.floor(d)} hull`,'#ff4400');this.screenShake=200;}
+    if(cell.type==='gas'){this.hull-=40;this.addMsg('Gas pocket! -40 hull','#ccaa00');this.screenShake=150;}
+    if(cell.type==='mineral'){
+      if(this.cargo.length<this.maxCargo){
+        this.cargo.push(cell.mineral);const m=MINERALS[cell.mineral];
+        if(cell.mineral===this.lastMineral&&this.comboTimer>0)this.comboCount++;else this.comboCount=1;
+        this.lastMineral=cell.mineral;this.comboTimer=3000;
+        const cb=this.comboCount>1?` (${this.comboCount}x COMBO!)`:'';
+        this.addMsg(`+${m.name} ($${m.value})${cb}`,m.color);
+        // Sparkles
+        for(let i=0;i<6;i++){const gc=hexToRgb(m.glow);
+          const p=this.add.circle(tx*TILE+TILE/2+(Math.random()-0.5)*20,ty*TILE+TILE/2+(Math.random()-0.5)*20,2,rgb(gc.r,gc.g,gc.b),0.8).setDepth(10);
+          this.tweens.add({targets:p,y:p.y-20-Math.random()*20,alpha:0,scale:0,duration:400+Math.random()*300,onComplete:()=>p.destroy()});}
+      } else this.addMsg('Cargo full! Sell at surface.','#ff4444');
+    }
+    if(cell.type==='artifact'){this.artifacts.push(cell.artifact);this.addMsg(`ARTIFACT: ${cell.artifact.name}! ${cell.artifact.desc}`,'#88aaff');this.cameras.main.flash(400,100,150,255);}
+
+    this.map[ty][tx]={type:'air'};this.removeTile(tx,ty);
+    // Debris
+    const sc=getSoilColor(ty-SURFACE_Y);
+    for(let i=0;i<5;i++){const px=tx*TILE+TILE/2+(Math.random()-0.5)*TILE,py=ty*TILE+TILE/2+(Math.random()-0.5)*TILE;
+      const p=this.add.circle(px,py,1+Math.random()*2,rgb(sc.r,sc.g,sc.b),0.7).setDepth(6);
+      this.tweens.add({targets:p,x:px+(Math.random()-0.5)*30,y:py-10+(Math.random()-0.5)*30,alpha:0,duration:300+Math.random()*200,onComplete:()=>p.destroy()});}
+
+    if(dir==='down'){this.player.y=ty*TILE+TILE/2;this.player.body.velocity.y=20;}
+    else{this.player.x=tx*TILE+TILE/2;this.player.body.velocity.x=0;}
+    this.isDrilling=false;this.drillTarget=null;this.drillDir=null;this.drillStartPos=null;this.drillEmitter.setQuantity(0);
+  }
+
+  useItem(){
+    const k=this.selItem;
+    if(!this.inventory[k]||this.inventory[k]<=0){this.addMsg(`No ${ITEMS[k].name}!`,'#ff4444');return;}
+    if(k==='repair'){if(this.hull>=this.maxHull){this.addMsg('Hull full!','#888');return;}this.inventory[k]--;this.hull=Math.min(this.maxHull,this.hull+200);this.addMsg('Hull +200','#44ff44');}
+    else if(k==='fuel_res'){if(this.fuel>=this.maxFuel){this.addMsg('Fuel full!','#888');return;}this.inventory[k]--;this.fuel=Math.min(this.maxFuel,this.fuel+50);this.addMsg('Fuel +50','#44cc44');}
+    else if(k==='dynamite'){this.inventory[k]--;this.explode(1);}
+    else if(k==='c4'){this.inventory[k]--;this.explode(2);}
+    else if(k==='teleport'){this.inventory[k]--;this.player.x=Math.floor(MAP_W/2)*TILE+TILE/2;this.player.y=(SURFACE_Y-2)*TILE;this.player.body.setVelocity(0,0);this.cameras.main.flash(400,80,80,255);this.addMsg('Teleported!','#4488ff');}
+    this.updateItems();
+  }
+
+  explode(r){
+    const pt=this.getTile();this.isExploding=true;this.screenShake=400;
+    const ex=this.add.circle(this.player.x,this.player.y+TILE,r*TILE,0xff6600,0.6).setDepth(10);
+    this.tweens.add({targets:ex,alpha:0,scaleX:1.5,scaleY:1.5,duration:400,onComplete:()=>ex.destroy()});
+    for(let i=0;i<20;i++){const a=Math.random()*Math.PI*2,d=Math.random()*r*TILE*1.5;
+      const p=this.add.circle(this.player.x+Math.cos(a)*d*0.3,this.player.y+TILE+Math.sin(a)*d*0.3,2+Math.random()*3,[0xff4400,0xff8800,0xffcc00][Math.floor(Math.random()*3)],0.8).setDepth(11);
+      this.tweens.add({targets:p,x:this.player.x+Math.cos(a)*d,y:this.player.y+TILE+Math.sin(a)*d,alpha:0,scale:0,duration:300+Math.random()*400,onComplete:()=>p.destroy()});}
+    for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){
+      if(dx*dx+dy*dy>r*r+1)continue;
+      const tx=pt.x+dx,ty=pt.y+1+dy;
+      if(tx<0||tx>=MAP_W||ty<=SURFACE_Y||ty>=MAP_H)continue;
+      const cell=this.map[ty][tx];
+      if(cell.type==='mineral'&&this.cargo.length<this.maxCargo)this.cargo.push(cell.mineral);
+      if(cell.type==='artifact')this.artifacts.push(cell.artifact);
+      this.map[ty][tx]={type:'air'};this.removeTile(tx,ty);
+    }
+    this.time.delayedCall(250,()=>{this.isExploding=false;});this.addMsg('BOOM!','#ff6600');
+  }
+
+  updateItems(){
+    const ks=Object.keys(ITEMS);
+    ks.forEach((k,i)=>{if(this.itemTexts[k]){this.itemTexts[k].setText(`${i+1}:${ITEMS[k].name.split(' ')[0]}(${this.inventory[k]})`);this.itemTexts[k].setColor(this.selItem===k?'#ffaa00':'#555555');}});
+  }
+
+  // ─── SHOPS ───
+  openShop(type){
+    this.inShop=true;const cx=GW/2,cy=GH/2;
+    this.shopC.removeAll(true);this.shopC.setVisible(true);
+    this.shopC.add(this.add.rectangle(cx,cy,GW,GH,0x000000,0.8).setScrollFactor(0));
+    const pw=540,ph=440;
+    this.shopC.add(this.add.rectangle(cx,cy,pw,ph,0x0e0e1a,0.97).setScrollFactor(0));
+    this.shopC.add(this.add.rectangle(cx,cy,pw-2,ph-2,0,0).setStrokeStyle(2,0xff6600,0.6).setScrollFactor(0));
+
+    if(type==='fuel')this.sFuel(cx,cy,pw,ph);
+    else if(type==='sell')this.sSell(cx,cy,pw,ph);
+    else if(type==='upgrade')this.sUpg(cx,cy,pw,ph);
+    else if(type==='math')this.sMath(cx,cy,pw,ph);
+    else if(type==='items')this.sItem(cx,cy,pw,ph);
+
+    const cb=this.add.text(cx+pw/2-35,cy-ph/2+12,'[X] ESC',{fontSize:'12px',fontFamily:'monospace',fontStyle:'bold',color:'#ff4444'}).setScrollFactor(0).setInteractive({useHandCursor:true});
+    cb.on('pointerdown',()=>this.closeShop());cb.on('pointerover',()=>cb.setColor('#ff8888'));cb.on('pointerout',()=>cb.setColor('#ff4444'));
+    this.shopC.add(cb);
+    this.shopC.add(this.add.text(cx-pw/2+20,cy-ph/2+12,`$${this.money.toLocaleString()}`,{fontSize:'15px',fontFamily:'monospace',fontStyle:'bold',color:'#ffdd44'}).setScrollFactor(0));
+  }
+
+  btn(x,y,w,h,text,color,cb){
+    const bg=this.add.rectangle(x,y,w,h,color,0.85).setScrollFactor(0).setInteractive({useHandCursor:true});
+    const t=this.add.text(x,y,text,{fontSize:'13px',fontFamily:'monospace',fontStyle:'bold',color:'#fff'}).setOrigin(0.5).setScrollFactor(0);
+    bg.on('pointerover',()=>bg.setAlpha(1));bg.on('pointerout',()=>bg.setAlpha(0.85));bg.on('pointerdown',cb);
+    this.shopC.add([bg,t]);
+  }
+
+  sFuel(cx,cy,w,h){
+    this.shopC.add(this.add.text(cx,cy-h/2+45,'FUEL STATION',{fontSize:'22px',fontFamily:'monospace',fontStyle:'bold',color:'#44cc44'}).setOrigin(0.5).setScrollFactor(0));
+    const fp=this.fuel/this.maxFuel;
+    this.shopC.add(this.add.rectangle(cx,cy-60,200,20,0x1a1a1a).setScrollFactor(0).setStrokeStyle(1,0x333333));
+    this.shopC.add(this.add.rectangle(cx-99+198*fp/2,cy-60,198*fp,18,fp>0.3?0x44cc44:0xff4444).setOrigin(0.5).setScrollFactor(0));
+    this.shopC.add(this.add.text(cx,cy-60,`${Math.floor(this.fuel)}/${this.maxFuel}`,{fontSize:'11px',fontFamily:'monospace',color:'#fff'}).setOrigin(0.5).setScrollFactor(0));
+    const fn=this.maxFuel-this.fuel,fc=Math.ceil(fn);
+    this.shopC.add(this.add.text(cx,cy-38,`Fill cost: $${fc}`,{fontSize:'12px',fontFamily:'monospace',color:'#88aa88'}).setOrigin(0.5).setScrollFactor(0));
+    if(fn>0.5)this.btn(cx,cy+10,200,42,`FILL UP ($${fc})`,0x338833,()=>{const p=Math.min(fc,this.money);this.money-=p;this.fuel=Math.min(this.maxFuel,this.fuel+p);this.closeShop();this.addMsg('Fueled up!','#44cc44');});
+    if(this.hull<this.maxHull){const rc=Math.ceil((this.maxHull-this.hull)*0.5);
+      this.shopC.add(this.add.text(cx,cy+60,`Hull: ${Math.floor(this.hull)}/${this.maxHull}`,{fontSize:'12px',fontFamily:'monospace',color:'#cc8866'}).setOrigin(0.5).setScrollFactor(0));
+      this.btn(cx,cy+95,200,36,`REPAIR ($${rc})`,0x884433,()=>{if(this.money>=rc){this.money-=rc;this.hull=this.maxHull;this.closeShop();this.addMsg('Hull repaired!','#ff8844');}else this.addMsg('Not enough!','#ff4444');});}
+  }
+
+  sSell(cx,cy,w,h){
+    this.shopC.add(this.add.text(cx,cy-h/2+45,'MINERAL BUYER',{fontSize:'22px',fontFamily:'monospace',fontStyle:'bold',color:'#ffaa00'}).setOrigin(0.5).setScrollFactor(0));
+    if(!this.cargo.length){this.shopC.add(this.add.text(cx,cy,'No minerals to sell.\nDig deeper!',{fontSize:'16px',fontFamily:'monospace',color:'#665544',align:'center',lineSpacing:6}).setOrigin(0.5).setScrollFactor(0));return;}
+    const counts={};let total=0;
+    this.cargo.forEach(m=>{counts[m]=(counts[m]||0)+1;total+=MINERALS[m].value;});
+    let yy=cy-130;
+    for(const[key,count] of Object.entries(counts)){const m=MINERALS[key];const mc=hexToRgb(m.color);
+      this.shopC.add(this.add.circle(cx-170,yy+5,4,rgb(mc.r,mc.g,mc.b)).setScrollFactor(0));
+      this.shopC.add(this.add.text(cx-160,yy,m.name,{fontSize:'12px',fontFamily:'monospace',color:m.color}).setScrollFactor(0));
+      this.shopC.add(this.add.text(cx+40,yy,`x${count}`,{fontSize:'12px',fontFamily:'monospace',color:'#aaa'}).setScrollFactor(0));
+      this.shopC.add(this.add.text(cx+100,yy,`$${(m.value*count).toLocaleString()}`,{fontSize:'12px',fontFamily:'monospace',color:'#ffdd44'}).setScrollFactor(0));
+      yy+=20;if(yy>cy+20)break;}
+    yy=Math.min(yy+5,cy+30);
+    this.shopC.add(this.add.rectangle(cx,yy-3,360,1,0x444444).setScrollFactor(0));
+    this.shopC.add(this.add.text(cx,yy+5,`TOTAL: $${total.toLocaleString()}`,{fontSize:'18px',fontFamily:'monospace',fontStyle:'bold',color:'#ffdd44'}).setOrigin(0.5).setScrollFactor(0));
+
+    // Appraisal rounding challenge for bonus
+    this.shopC.add(this.add.text(cx,yy+35,'--- APPRAISAL BONUS CHALLENGE ---',{fontSize:'10px',fontFamily:'monospace',color:'#ffaa44'}).setOrigin(0.5).setScrollFactor(0));
+    const q = generateRoundingQ();
+    this.shopC.add(this.add.text(cx,yy+55,q.q,{fontSize:'13px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff',wordWrap:{width:400},align:'center'}).setOrigin(0.5).setScrollFactor(0));
+
+    const bonus = Math.floor(total * 0.25);
+    this.shopC.add(this.add.text(cx,yy+75,`Answer correctly for +$${bonus} bonus!`,{fontSize:'11px',fontFamily:'monospace',color:'#88cc44'}).setOrigin(0.5).setScrollFactor(0));
+
+    // Answer buttons
+    q.choices.forEach((choice, i) => {
+      const bx = cx - 135 + i * 90;
+      const by = yy + 105;
+      const label = fmtChoice(choice, q);
+      this.btn(bx, by, 80, 32, label, 0x555533, () => {
+        const correct = Math.abs(choice - q.a) < 0.001;
+        if(correct) {
+          this.money += total + bonus; this.score += total + bonus;
+          this.cargo = [];
+          this.closeShop();
+          this.addMsg(`CORRECT! Sold for $${total.toLocaleString()} + $${bonus} bonus!`, '#44ff44');
+        } else {
+          this.money += total; this.score += total;
+          this.cargo = [];
+          this.closeShop();
+          this.addMsg(`Wrong! Answer was ${fmtChoice(q.a,q)}. Sold for $${total.toLocaleString()} (no bonus).`, '#ff8844');
+        }
+      });
+    });
+
+    // Skip button (sell without bonus)
+    this.btn(cx, yy + 150, 160, 30, `SKIP - Sell for $${total.toLocaleString()}`, 0x666644, () => {
+      this.money += total; this.score += total; this.cargo = [];
+      this.closeShop(); this.addMsg(`Sold for $${total.toLocaleString()}.`, '#ffdd44');
+    });
+  }
+
+  sMath(cx,cy,w,h){
+    this.shopC.add(this.add.text(cx,cy-h/2+45,'MATH WORKSHOP',{fontSize:'22px',fontFamily:'monospace',fontStyle:'bold',color:'#44ddaa'}).setOrigin(0.5).setScrollFactor(0));
+    this.shopC.add(this.add.text(cx,cy-h/2+72,`Grade Level: ${GRADE_LEVEL}  |  Streak: ${this.mathStreak||0}`,{
+      fontSize:'11px',fontFamily:'monospace',color:'#668888'}).setOrigin(0.5).setScrollFactor(0));
+
+    if(!this.mathStreak) this.mathStreak = 0;
+    const q = generateRoundingQ();
+
+    // Reward scales with streak
+    const baseReward = GRADE_LEVEL === '2-3' ? 200 : 300;
+    const streakMult = 1 + (this.mathStreak * 0.5);
+    const reward = Math.floor(baseReward * streakMult);
+
+    this.shopC.add(this.add.text(cx, cy-80, 'Solve the rounding problem for cash!', {
+      fontSize:'13px',fontFamily:'monospace',color:'#88ccaa'}).setOrigin(0.5).setScrollFactor(0));
+
+    // Question box
+    this.shopC.add(this.add.rectangle(cx, cy-30, 420, 60, 0x112222, 0.8).setScrollFactor(0).setStrokeStyle(1, 0x44ddaa, 0.5));
+    this.shopC.add(this.add.text(cx, cy-30, q.q, {
+      fontSize:'16px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff',wordWrap:{width:400},align:'center'
+    }).setOrigin(0.5).setScrollFactor(0));
+
+    // Reward display
+    this.shopC.add(this.add.text(cx, cy+15, `Reward: $${reward}${this.mathStreak>0?' ('+streakMult+'x streak bonus!)':''}`, {
+      fontSize:'13px',fontFamily:'monospace',fontStyle:'bold',color:'#ffdd44'
+    }).setOrigin(0.5).setScrollFactor(0));
+
+    // Hint button
+    const hintText = this.add.text(cx, cy+80, '', {
+      fontSize:'11px',fontFamily:'monospace',color:'#88aaaa',fontStyle:'italic',wordWrap:{width:400},align:'center'
+    }).setOrigin(0.5).setScrollFactor(0);
+    this.shopC.add(hintText);
+
+    this.btn(cx, cy+105, 100, 24, 'Show Hint', 0x334444, () => {
+      hintText.setText(q.hint);
+    });
+
+    // Answer buttons - 2x2 grid
+    q.choices.forEach((choice, i) => {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const bx = cx - 80 + col * 160;
+      const by = cy + 40 + row * 38;
+      const label = fmtChoice(choice, q);
+      this.btn(bx, by, 140, 32, label, 0x336655, () => {
+        const correct = Math.abs(choice - q.a) < 0.001;
+        if(correct) {
+          this.mathStreak = (this.mathStreak||0) + 1;
+          this.money += reward; this.score += reward;
+          this.closeShop();
+          this.addMsg(`CORRECT! +$${reward}! Streak: ${this.mathStreak}`, '#44ffaa');
+          // Reopen for another question
+          this.time.delayedCall(800, () => { if(!this.inShop) this.openShop('math'); });
+        } else {
+          this.mathStreak = 0;
+          this.closeShop();
+          this.addMsg(`Wrong! The answer was ${fmtChoice(q.a,q)}. Streak reset.`, '#ff6644');
+        }
+      });
+    });
+  }
+
+  sUpg(cx,cy,w,h){
+    this.shopC.add(this.add.text(cx,cy-h/2+45,'UPGRADES',{fontSize:'22px',fontFamily:'monospace',fontStyle:'bold',color:'#4488ff'}).setOrigin(0.5).setScrollFactor(0));
+    let yy=cy-140;
+    for(const[key,upg] of Object.entries(UPGRADES)){
+      const lvl=this.upgLvl[key],cur=upg.levels[lvl],hasN=lvl+1<upg.levels.length,next=hasN?upg.levels[lvl+1]:null;
+      // Level dots
+      for(let i=0;i<upg.levels.length;i++){this.shopC.add(this.add.circle(cx-50+i*16,yy+7,4,i<=lvl?0x4488ff:0x222244).setScrollFactor(0));}
+      this.shopC.add(this.add.text(cx-230,yy,`[${upg.icon}] ${upg.name}`,{fontSize:'13px',fontFamily:'monospace',fontStyle:'bold',color:'#aaccff'}).setScrollFactor(0));
+      this.shopC.add(this.add.text(cx-230,yy+17,cur.label,{fontSize:'10px',fontFamily:'monospace',color:'#668888'}).setScrollFactor(0));
+      if(hasN){const cost=next.cost,ok=this.money>=cost,cs=cost>=1000?`$${Math.floor(cost/1000)}K`:`$${cost}`;
+        this.btn(cx+140,yy+10,170,28,`> ${next.label} (${cs})`,ok?0x335588:0x222233,()=>{if(!ok){this.addMsg('Not enough!','#ff4444');return;}this.money-=cost;this.upgLvl[key]=lvl+1;this.applyUpg();this.closeShop();this.openShop('upgrade');this.addMsg(`${upg.name} upgraded!`,'#4488ff');});}
+      else this.shopC.add(this.add.text(cx+140,yy+10,'MAX',{fontSize:'12px',fontFamily:'monospace',fontStyle:'bold',color:'#ffaa00'}).setOrigin(0.5).setScrollFactor(0));
+      yy+=45;
+    }
+  }
+
+  sItem(cx,cy,w,h){
+    this.shopC.add(this.add.text(cx,cy-h/2+45,'SUPPLY DEPOT',{fontSize:'22px',fontFamily:'monospace',fontStyle:'bold',color:'#aa44ff'}).setOrigin(0.5).setScrollFactor(0));
+    let yy=cy-120;
+    for(const[key,item] of Object.entries(ITEMS)){
+      const own=this.inventory[key],ok=this.money>=item.cost;
+      this.shopC.add(this.add.text(cx-220,yy,item.name,{fontSize:'14px',fontFamily:'monospace',fontStyle:'bold',color:'#ccaaff'}).setScrollFactor(0));
+      this.shopC.add(this.add.text(cx-220,yy+18,item.desc,{fontSize:'10px',fontFamily:'monospace',color:'#776688'}).setScrollFactor(0));
+      this.shopC.add(this.add.text(cx+60,yy+8,`Own: ${own}`,{fontSize:'11px',fontFamily:'monospace',color:'#888'}).setScrollFactor(0));
+      this.btn(cx+170,yy+12,120,30,`Buy $${item.cost}`,ok?0x553388:0x222222,()=>{if(!ok){this.addMsg('Not enough!','#ff4444');return;}this.money-=item.cost;this.inventory[key]++;this.closeShop();this.openShop('items');this.updateItems();this.addMsg(`Bought ${item.name}!`,'#aa44ff');});
+      yy+=55;
+    }
+  }
+
+  closeShop(){this.inShop=false;this.shopC.removeAll(true);this.shopC.setVisible(false);}
+  applyUpg(){this.maxHull=UPGRADES.hull.levels[this.upgLvl.hull].bonus;this.maxFuel=UPGRADES.fuel.levels[this.upgLvl.fuel].bonus;this.maxCargo=UPGRADES.cargo.levels[this.upgLvl.cargo].bonus;}
+
+  handleCol(){
+    const b=this.player.body, hw=10, hh=12;
+    const px=this.player.x, py=this.player.y;
+
+    // Bottom collision (falling)
+    if(b.velocity.y>0){
+      const cy=Math.floor((py+hh+2)/TILE), cx=Math.floor(px/TILE);
+      if(cy>=0&&cy<MAP_H&&cx>=0&&cx<MAP_W&&this.isSolid(cx,cy)){
+        this.player.y=cy*TILE-hh-1;
+        if(b.velocity.y>300){this.hull-=Math.floor((b.velocity.y-300)*0.15);this.screenShake=100;}
+        b.velocity.y=0;
+      }
+    }
+    // Top collision (flying up)
+    if(b.velocity.y<0){
+      const cy=Math.floor((py-hh-2)/TILE), cx=Math.floor(px/TILE);
+      if(cy>=0&&cy<MAP_H&&cx>=0&&cx<MAP_W&&this.isSolid(cx,cy)){
+        this.player.y=(cy+1)*TILE+hh+2;
+        b.velocity.y=0;
+      }
+    }
+    // Left collision - only when moving significantly left
+    if(b.velocity.x<-10){
+      const cx=Math.floor((px-hw-1)/TILE), cy=Math.floor(py/TILE);
+      if(cx>=0&&cx<MAP_W&&cy>=0&&cy<MAP_H&&this.isSolid(cx,cy)){
+        this.player.x=(cx+1)*TILE+hw+1;
+        b.velocity.x=0;
+      }
+    }
+    // Right collision - only when moving significantly right
+    if(b.velocity.x>10){
+      const cx=Math.floor((px+hw+1)/TILE), cy=Math.floor(py/TILE);
+      if(cx>=0&&cx<MAP_W&&cy>=0&&cy<MAP_H&&this.isSolid(cx,cy)){
+        this.player.x=cx*TILE-hw-1;
+        b.velocity.x=0;
+      }
+    }
+    // World bounds
+    if(this.player.x<hw)this.player.x=hw;
+    if(this.player.x>MAP_W*TILE-hw)this.player.x=MAP_W*TILE-hw;
+    if(this.player.y<hh)this.player.y=hh;
+  }
+
+  die(reason){
+    if(this.gameOver)return;this.gameOver=true;this.screenShake=500;this.cameras.main.flash(500,255,50,0);
+    for(let i=0;i<25;i++){const a=Math.random()*Math.PI*2,d=Math.random()*50;
+      const p=this.add.circle(this.player.x+Math.cos(a)*d,this.player.y+Math.sin(a)*d,2+Math.random()*4,[0xff4400,0xff8800,0xffcc00][Math.floor(Math.random()*3)],0.9).setDepth(20);
+      this.tweens.add({targets:p,x:p.x+Math.cos(a)*80,y:p.y+Math.sin(a)*80,alpha:0,scale:0,duration:500+Math.random()*500,onComplete:()=>p.destroy()});}
+    this.player.setVisible(false);
+    this.time.delayedCall(1500,()=>this.scene.start('GameOverScene',{score:this.score,depth:this.maxDepth,reason,qAnswered:this.questionsAnswered,qCorrect:this.questionsCorrect}));
+  }
+
+  markExplored(){
+    const px=Math.floor(this.player.x/TILE),py=Math.floor(this.player.y/TILE),r=5;
+    for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)
+      if(dx*dx+dy*dy<=r*r)this.explored.add((px+dx)+','+(py+dy));
+  }
+
+  update(time,delta){
+    if(this.gameOver)return;
+    if(this.msgT.visible){this.msgTimer-=delta;if(this.msgTimer<=0){this.msgT.setVisible(false);this.showMsg();}}
+    if(this.screenShake>0){this.screenShake-=delta;const i=Math.min(this.screenShake/500,1)*3;this.cameras.main.setScroll(this.cameras.main.scrollX+(Math.random()-0.5)*i,this.cameras.main.scrollY+(Math.random()-0.5)*i);}
+    if(this.comboTimer>0){this.comboTimer-=delta;if(this.comboTimer<=0){this.comboCount=0;this.lastMineral=null;}}
+    if(this.artifacts.some(a=>a.effect==='regen'))this.hull=Math.min(this.maxHull,this.hull+delta*0.005);
+    const fuelSave=this.artifacts.some(a=>a.effect==='fuel_save')?0.75:1;
+
+    if(Phaser.Input.Keyboard.JustDown(this.keyESC)&&this.inShop){this.closeShop();return;}
+    if(Phaser.Input.Keyboard.JustDown(this.keyM))this.showMinimap=!this.showMinimap;
+    const ik=Object.keys(ITEMS);
+    if(Phaser.Input.Keyboard.JustDown(this.key1)){this.selItem=ik[0];this.updateItems();}
+    if(Phaser.Input.Keyboard.JustDown(this.key2)){this.selItem=ik[1];this.updateItems();}
+    if(Phaser.Input.Keyboard.JustDown(this.key3)){this.selItem=ik[2];this.updateItems();}
+    if(Phaser.Input.Keyboard.JustDown(this.key4)){this.selItem=ik[3];this.updateItems();}
+    if(Phaser.Input.Keyboard.JustDown(this.key5)){this.selItem=ik[4];this.updateItems();}
+    if(Phaser.Input.Keyboard.JustDown(this.keyE))this.useItem();
+    if(this.inShop)return;
+
+    this.fuel-=delta*0.0025*fuelSave;
+    if(this.fuel<=0){this.fuel=0;this.die('fuel');return;}
+    if(this.hull<=0){this.hull=0;this.die('hull');return;}
+
+    const gnd=this.onGround(),body=this.player.body;
+    const em=UPGRADES.engine.levels[this.upgLvl.engine].bonus;
+    const left=this.cursors.left.isDown||this.wasd.left.isDown;
+    const right=this.cursors.right.isDown||this.wasd.right.isDown;
+    const up=this.cursors.up.isDown||this.wasd.up.isDown;
+    const down=this.cursors.down.isDown||this.wasd.down.isDown;
+
+    if(this.isDrilling){
+      this.drillTimer-=delta;body.velocity.x=0;body.velocity.y=0;
+      const prog=1-Math.max(0,this.drillTimer/this.drillTimerMax);
+      if(this.drillStartPos&&this.drillTarget){
+        const tx=this.drillTarget.x*TILE+TILE/2,ty=this.drillTarget.y*TILE+TILE/2;
+        const e=prog*prog;
+        this.player.x=this.drillStartPos.x+(tx-this.drillStartPos.x)*e*0.5;
+        this.player.y=this.drillStartPos.y+(ty-this.drillStartPos.y)*e*0.5;
+      }
+      this.player.x+=(Math.random()-0.5)*1.2;this.player.y+=(Math.random()-0.5)*0.6;
+      this.flame1.setVisible(false);this.flame2.setVisible(false);
+      if(this.drillTimer<=0)this.completeDrill();
+      this.depth=Math.max(0,Math.floor((this.player.y/TILE-SURFACE_Y)*12.5));
+      this.markExplored();this.renderTiles();this.updateLighting();this.updateUI();this.updateMinimap();
+      return;
+    }
+
+    // Movement
+    if(left){body.velocity.x=-MOVE_SPEED*em;this.player.setFlipX(true);}
+    else if(right){body.velocity.x=MOVE_SPEED*em;this.player.setFlipX(false);}
+    else{body.velocity.x*=0.82;if(Math.abs(body.velocity.x)<5)body.velocity.x=0;}
+
+    if(up){
+      body.velocity.y=FLY_FORCE*em;this.fuel-=delta*0.007*fuelSave;
+      this.flame1.setVisible(true).setPosition(this.player.x-6,this.player.y+16).setScale(0.7+Math.random()*0.4).setAlpha(0.6+Math.random()*0.4);
+      this.flame2.setVisible(true).setPosition(this.player.x+6,this.player.y+16).setScale(0.7+Math.random()*0.4).setAlpha(0.6+Math.random()*0.4);
+      this.exhaustEmitter.setPosition(this.player.x,this.player.y+18);this.exhaustEmitter.setQuantity(1);
+    } else {
+      this.flame1.setVisible(false);this.flame2.setVisible(false);this.exhaustEmitter.setQuantity(0);
+      body.velocity.y+=GRAVITY*(delta/1000);if(body.velocity.y>450)body.velocity.y=450;
+    }
+
+    // Run collision FIRST so the player is properly positioned on the ground
+    this.handleCol();
+
+    // Drill initiation - now the player position is reliable
+    if(!this.isDrilling&&!this.isExploding){
+      const pt=this.getTile();
+      const playerCol=Math.floor(this.player.x/TILE);
+
+      let nearBld=false;
+      if(pt.y<=SURFACE_Y&&gnd){for(const b of this.buildings)if(Math.abs(pt.x-b.x)<=2){nearBld=true;break;}}
+      if(nearBld){
+        this.bldHint.setPosition(this.player.x,this.player.y-26).setVisible(true);
+        if(down)for(const b of this.buildings)if(Math.abs(pt.x-b.x)<=2){this.openShop(b.type);break;}
+      } else {
+        this.bldHint.setVisible(false);
+        if(down&&gnd){
+          // Find the first solid tile below the player's feet
+          // Player feet are at player.y + 12 (half height)
+          // The ground tile they're standing on is: floor((player.y + 14) / TILE)
+          // We want to drill THAT tile (what they're standing on top of)
+          const feetTileY=Math.floor((this.player.y+14)/TILE);
+          // If player tile == feet tile, the solid is at feetTileY+1
+          // If player tile != feet tile, the solid is at feetTileY
+          let drillY = feetTileY;
+          if(!this.isSolid(playerCol, drillY)) drillY = feetTileY + 1;
+          if(drillY<MAP_H&&this.isSolid(playerCol,drillY)){
+            this.startDrill(playerCol,drillY,'down');
+          }
+        }
+        else if(left&&gnd){
+          const lx=playerCol-1,ly=pt.y;
+          if(lx>=0&&ly>=0&&ly<MAP_H&&this.isSolid(lx,ly)&&this.map[ly][lx].type!=='surface')this.startDrill(lx,ly,'left');
+        }
+        else if(right&&gnd){
+          const rx=playerCol+1,ry=pt.y;
+          if(rx<MAP_W&&ry>=0&&ry<MAP_H&&this.isSolid(rx,ry)&&this.map[ry][rx].type!=='surface')this.startDrill(rx,ry,'right');
+        }
+      }
+    }
+
+    this.depth=Math.max(0,Math.floor((this.player.y/TILE-SURFACE_Y)*12.5));
+    if(this.depth>this.maxDepth)this.maxDepth=this.depth;
+    for(const tr of TRANSMISSIONS){if(this.depth>=tr.depth&&!this.transmissionsSeen.has(tr.depth)){this.transmissionsSeen.add(tr.depth);this.addMsg(tr.msg,tr.color);if(tr.bonus){this.money+=tr.bonus;this.score+=tr.bonus;}}}
+    this.markExplored();
+
+    // ─── Depth Checkpoint System ───
+    const checkpoints = [200, 500, 800, 1200, 1700, 2200, 2800];
+    for(const cp of checkpoints){
+      if(this.depth >= cp && !this.checkpointsPassed.has(cp) && !this.inShop && !this.emergencyActive){
+        this.checkpointsPassed.add(cp);
+        this.showCheckpoint(cp);
+        return; // pause game until answered
+      }
+    }
+
+    // ─── Emergency Rounding Events ───
+    if(!this.emergencyActive && this.depth > 100 && !this.inShop){
+      this.emergencyTimer -= delta;
+      if(this.emergencyTimer <= 0){
+        // Random emergency every 45-90 seconds
+        this.emergencyTimer = 45000 + Math.random() * 45000;
+        if(Math.random() < 0.35){ // 35% chance when timer fires
+          this.showEmergency();
+          return;
+        }
+      }
+    }
+
+    // Weight system
+    if(this.cargo.length>this.maxCargo*0.7){const ow=(this.cargo.length/this.maxCargo-0.7)/0.3;body.velocity.x*=(1-ow*0.3);if(up)body.velocity.y*=(1-ow*0.2);}
+
+    this.renderTiles();this.updateLighting();this.updateUI();this.updateMinimap();
+  }
+
+  showCheckpoint(depth){
+    this.inShop=true; // pause game
+    this.shopC.removeAll(true); this.shopC.setVisible(true);
+    const cx=GW/2, cy=GH/2;
+    this.shopC.add(this.add.rectangle(cx,cy,GW,GH,0x000000,0.85).setScrollFactor(0));
+    this.shopC.add(this.add.rectangle(cx,cy,460,340,0x0a1a1a,0.95).setScrollFactor(0));
+    this.shopC.add(this.add.rectangle(cx,cy,458,338,0,0).setStrokeStyle(2,0x44ddaa,0.7).setScrollFactor(0));
+
+    this.shopC.add(this.add.text(cx,cy-140,'DEPTH CHECKPOINT',{fontSize:'20px',fontFamily:'monospace',fontStyle:'bold',color:'#44ddaa'}).setOrigin(0.5).setScrollFactor(0));
+    this.shopC.add(this.add.text(cx,cy-110,`Scanner gate at -${depth}ft requires clearance!`,{fontSize:'11px',fontFamily:'monospace',color:'#88aaaa'}).setOrigin(0.5).setScrollFactor(0));
+
+    const q = generateRoundingQ();
+    this.shopC.add(this.add.text(cx,cy-70,q.q,{fontSize:'15px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff',wordWrap:{width:380},align:'center'}).setOrigin(0.5).setScrollFactor(0));
+
+    const reward = Math.floor(depth * 2);
+    this.shopC.add(this.add.text(cx,cy-40,`Correct answer: +$${reward} & continue`,{fontSize:'11px',fontFamily:'monospace',color:'#88cc44'}).setOrigin(0.5).setScrollFactor(0));
+    this.shopC.add(this.add.text(cx,cy-25,`Wrong answer: -30 hull damage`,{fontSize:'11px',fontFamily:'monospace',color:'#cc6644'}).setOrigin(0.5).setScrollFactor(0));
+
+    q.choices.forEach((choice, i) => {
+      const col=i%2, row=Math.floor(i/2);
+      const bx=cx-85+col*170, by=cy+10+row*42;
+      this.btn(bx,by,150,34,fmtChoice(choice,q),0x336655,()=>{
+        this.questionsAnswered++;
+        if(Math.abs(choice-q.a)<0.001){
+          this.questionsCorrect++;
+          this.money+=reward; this.score+=reward;
+          this.closeShop();
+          this.addMsg(`CHECKPOINT CLEARED! +$${reward}!`,'#44ffaa');
+        } else {
+          this.hull-=30;
+          this.closeShop();
+          this.addMsg(`Wrong! Answer: ${fmtChoice(q.a,q)}. -30 hull!`,'#ff6644');
+          this.screenShake=200;
+        }
+      });
+    });
+
+    // Hint
+    const ht=this.add.text(cx,cy+105,'',{fontSize:'10px',fontFamily:'monospace',color:'#668888',fontStyle:'italic',wordWrap:{width:350},align:'center'}).setOrigin(0.5).setScrollFactor(0);
+    this.shopC.add(ht);
+    this.btn(cx,cy+130,100,22,'Show Hint',0x223333,()=>ht.setText(q.hint));
+  }
+
+  showEmergency(){
+    this.emergencyActive=true;
+    this.inShop=true;
+    this.shopC.removeAll(true); this.shopC.setVisible(true);
+    const cx=GW/2, cy=GH/2;
+    this.shopC.add(this.add.rectangle(cx,cy,GW,GH,0x200000,0.8).setScrollFactor(0));
+    this.shopC.add(this.add.rectangle(cx,cy,460,320,0x1a0808,0.95).setScrollFactor(0));
+    this.shopC.add(this.add.rectangle(cx,cy,458,318,0,0).setStrokeStyle(2,0xff4444,0.8).setScrollFactor(0));
+
+    const emergTypes=[
+      {title:'HULL BREACH!',desc:'Seal pressure reading to stop damage!',failDmg:50,failMsg:'Hull damaged! -50 hull',resource:'hull'},
+      {title:'FUEL LEAK!',desc:'Calibrate valve to stop the leak!',failDmg:30,failMsg:'Fuel lost! -30 fuel',resource:'fuel'},
+      {title:'DRILL OVERHEAT!',desc:'Calculate coolant setting quickly!',failDmg:35,failMsg:'Overheat damage! -35 hull',resource:'hull'},
+    ];
+    const emerg=emergTypes[Math.floor(Math.random()*emergTypes.length)];
+    const q = generateRoundingQ();
+
+    this.shopC.add(this.add.text(cx,cy-130,`WARNING: ${emerg.title}`,{fontSize:'20px',fontFamily:'monospace',fontStyle:'bold',color:'#ff4444'}).setOrigin(0.5).setScrollFactor(0));
+    this.shopC.add(this.add.text(cx,cy-100,emerg.desc,{fontSize:'12px',fontFamily:'monospace',color:'#cc8888'}).setOrigin(0.5).setScrollFactor(0));
+
+    this.shopC.add(this.add.text(cx,cy-60,q.q,{fontSize:'15px',fontFamily:'monospace',fontStyle:'bold',color:'#ffffff',wordWrap:{width:380},align:'center'}).setOrigin(0.5).setScrollFactor(0));
+
+    this.shopC.add(this.add.text(cx,cy-30,'Correct: crisis averted + $500 | Wrong: '+emerg.failMsg,{
+      fontSize:'10px',fontFamily:'monospace',color:'#cc9966'}).setOrigin(0.5).setScrollFactor(0));
+
+    // Countdown timer bar
+    const timerBg=this.add.rectangle(cx,cy-15,300,8,0x330000).setScrollFactor(0);
+    const timerBar=this.add.rectangle(cx-149,cy-15,298,6,0xff4444).setOrigin(0,0.5).setScrollFactor(0);
+    this.shopC.add([timerBg,timerBar]);
+
+    // 10 second timer
+    let timeLeft=10000;
+    const timerEvent=this.time.addEvent({delay:50,repeat:200,callback:()=>{
+      timeLeft-=50;
+      timerBar.setDisplaySize(Math.max(0,298*(timeLeft/10000)),6);
+      if(timeLeft<=3000)timerBar.setFillStyle(0xff0000);
+      if(timeLeft<=0){
+        timerEvent.destroy();
+        // Time's up = fail
+        if(emerg.resource==='hull')this.hull-=emerg.failDmg;
+        else this.fuel-=emerg.failDmg;
+        this.emergencyActive=false;
+        this.closeShop();
+        this.addMsg(`TIME UP! ${emerg.failMsg}`,'#ff4444');
+        this.screenShake=300;
+      }
+    }});
+
+    q.choices.forEach((choice, i) => {
+      const col=i%2, row=Math.floor(i/2);
+      const bx=cx-85+col*170, by=cy+15+row*42;
+      this.btn(bx,by,150,34,fmtChoice(choice,q),0x553322,()=>{
+        timerEvent.destroy();
+        this.questionsAnswered++;
+        this.emergencyActive=false;
+        if(Math.abs(choice-q.a)<0.001){
+          this.questionsCorrect++;
+          this.money+=500; this.score+=500;
+          this.closeShop();
+          this.addMsg('Crisis averted! +$500!','#44ff44');
+        } else {
+          if(emerg.resource==='hull')this.hull-=emerg.failDmg;
+          else this.fuel-=emerg.failDmg;
+          this.closeShop();
+          this.addMsg(`Wrong! Answer: ${fmtChoice(q.a,q)}. ${emerg.failMsg}`,'#ff4444');
+          this.screenShake=250;
+        }
+      });
+    });
+  }
+
+  updateUI(){
+    this.moneyT.setText(`$${this.money.toLocaleString()}`);
+    this.depthT.setText(`Depth: -${this.depth}ft | Max: -${this.maxDepth}ft`);
+    this.scoreT.setText(`Score: ${this.score.toLocaleString()}`);
+    const fp=Math.max(0,this.fuel/this.maxFuel);
+    this.fuelBar.setDisplaySize(Math.max(0,138*fp),9);this.fuelBar.setFillStyle(fp>0.3?0x44cc44:(fp>0.15?0xccaa00:0xff4444));
+    this.fuelT.setText(`${Math.floor(this.fuel)}/${this.maxFuel}`);
+    const hp=Math.max(0,this.hull/this.maxHull);
+    this.hullBar.setDisplaySize(Math.max(0,138*hp),9);this.hullBar.setFillStyle(hp>0.3?0xff6644:0xff2222);
+    this.hullT.setText(`${Math.floor(this.hull)}/${this.maxHull}`);
+    const cp=this.cargo.length/this.maxCargo;
+    this.cargoBar.setDisplaySize(Math.max(0,98*cp),9);this.cargoT.setText(`${this.cargo.length}/${this.maxCargo}`);
+    let cv=0;this.cargo.forEach(m=>cv+=MINERALS[m].value);
+    this.cargoVT.setText(cv>0?`$${cv.toLocaleString()}`:'');
+    this.comboT.setText(this.comboCount>1?`${this.comboCount}x COMBO!`:'');
+    this.artT.setText(this.artifacts.length>0?this.artifacts.map(a=>a.name).join(', '):'');
+    if(fp<0.15&&!this.lowFuelWarn){this.lowFuelWarn=true;this.addMsg('FUEL CRITICAL!','#ff2222');}
+    if(fp>0.2)this.lowFuelWarn=false;
+    if(hp<0.15&&!this.lowHullWarn){this.lowHullWarn=true;this.addMsg('HULL CRITICAL!','#ff2222');}
+    if(hp>0.2)this.lowHullWarn=false;
+  }
+}
+
+class GameOverScene extends Phaser.Scene {
+  constructor(){super('GameOverScene');}
+  init(d){this.fs=d.score||0;this.md=d.depth||0;this.reason=d.reason||'hull';this.qA=d.qAnswered||0;this.qC=d.qCorrect||0;}
+  create(){
+    const cx=GW/2,cy=GH/2;
+    this.cameras.main.setBackgroundColor('#050208');this.cameras.main.fadeIn(600);
+    for(let i=0;i<40;i++){const p=this.add.circle(Math.random()*GW,GH+Math.random()*100,1+Math.random()*2,[0xff4400,0xff8800,0xff2200][Math.floor(Math.random()*3)],0.4+Math.random()*0.4);
+      this.tweens.add({targets:p,y:-50,x:p.x+(Math.random()-0.5)*100,duration:3000+Math.random()*4000,repeat:-1,delay:Math.random()*3000});}
+
+    this.add.text(cx,cy-170,'MISSION FAILED',{fontSize:'48px',fontFamily:'monospace',fontStyle:'bold',color:'#ff4400',
+      shadow:{offsetX:0,offsetY:0,color:'#ff440044',blur:15,fill:true}}).setOrigin(0.5);
+    this.add.text(cx,cy-120,this.reason==='fuel'?'Your pod ran out of fuel.':'Your hull was destroyed.',{fontSize:'14px',fontFamily:'monospace',color:'#aa6644'}).setOrigin(0.5);
+    this.add.text(cx,cy-80,'Score',{fontSize:'12px',fontFamily:'monospace',color:'#888'}).setOrigin(0.5);
+    this.add.text(cx,cy-55,`${this.fs.toLocaleString()}`,{fontSize:'32px',fontFamily:'monospace',fontStyle:'bold',color:'#ffdd44',
+      shadow:{offsetX:0,offsetY:0,color:'#ffdd4444',blur:10,fill:true}}).setOrigin(0.5);
+    this.add.text(cx,cy-20,`Max Depth: -${this.md.toLocaleString()}ft`,{fontSize:'14px',fontFamily:'monospace',color:'#88aacc'}).setOrigin(0.5);
+
+    // Math stats
+    if(this.qA > 0){
+      const pct = Math.round((this.qC / this.qA) * 100);
+      this.add.text(cx,cy+15,'--- MATH REPORT ---',{fontSize:'12px',fontFamily:'monospace',fontStyle:'bold',color:'#44ddaa'}).setOrigin(0.5);
+      this.add.text(cx,cy+38,`Questions: ${this.qA}  |  Correct: ${this.qC}  |  Accuracy: ${pct}%`,{
+        fontSize:'13px',fontFamily:'monospace',color: pct >= 80 ? '#44ff88' : pct >= 50 ? '#ffaa44' : '#ff6644'
+      }).setOrigin(0.5);
+      const grade = pct >= 90 ? 'A+' : pct >= 80 ? 'A' : pct >= 70 ? 'B' : pct >= 60 ? 'C' : 'Keep Practicing!';
+      this.add.text(cx,cy+60,`Rounding Grade: ${grade}`,{fontSize:'14px',fontFamily:'monospace',fontStyle:'bold',
+        color: pct >= 80 ? '#44ffaa' : '#ffaa44'}).setOrigin(0.5);
+    }
+
+    const btn=this.add.rectangle(cx,cy+110,250,48,0xff5500).setInteractive({useHandCursor:true});
+    this.add.text(cx,cy+110,'TRY AGAIN',{fontSize:'18px',fontFamily:'monospace',fontStyle:'bold',color:'#fff'}).setOrigin(0.5);
+    btn.on('pointerover',()=>btn.setFillStyle(0xff7722));btn.on('pointerout',()=>btn.setFillStyle(0xff5500));
+    btn.on('pointerdown',()=>{this.cameras.main.fadeOut(500);this.time.delayedCall(500,()=>this.scene.start('GameScene'));});
+
+    const mb=this.add.rectangle(cx,cy+170,180,34,0x334455).setInteractive({useHandCursor:true});
+    this.add.text(cx,cy+170,'Main Menu',{fontSize:'13px',fontFamily:'monospace',color:'#aabbcc'}).setOrigin(0.5);
+    mb.on('pointerover',()=>mb.setFillStyle(0x445566));mb.on('pointerout',()=>mb.setFillStyle(0x334455));
+    mb.on('pointerdown',()=>{this.cameras.main.fadeOut(500);this.time.delayedCall(500,()=>this.scene.start('MenuScene'));});
+  }
+}
+
+new Phaser.Game({type:Phaser.AUTO,width:GW,height:GH,parent:'game-container',backgroundColor:'#050208',
+  physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scene:[BootScene,MenuScene,GameScene,GameOverScene],pixelArt:true});
+</script>
+</body>
+</html>
