@@ -431,6 +431,11 @@ class GameScene extends Phaser.Scene {
 
     this.cameras.main.startFollow(this.player,true,0.08,0.08);
     this.cameras.main.setDeadzone(40,40);
+
+    // Touch controls
+    this.touch = { left:false, right:false, up:false, down:false, useItem:false, nextItem:false };
+    this.createTouchControls();
+
     this.addMsg("Welcome to Mars, miner! Refuel and start digging!",'#ffaa00');
     this.addMsg("Arrow/WASD to move. DOWN near shops to enter.",'#88aacc');
   }
@@ -720,6 +725,87 @@ class GameScene extends Phaser.Scene {
     const ppx=mx+(this.player.x/TILE)*sx,ppy=my+(this.player.y/TILE)*sy;
     g.fillStyle(0x44ff44);g.fillCircle(ppx,ppy,2.5);
     g.fillStyle(0xffffff,0.5);g.fillCircle(ppx,ppy,1);
+  }
+
+  createTouchControls(){
+    // Detect if touch device
+    const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    if(!isTouch) return;
+
+    const tc = this.add.container(0,0).setDepth(150).setScrollFactor(0);
+    this.touchContainer = tc;
+
+    // D-PAD - bottom left
+    const padX = 90, padY = GH - 120;
+    const btnSize = 52, btnGap = 54;
+
+    const makeDpad = (x, y, label, dir) => {
+      const bg = this.add.circle(x, y, btnSize/2, 0x000000, 0.45).setScrollFactor(0).setInteractive();
+      const border = this.add.circle(x, y, btnSize/2, 0xffffff, 0).setScrollFactor(0).setStrokeStyle(2, 0xffffff, 0.25);
+      const txt = this.add.text(x, y, label, {
+        fontSize: '22px', fontFamily: 'monospace', fontStyle: 'bold', color: '#ffffff'
+      }).setOrigin(0.5).setScrollFactor(0).setAlpha(0.5);
+
+      bg.on('pointerdown', () => { this.touch[dir] = true; bg.setFillStyle(0x444444, 0.7); txt.setAlpha(1); });
+      bg.on('pointerup', () => { this.touch[dir] = false; bg.setFillStyle(0x000000, 0.45); txt.setAlpha(0.5); });
+      bg.on('pointerout', () => { this.touch[dir] = false; bg.setFillStyle(0x000000, 0.45); txt.setAlpha(0.5); });
+      tc.add([bg, border, txt]);
+      return bg;
+    };
+
+    makeDpad(padX, padY - btnGap, '▲', 'up');
+    makeDpad(padX, padY + btnGap, '▼', 'down');
+    makeDpad(padX - btnGap, padY, '◄', 'left');
+    makeDpad(padX + btnGap, padY, '►', 'right');
+
+    // Center of d-pad (decorative)
+    tc.add(this.add.circle(padX, padY, 16, 0x222222, 0.3).setScrollFactor(0));
+
+    // ACTION BUTTONS - bottom right
+    const actX = GW - 80, actY = GH - 120;
+
+    // Use Item button
+    const useBtn = this.add.circle(actX, actY - 30, 28, 0x000000, 0.45).setScrollFactor(0).setInteractive();
+    tc.add(useBtn);
+    tc.add(this.add.circle(actX, actY - 30, 28, 0x44cc44, 0).setScrollFactor(0).setStrokeStyle(2, 0x44cc44, 0.4));
+    const useTxt = this.add.text(actX, actY - 30, 'USE', {
+      fontSize: '12px', fontFamily: 'monospace', fontStyle: 'bold', color: '#44cc44'
+    }).setOrigin(0.5).setScrollFactor(0).setAlpha(0.6);
+    tc.add(useTxt);
+    useBtn.on('pointerdown', () => { this.touch.useItem = true; useBtn.setFillStyle(0x224422, 0.7); useTxt.setAlpha(1); });
+    useBtn.on('pointerup', () => { this.touch.useItem = false; useBtn.setFillStyle(0x000000, 0.45); useTxt.setAlpha(0.6); });
+    useBtn.on('pointerout', () => { this.touch.useItem = false; useBtn.setFillStyle(0x000000, 0.45); useTxt.setAlpha(0.6); });
+
+    // Next Item button
+    const nextBtn = this.add.circle(actX, actY + 30, 28, 0x000000, 0.45).setScrollFactor(0).setInteractive();
+    tc.add(nextBtn);
+    tc.add(this.add.circle(actX, actY + 30, 28, 0xcc8844, 0).setScrollFactor(0).setStrokeStyle(2, 0xcc8844, 0.4));
+    const nextTxt = this.add.text(actX, actY + 30, 'ITEM', {
+      fontSize: '11px', fontFamily: 'monospace', fontStyle: 'bold', color: '#cc8844'
+    }).setOrigin(0.5).setScrollFactor(0).setAlpha(0.6);
+    tc.add(nextTxt);
+    nextBtn.on('pointerdown', () => {
+      // Cycle through items
+      const ik = Object.keys(ITEMS);
+      const ci = ik.indexOf(this.selItem);
+      this.selItem = ik[(ci + 1) % ik.length];
+      this.updateItems();
+      nextBtn.setFillStyle(0x332211, 0.7); nextTxt.setAlpha(1);
+    });
+    nextBtn.on('pointerup', () => { nextBtn.setFillStyle(0x000000, 0.45); nextTxt.setAlpha(0.6); });
+    nextBtn.on('pointerout', () => { nextBtn.setFillStyle(0x000000, 0.45); nextTxt.setAlpha(0.6); });
+
+    // Close/ESC button (top right, for closing shops)
+    const escBtn = this.add.circle(GW - 30, 75, 18, 0x000000, 0.4).setScrollFactor(0).setInteractive().setDepth(210);
+    const escTxt = this.add.text(GW - 30, 75, 'X', {
+      fontSize: '16px', fontFamily: 'monospace', fontStyle: 'bold', color: '#ff6644'
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(210).setAlpha(0.6);
+    escBtn.on('pointerdown', () => {
+      if(this.inShop) this.closeShop();
+      escBtn.setFillStyle(0x442222, 0.6); escTxt.setAlpha(1);
+    });
+    escBtn.on('pointerup', () => { escBtn.setFillStyle(0x000000, 0.4); escTxt.setAlpha(0.6); });
+    escBtn.on('pointerout', () => { escBtn.setFillStyle(0x000000, 0.4); escTxt.setAlpha(0.6); });
   }
 
   createUI(){
@@ -1133,6 +1219,9 @@ class GameScene extends Phaser.Scene {
     if(Phaser.Input.Keyboard.JustDown(this.key4)){this.selItem=ik[3];this.updateItems();}
     if(Phaser.Input.Keyboard.JustDown(this.key5)){this.selItem=ik[4];this.updateItems();}
     if(Phaser.Input.Keyboard.JustDown(this.keyE))this.useItem();
+    // Touch use item (with debounce)
+    if(this.touch.useItem && !this._touchUsed){this._touchUsed=true;this.useItem();}
+    if(!this.touch.useItem) this._touchUsed=false;
     if(this.inShop)return;
 
     this.fuel-=delta*0.0025*fuelSave;
@@ -1141,10 +1230,10 @@ class GameScene extends Phaser.Scene {
 
     const gnd=this.onGround(),body=this.player.body;
     const em=UPGRADES.engine.levels[this.upgLvl.engine].bonus;
-    const left=this.cursors.left.isDown||this.wasd.left.isDown;
-    const right=this.cursors.right.isDown||this.wasd.right.isDown;
-    const up=this.cursors.up.isDown||this.wasd.up.isDown;
-    const down=this.cursors.down.isDown||this.wasd.down.isDown;
+    const left=this.cursors.left.isDown||this.wasd.left.isDown||this.touch.left;
+    const right=this.cursors.right.isDown||this.wasd.right.isDown||this.touch.right;
+    const up=this.cursors.up.isDown||this.wasd.up.isDown||this.touch.up;
+    const down=this.cursors.down.isDown||this.wasd.down.isDown||this.touch.down;
 
     if(this.isDrilling){
       this.drillTimer-=delta;body.velocity.x=0;body.velocity.y=0;
@@ -1431,7 +1520,9 @@ class GameOverScene extends Phaser.Scene {
 }
 
 new Phaser.Game({type:Phaser.AUTO,width:GW,height:GH,parent:'game-container',backgroundColor:'#050208',
-  physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scene:[BootScene,MenuScene,GameScene,GameOverScene],pixelArt:true});
+  input:{activePointers:4},
+  physics:{default:'arcade',arcade:{gravity:{y:0},debug:false}},scene:[BootScene,MenuScene,GameScene,GameOverScene],pixelArt:true,
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH}});
 </script>
 </body>
 </html>
