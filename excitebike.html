@@ -40,14 +40,32 @@ const THEMES=[
 const AI_DEFS=[
   {name:'BLAZE',col:0xff2200,type:'aggressive',baseSpeed:1.02,heatMgmt:0.6,rampSkill:0.82,
    taunts:["EAT DUST!","TOO SLOW!","OUTTA MY WAY!","MINE!"],
-   reacts:["HAH!","LUCKY!","NICE TRY!"],scared:["OH NO!","WATCH IT!","WOAH!"]},
+   reacts:["HAH!","LUCKY!","NICE TRY!"],scared:["OH NO!","WATCH IT!","WOAH!"],
+   mathWrong:["Can't do fractions?!","MATH FAIL! 😂","Too hard for ya?"],
+   mathRight:["Lucky guess!","Even a broken clock…","Fluke!"]},
   {name:'CHILL',col:0x2255ff,type:'consistent',baseSpeed:0.98,heatMgmt:0.95,rampSkill:0.72,
    taunts:["Smooth.","Keep up...","Steady wins.","Efficient."],
-   reacts:["Well played.","Noted.","Fair enough."],scared:["Careful!","Watch out!","Heads up!"]},
+   reacts:["Well played.","Noted.","Fair enough."],scared:["Careful!","Watch out!","Heads up!"],
+   mathWrong:["Study harder.","Fractions matter.","You missed that one."],
+   mathRight:["Nice math.","Well calculated.","Correct."]},
   {name:'WILD', col:0x22cc44,type:'erratic',  baseSpeed:1.05,heatMgmt:0.4, rampSkill:0.52,
    taunts:["YEEHAW!","WOOOO!!","FULL SEND!","CHAOS!"],
-   reacts:["WHAT?!","NO WAY!","WOAH WOAH!"],scared:["AHHH!","NOPE!","MAYDAY!"]},
+   reacts:["WHAT?!","NO WAY!","WOAH WOAH!"],scared:["AHHH!","NOPE!","MAYDAY!"],
+   mathWrong:["BRAIN FART!! 🤪","HA! WRONG!","FRACTIONS = HARD!"],
+   mathRight:["NOOOO!!","HOW?! HOW?!","LUCKY DUCK!!"]},
 ];
+
+// CALC — boss rival, only appears race 7+ (index 6+), feeds on your wrong answers
+const CALC_DEF={
+  name:'CALC',col:0xcc00ff,type:'boss',baseSpeed:0.96,heatMgmt:0.99,rampSkill:0.88,
+  taunts:["COMPUTE THIS!","CALCULATING…","LOGIC WINS.","PROCESSING…"],
+  reacts:["ERROR DETECTED.","RECALCULATING.","ANOMALY."],scared:["DIVIDE BY ZERO!","OVERFLOW!","BUG!"],
+  mathWrong:["POWER SURGE! ⚡","WRONG = FUEL!","MY GAIN, YOUR LOSS!","FEEDING ON ERRORS…"],
+  mathRight:["THREAT DETECTED.","IMPRESSIVE…","COUNTER-MEASURES."],
+  isBoss:true,
+  wrongAnswerBoost:28, // speed bonus per wrong answer
+  maxBonusStack:5,     // caps at 5 stacks
+};
 
 const BIKES=[
   {name:'ROOKIE',  maxSpd:290,heatRate:0.75,turbRate:1.0,color:0xff4400,unlockRace:0},
@@ -126,7 +144,7 @@ const EASY_QUESTIONS=[
     const n=1+Math.floor(Math.random()*(d-1));
     return{
       text:`${n} out of ${d} equal parts are shaded.\nWhat fraction is shaded?`,
-      visual:{type:'fraction_shape',num:n,den:d,label:true},
+      visual:{type:'fraction_shape',num:n,den:d},
       answers:shuffle([
         {text:`${n}/${d}`,correct:true},
         {text:`${d}/${n}`,correct:false},
@@ -495,16 +513,19 @@ function getPowerupForScore(score, total){
 
 // ── GAME STATE ────────────────────────────────────────────────────────
 const GS={
-  currentRace:0,bikeIndex:0,points:[0,0,0,0],raceResults:[],
+  currentRace:0,bikeIndex:0,points:[0,0,0,0,0],raceResults:[],
   upgrades:{speed:0,heat:0,turbo:0},coins:0,
   difficulty:DIFFICULTY.EASY,
   activeBoosts:[],
   mathStats:{totalAnswered:0,totalCorrect:0},
   pendingPowerup:null,
+  calcWrongStacks:0,
+  lastMathCorrect:null,
   reset(){
-    this.currentRace=0;this.bikeIndex=0;this.points=[0,0,0,0];this.raceResults=[];
+    this.currentRace=0;this.bikeIndex=0;this.points=[0,0,0,0,0];this.raceResults=[];
     this.upgrades={speed:0,heat:0,turbo:0};this.coins=0;this.activeBoosts=[];
     this.pendingPowerup=null;this.mathStats={totalAnswered:0,totalCorrect:0};
+    this.calcWrongStacks=0;this.lastMathCorrect=null;
   },
   getBoost(type){return this.activeBoosts.find(b=>b.type===type);},
   consumeBoosts(){this.activeBoosts=this.activeBoosts.filter(b=>{b.races--;return b.races>0;});}
@@ -537,6 +558,15 @@ function sfx(name){
     case'lap':[523,659,784].forEach((f,i)=>tone(f,f,0.12,'sine',0.28,n+i*0.13,d));break;
     case'podium':[392,494,587,784].forEach((f,i)=>tone(f,f,0.18,'sine',0.32,n+i*0.2,d));break;
     case'unlock':[440,554,659,880].forEach((f,i)=>tone(f,f+20,0.15,'square',0.25,n+i*0.15,d));break;
+    // Game-show host sounds
+    case'gs_question':tone(440,660,0.18,'sine',0.22,n,d);tone(660,880,0.14,'sine',0.18,n+0.2,d);break;
+    case'gs_drumroll':{const buf=actx().createBuffer(1,actx().sampleRate*0.6,actx().sampleRate);const dd=buf.getChannelData(0);for(let i=0;i<dd.length;i++){const t=i/actx().sampleRate;const beat=Math.floor(t*16);dd[i]=(Math.random()*2-1)*(beat%2===0?0.3:0.15)*Math.min(1,t*5);}const src=actx().createBufferSource();src.buffer=buf;src.connect(_masterGain);src.start(n);break;}
+    case'gs_reveal_good':[523,659,784,1047,1319].forEach((f,i)=>tone(f,f+30,0.14,'sine',0.32,n+i*0.08,d));break;
+    case'gs_reveal_bad':[400,350,280,220].forEach((f,i)=>tone(f,f-20,0.18,'sawtooth',0.22,n+i*0.12,d));break;
+    case'gs_fanfare':{[523,659,784,1047].forEach((f,i)=>{tone(f,f,0.3,'sine',0.28,n+i*0.15,d);tone(f*1.5,f*1.5,0.2,'sine',0.12,n+i*0.15+0.08,d);});break;}
+    case'calc_surge':tone(200,1200,0.5,'sawtooth',0.35,n,d);tone(100,600,0.5,'square',0.2,n,d);break;
+    case'calc_intro':[880,1047,1319,880,660].forEach((f,i)=>tone(f,f,0.12,'square',0.18,n+i*0.1,d));break;
+    case'spinout':tone(800,100,0.6,'sawtooth',0.4,n,d);tone(600,80,0.5,'square',0.3,n+0.1,d);break;
   }
 }
 function startMusic(key,tempo){
@@ -693,8 +723,12 @@ class MathPopup{
           g.fillRect(bx+i*pw2+1,vy+1,pw2-2,bh-2);
         }
         g.lineStyle(2,0x0088aa,0.8);g.strokeRect(bx,vy,bw,bh);
-        const vt=sc.add.text(cx,vy+bh+12,`${vis.num}/${vis.den}`,{fontSize:'22px',fontFamily:'"Courier New",monospace',color:'#00ccff',stroke:'#000',strokeThickness:3}).setOrigin(0.5).setDepth(83);
-        this.items.push(vt);break;
+        // Only show fraction label if the question is NOT asking what the fraction is
+        if(vis.label){
+          const vt=sc.add.text(cx,vy+bh+12,`${vis.num}/${vis.den}`,{fontSize:'22px',fontFamily:'"Courier New",monospace',color:'#00ccff',stroke:'#000',strokeThickness:3}).setOrigin(0.5).setDepth(83);
+          this.items.push(vt);
+        }
+        break;
       }
       case'compare_bars':case'compare_shapes':case'subtract_bars':case'add_bars':{
         vis.fracs.forEach(([n,d],i)=>{
@@ -753,6 +787,7 @@ class MathPopup{
     const correct=ans.correct;
     GS.mathStats.totalAnswered++;
     if(correct)GS.mathStats.totalCorrect++;
+    GS.lastMathCorrect=correct;
     // Flash the button
     const sc=this.scene;
     if(bgGfx){
@@ -770,12 +805,16 @@ class MathPopup{
     // Reward/penalty text
     const rwTxt=correct?
       (this.rewardType==='jump'?'+SPEED BOOST! ⚡':'+NITRO ACTIVATED! 💥'):
-      (this.rewardType==='jump'?'No speed boost…':'No nitro for you!');
-    const rwCol=correct?'#ffcc00':'#ff8888';
+      (this.rewardType==='jump'?'💥 CRASH LANDING!':'💀 NITRO BACKFIRE!');
+    const rwCol=correct?'#ffcc00':'#ff4444';
     const rw=sc.add.text(W2/2,H2/2+42,rwTxt,{fontSize:'16px',fontFamily:'"Courier New",monospace',color:rwCol,stroke:'#000',strokeThickness:3}).setOrigin(0.5).setDepth(90).setAlpha(0);
     this.items.push(rw);
     sc.tweens.add({targets:rw,alpha:1,duration:300,delay:400});
     sfx(correct?'correct':'wrong');
+    // Trigger rival speech about the math result (delayed so it fires after popup closes)
+    sc.time.delayedCall(300,()=>{
+      if(sc.triggerRivalMathReaction)sc.triggerRivalMathReaction(correct);
+    });
     // Auto-close
     sc.time.delayedCall(1800,()=>this.close(correct));
   }
@@ -950,118 +989,218 @@ class TitleScene extends Phaser.Scene{
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  MATH QUIZ SCENE (between races)
+//  MATH QUIZ SCENE — GAME SHOW EDITION
 // ═══════════════════════════════════════════════════════════════════════
 class MathQuizScene extends Phaser.Scene{
   constructor(){super('MathQuizScene');}
   init(data){this.fromRace=data&&data.fromRace;}
   create(){
     const W=GW,H=GH;
-    this.cameras.main.setBackgroundColor('#040814');
-    this.questionIndex=0;this.numCorrect=0;this.totalQ=5;
+    this.cameras.main.setBackgroundColor('#020510');
+    this.questionIndex=0;this.numCorrect=0;this.totalQ=5;this.streak=0;this.maxStreak=0;
     this.questions=Array.from({length:this.totalQ},()=>makeQuestion(GS.difficulty));
-    this.answeredThisQ=false;
-    // Background art
+    this.answeredThisQ=false;this.qItems=[];this.dots=[];
+    this.hostMsgItems=[];
+
+    // ── Scanline + star background
     const g=this.add.graphics();
-    for(let i=0;i<H;i++){const t=i/H;g.fillStyle(Phaser.Display.Color.GetColor(4,8+Math.floor(t*12),18+Math.floor(t*25)));g.fillRect(0,i,W,1);}
-    // Header
-    const raceLabel=this.fromRace?`PRE-RACE ${GS.currentRace+1} QUIZ`:'MATH WARM-UP';
-    this.add.text(W/2,22,raceLabel,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#558899'}).setOrigin(0.5);
-    this.add.text(W/2,44,'Answer 5 questions to earn a POWER-UP!',{fontSize:'16px',fontFamily:'"Courier New",monospace',color:'#ffcc00',stroke:'#000',strokeThickness:2}).setOrigin(0.5);
+    for(let i=0;i<H;i++){const t=i/H;g.fillStyle(Phaser.Display.Color.GetColor(2,5+Math.floor(t*10),16+Math.floor(t*20)));g.fillRect(0,i,W,1);}
+    for(let i=0;i<80;i++){g.fillStyle(0xffffff,0.2+Math.random()*0.6);g.fillRect(Math.random()*W,Math.random()*H*0.5,1,1);}
+    for(let i=0;i<H;i+=4){g.fillStyle(0x000000,0.08);g.fillRect(0,i,W,2);}
+
+    // ── Game show header strip
+    const hdr=this.add.graphics();
+    hdr.fillStyle(0x110022,1);hdr.fillRect(0,0,W,58);
+    hdr.lineStyle(2,0xcc00ff,0.9);hdr.strokeRect(0,58,W,0);
+    // Flashing border lights
+    this.borderLights=[];
+    for(let i=0;i<20;i++){
+      const bx=i*(W/20)+8;
+      const bl=this.add.graphics();bl.fillStyle(0xffff00,0.9);bl.fillCircle(bx,10,5);
+      this.borderLights.push({g:bl,phase:i*0.3,x:bx});
+    }
+
+    // Show name
+    this.add.text(W/2,28,'🧮 FRACTION CHAMPIONSHIP QUIZ 🧮',{fontSize:'20px',fontFamily:'"Courier New",monospace',color:'#ff88ff',stroke:'#000',strokeThickness:4}).setOrigin(0.5);
+
+    // Race label
+    const raceLabel=`RACE ${GS.currentRace+1} PRE-SHOW`;
+    this.add.text(W/2,50,raceLabel,{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#664477'}).setOrigin(0.5);
+
+    // Streak display
+    this.streakGfx=this.add.graphics().setDepth(5);
+    this.streakTxt=this.add.text(W-16,66,'',{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#ffff44',stroke:'#000',strokeThickness:3}).setOrigin(1,0).setDepth(6);
+
     // Progress dots
     this.dots=Array.from({length:this.totalQ},(_,i)=>{
-      const g2=this.add.graphics();g2.fillStyle(0x223344,1);g2.fillCircle(W/2-80+i*40,82,12);g2.lineStyle(2,0x334455,1);g2.strokeCircle(W/2-80+i*40,82,12);
-      this.add.text(W/2-80+i*40,82,`${i+1}`,{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#556677'}).setOrigin(0.5);
-      return g2;
+      const dg=this.add.graphics().setDepth(4);
+      const dt=this.add.text(W/2-80+i*40,78,`${i+1}`,{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#334455'}).setOrigin(0.5).setDepth(5);
+      return{g:dg,t:dt};
     });
-    this.qText=[];this.qItems=[];
-    this.showQuestion(0);
+
+    // Host intro sequence
+    this.time.delayedCall(120,()=>this.hostIntro());
   }
+
+  hostIntro(){
+    const W=GW,H=GH;
+    const msgs=[
+      {text:"Welcome back, racers!", delay:0, col:'#ff88ff'},
+      {text:`5 questions stand between you and the track!`, delay:900, col:'#ffff88'},
+      {text:`Difficulty: ${GS.difficulty.toUpperCase()} — Good luck!`, delay:1900, col:'#88ffff'},
+    ];
+    msgs.forEach(m=>{
+      this.time.delayedCall(m.delay,()=>this.showHostMsg(m.text,m.col));
+    });
+    sfx('gs_question');
+    this.time.delayedCall(2900,()=>this.showQuestion(0));
+  }
+
+  showHostMsg(text,col){
+    this.hostMsgItems.forEach(i=>{try{i.destroy();}catch(e){}});
+    this.hostMsgItems=[];
+    const W=GW;
+    // Animated host speech bar
+    const bar=this.add.graphics().setDepth(70).setAlpha(0);
+    bar.fillStyle(0x1a0033,0.95);bar.fillRoundedRect(W/2-240,92,480,38,8);
+    bar.lineStyle(2,0xcc00ff,0.9);bar.strokeRoundedRect(W/2-240,92,480,38,8);
+    const txt=this.add.text(W/2,111,`🎙️  ${text}`,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:col||'#ff88ff',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setDepth(71).setAlpha(0);
+    this.hostMsgItems=[bar,txt];
+    this.tweens.add({targets:[bar,txt],alpha:1,duration:200});
+    this.tweens.add({targets:[bar,txt],alpha:0,duration:300,delay:700});
+    sfx('gs_question');
+  }
+
   updateDots(){
     const W=GW;
-    this.dots.forEach((d,i)=>{
-      d.clear();
-      if(i<this.questionIndex){d.fillStyle(0x00cc44,1);d.fillCircle(W/2-80+i*40,82,12);}
-      else if(i===this.questionIndex){d.fillStyle(0x0055aa,1);d.fillCircle(W/2-80+i*40,82,12);d.lineStyle(2.5,0x44aaff,1);d.strokeCircle(W/2-80+i*40,82,12);}
-      else{d.fillStyle(0x112233,1);d.fillCircle(W/2-80+i*40,82,12);d.lineStyle(1.5,0x334455,1);d.strokeCircle(W/2-80+i*40,82,12);}
+    this.dots.forEach(({g:dg,t:dt},i)=>{
+      dg.clear();
+      if(i<this.questionIndex){
+        dg.fillStyle(0x00cc44,1);dg.fillCircle(W/2-80+i*40,78,14);
+        dg.lineStyle(1.5,0x00ff66,0.9);dg.strokeCircle(W/2-80+i*40,78,14);
+        dt.setColor('#00ff66');
+      }else if(i===this.questionIndex){
+        dg.fillStyle(0xcc00ff,1);dg.fillCircle(W/2-80+i*40,78,14);
+        dg.lineStyle(2.5,0xff88ff,1);dg.strokeCircle(W/2-80+i*40,78,14);
+        dt.setColor('#ffffff');
+        // Pulse
+        this.tweens.add({targets:dg,scaleX:1.15,scaleY:1.15,duration:400,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+      }else{
+        dg.fillStyle(0x112233,1);dg.fillCircle(W/2-80+i*40,78,14);
+        dg.lineStyle(1.5,0x334455,1);dg.strokeCircle(W/2-80+i*40,78,14);
+        dt.setColor('#334455');
+      }
     });
   }
+
+  updateStreakDisplay(){
+    this.streakGfx.clear();
+    if(this.streak>=2){
+      const col=this.streak>=5?0xff4400:this.streak>=3?0xffaa00:0xffff00;
+      this.streakGfx.fillStyle(col,0.2);this.streakGfx.fillRoundedRect(GW-160,62,148,22,6);
+      this.streakGfx.lineStyle(1.5,col,0.8);this.streakGfx.strokeRoundedRect(GW-160,62,148,22,6);
+      this.streakTxt.setText(`🔥 ${this.streak}x STREAK!`).setColor(col===0xff4400?'#ff6622':col===0xffaa00?'#ffcc44':'#ffff66');
+    }else{
+      this.streakTxt.setText('');
+    }
+  }
+
   showQuestion(idx){
-    this.answeredThisQ=false;this.updateDots();
+    this.answeredThisQ=false;this.updateDots();this.updateStreakDisplay();
     const q=this.questions[idx];const W=GW,H=GH;
-    // Clear previous question items
     this.qItems.forEach(i=>{try{i.destroy();}catch(e){}});this.qItems=[];
-    // Panel
-    const pw=720,ph=420,px2=(W-pw)/2,py2=105;
-    const panel=this.add.graphics().setAlpha(0);
-    panel.fillStyle(0x080c1a,1);panel.fillRoundedRect(px2,py2,pw,ph,14);
-    panel.lineStyle(2.5,0x0055aa,0.8);panel.strokeRoundedRect(px2,py2,pw,ph,14);
+
+    // Drumroll before question appears
+    sfx('gs_drumroll');
+
+    // Question panel — slides in from top
+    const pw=720,ph=420,px2=(W-pw)/2,py2=106;
+    const panel=this.add.graphics().setAlpha(0).setY(-60).setDepth(3);
+    panel.fillStyle(0x070d1a,1);panel.fillRoundedRect(px2,py2,pw,ph,14);
+    panel.lineStyle(2.5,0x9900cc,0.9);panel.strokeRoundedRect(px2,py2,pw,ph,14);
+    // Purple top accent
+    panel.fillStyle(0xcc00ff,0.12);panel.fillRoundedRect(px2,py2,pw,44,{tl:14,tr:14,bl:0,br:0});
+    panel.lineStyle(1,0xcc00ff,0.3);panel.strokeRect(px2,py2+44,pw,1);
     this.qItems.push(panel);
-    this.tweens.add({targets:panel,alpha:1,duration:200,ease:'Sine.easeOut'});
-    // Question number
-    const qnum=this.add.text(px2+16,py2+16,`Q${idx+1} of ${this.totalQ}`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#446688'}).setAlpha(0);
-    this.qItems.push(qnum);this.tweens.add({targets:qnum,alpha:1,duration:200,delay:100});
-    // Difficulty badge
+    this.tweens.add({targets:panel,alpha:1,y:0,duration:320,ease:'Back.easeOut'});
+
+    // Q number badge
+    const qnum=this.add.text(px2+16,py2+14,`QUESTION ${idx+1}`,{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#cc66ff'}).setAlpha(0).setDepth(5);
     const diffCol={easy:0x44ff88,medium:0xffcc00,hard:0xff4444}[GS.difficulty];
-    const db=this.add.graphics().setAlpha(0);db.fillStyle(diffCol,0.2);db.fillRoundedRect(px2+pw-95,py2+12,88,22,6);db.lineStyle(1,diffCol,0.6);db.strokeRoundedRect(px2+pw-95,py2+12,88,22,6);
-    const dt=this.add.text(px2+pw-51,py2+23,GS.difficulty.toUpperCase(),{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#'+diffCol.toString(16).padStart(6,'0')}).setOrigin(0.5).setAlpha(0);
-    this.qItems.push(db,dt);this.tweens.add({targets:[db,dt],alpha:1,duration:200,delay:100});
-    // Question text
+    const db=this.add.graphics().setAlpha(0).setDepth(5);
+    db.fillStyle(diffCol,0.2);db.fillRoundedRect(px2+pw-95,py2+12,88,22,6);db.lineStyle(1,diffCol,0.7);db.strokeRoundedRect(px2+pw-95,py2+12,88,22,6);
+    const dt=this.add.text(px2+pw-51,py2+23,GS.difficulty.toUpperCase(),{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#'+diffCol.toString(16).padStart(6,'0')}).setOrigin(0.5).setAlpha(0).setDepth(6);
+    this.qItems.push(qnum,db,dt);
+    this.tweens.add({targets:[qnum,db,dt],alpha:1,duration:200,delay:200});
+
+    // Question text — character-by-character typewriter effect (simplified: word by word)
     const lines=q.text.split('\n');
     lines.forEach((line,i)=>{
-      const qt=this.add.text(W/2,py2+50+i*28,line,{fontSize:'18px',fontFamily:'"Courier New",monospace',color:'#ddeeff',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setAlpha(0);
-      this.qItems.push(qt);this.tweens.add({targets:qt,alpha:1,duration:220,delay:150+i*50});
+      const qt=this.add.text(W/2,py2+54+i*30,line,{fontSize:'17px',fontFamily:'"Courier New",monospace',color:'#eef4ff',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setAlpha(0).setDepth(5);
+      this.qItems.push(qt);
+      this.tweens.add({targets:qt,alpha:1,duration:180,delay:280+i*80});
     });
-    // Visual
+
+    // Visual aid
     this.drawVisualInScene(px2,py2,pw,ph,q.visual);
-    // Hint: press number keys
-    const hint=this.add.text(W/2,py2+195,'Press [1] [2] [3] [4] or tap to answer',{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#334466'}).setOrigin(0.5).setAlpha(0);
-    this.qItems.push(hint);this.tweens.add({targets:hint,alpha:1,duration:200,delay:400});
-    // Answer buttons
-    const btnY=py2+220;
+
+    // Key hint
+    const hint=this.add.text(W/2,py2+200,'[ 1 ]  [ 2 ]  [ 3 ]  [ 4 ]  — Press a number or tap',{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#334466'}).setOrigin(0.5).setAlpha(0).setDepth(5);
+    this.qItems.push(hint);this.tweens.add({targets:hint,alpha:1,duration:200,delay:500});
+
+    // Answer buttons — staggered pop-in
+    const btnY=py2+222;
     q.answers.forEach((ans,i)=>{
-      const bw=160,bh=52,bx=px2+20+i*(bw+15),by=btnY;
-      const bg=this.add.graphics().setAlpha(0);
-      bg.fillStyle(0x0d1e33,1);bg.fillRoundedRect(bx,by,bw,bh,10);
-      bg.lineStyle(2,0x1a3a66,0.8);bg.strokeRoundedRect(bx,by,bw,bh,10);
-      // Number key hint
-      const numBadge=this.add.graphics().setAlpha(0);
-      numBadge.fillStyle(0x1a3355,1);numBadge.fillCircle(bx+15,by+15,12);
-      const numT=this.add.text(bx+15,by+15,`${i+1}`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#4488cc'}).setOrigin(0.5).setAlpha(0);
-      const bt2=this.add.text(bx+bw/2,by+bh/2+4,ans.text,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#aaddff',align:'center',wordWrap:{width:bw-20}}).setOrigin(0.5).setAlpha(0);
+      const bw=160,bh=54,bx=px2+20+i*(bw+15),by=btnY;
+      const bg=this.add.graphics().setAlpha(0).setDepth(5).setScale(0.7);
+      bg.fillStyle(0x0d1a30,1);bg.fillRoundedRect(bx,by,bw,bh,10);
+      bg.lineStyle(2,0x2233aa,0.8);bg.strokeRoundedRect(bx,by,bw,bh,10);
+      const numBadge=this.add.graphics().setAlpha(0).setDepth(6);
+      numBadge.fillStyle(0x330066,1);numBadge.fillCircle(bx+16,by+16,12);
+      numBadge.lineStyle(1.5,0xaa44ff,0.8);numBadge.strokeCircle(bx+16,by+16,12);
+      const numT=this.add.text(bx+16,by+16,`${i+1}`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#cc88ff'}).setOrigin(0.5).setAlpha(0).setDepth(7);
+      const bt2=this.add.text(bx+bw/2,by+bh/2+4,ans.text,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#aaddff',align:'center',wordWrap:{width:bw-24}}).setOrigin(0.5).setAlpha(0).setDepth(6);
       this.qItems.push(bg,numBadge,numT,bt2);
-      this.tweens.add({targets:[bg,numBadge,numT,bt2],alpha:1,duration:200,delay:300+i*60});
+      const delay=400+i*90;
+      this.tweens.add({targets:bg,alpha:1,scaleX:1,scaleY:1,duration:220,delay,ease:'Back.easeOut'});
+      this.tweens.add({targets:[numBadge,numT,bt2],alpha:1,duration:180,delay:delay+60});
       bg.setInteractive(new Phaser.Geom.Rectangle(bx,by,bw,bh),Phaser.Geom.Rectangle.Contains);
-      bg.on('pointerover',()=>{if(this.answeredThisQ)return;bg.clear();bg.fillStyle(0x1a3a66,1);bg.fillRoundedRect(bx,by,bw,bh,10);bg.lineStyle(2.5,0x4488ff,1);bg.strokeRoundedRect(bx,by,bw,bh,10);});
-      bg.on('pointerout',()=>{if(this.answeredThisQ)return;bg.clear();bg.fillStyle(0x0d1e33,1);bg.fillRoundedRect(bx,by,bw,bh,10);bg.lineStyle(2,0x1a3a66,0.8);bg.strokeRoundedRect(bx,by,bw,bh,10);});
+      bg.on('pointerover',()=>{if(this.answeredThisQ)return;bg.clear();bg.fillStyle(0x1a2a50,1);bg.fillRoundedRect(bx,by,bw,bh,10);bg.lineStyle(2.5,0x8844ff,1);bg.strokeRoundedRect(bx,by,bw,bh,10);});
+      bg.on('pointerout',()=>{if(this.answeredThisQ)return;bg.clear();bg.fillStyle(0x0d1a30,1);bg.fillRoundedRect(bx,by,bw,bh,10);bg.lineStyle(2,0x2233aa,0.8);bg.strokeRoundedRect(bx,by,bw,bh,10);});
       bg.on('pointerdown',()=>this.selectAnswer(ans,bg,bx,by,bw,bh,q));
       bt2.setInteractive();bt2.on('pointerdown',()=>this.selectAnswer(ans,bg,bx,by,bw,bh,q));
     });
+
+    // Timer bar
+    this.timerMax=25;this.timerLeft=this.timerMax;
+    const tbBg=this.add.graphics().setAlpha(0).setDepth(5);tbBg.fillStyle(0x0a0f1a,1);tbBg.fillRect(px2,py2+ph-20,pw,16);
+    this.timerBar=this.add.graphics().setAlpha(0).setDepth(6);
+    this.timerTxt=this.add.text(W/2,py2+ph-12,'25s',{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#556688'}).setOrigin(0.5).setAlpha(0).setDepth(7);
+    this.qItems.push(tbBg,this.timerBar,this.timerTxt);
+    this.tweens.add({targets:[tbBg,this.timerBar,this.timerTxt],alpha:1,duration:200,delay:600});
+    this.timerPx=px2;this.timerPw=pw;this.timerPy=py2+ph-20;
+    this.timerRunning=true;
+
     // Key handler
     this._qKey=(e)=>{const k=parseInt(e.key);if(k>=1&&k<=q.answers.length&&!this.answeredThisQ)this.selectAnswer(q.answers[k-1],null,0,0,0,0,q);};
     this.input.keyboard.on('keydown',this._qKey);
-    // Timer bar
-    this.timerMax=25;this.timerLeft=this.timerMax;
-    const tbBg=this.add.graphics().setAlpha(0);tbBg.fillStyle(0x111827,1);tbBg.fillRect(px2,py2+ph-18,pw,14);
-    this.timerBar=this.add.graphics().setAlpha(0);
-    this.timerTxt=this.add.text(W/2,py2+ph-11,'25s',{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#556677'}).setOrigin(0.5).setAlpha(0);
-    this.qItems.push(tbBg,this.timerBar,this.timerTxt);
-    this.tweens.add({targets:[tbBg,this.timerBar,this.timerTxt],alpha:1,duration:200,delay:500});
-    this.timerPx=px2;this.timerPw=pw;this.timerPy=py2+ph-18;
-    this.timerRunning=true;
   }
+
   drawVisualInScene(px2,py2,pw,ph,vis){
     if(!vis)return;
-    const g=this.add.graphics().setAlpha(0);const W=GW;const cx=px2+pw/2,vy=py2+162,vw=160;
-    this.qItems.push(g);this.tweens.add({targets:g,alpha:1,duration:200,delay:250});
+    const g=this.add.graphics().setAlpha(0).setDepth(5);const W=GW;const cx=px2+pw/2,vy=py2+165,vw=160;
+    this.qItems.push(g);this.tweens.add({targets:g,alpha:1,duration:200,delay:350});
     switch(vis.type){
       case'fraction_shape':case'fraction_objects':{
         const bw=200,bh=36,bx=cx-bw/2;
         g.fillStyle(0x1a2a3a);g.fillRect(bx,vy,bw,bh);
         for(let i=0;i<vis.den;i++){const pw2=bw/vis.den;g.fillStyle(i<vis.num?0x00ccff:0x223344,i<vis.num?0.85:0.5);g.fillRect(bx+i*pw2+1,vy+1,pw2-2,bh-2);}
         g.lineStyle(2,0x0088aa,0.8);g.strokeRect(bx,vy,bw,bh);
-        const vt=this.add.text(cx,vy+bh+10,`${vis.num}/${vis.den}`,{fontSize:'20px',fontFamily:'"Courier New",monospace',color:'#00ccff',stroke:'#000',strokeThickness:3}).setOrigin(0.5).setAlpha(0);
-        this.qItems.push(vt);this.tweens.add({targets:vt,alpha:1,duration:200,delay:300});break;
+        if(vis.label){
+          const vt=this.add.text(cx,vy+bh+10,`${vis.num}/${vis.den}`,{fontSize:'20px',fontFamily:'"Courier New",monospace',color:'#00ccff',stroke:'#000',strokeThickness:3}).setOrigin(0.5).setAlpha(0).setDepth(5);
+          this.qItems.push(vt);this.tweens.add({targets:vt,alpha:1,duration:200,delay:380});
+        }
+        break;
       }
       case'compare_bars':case'add_bars':case'subtract_bars':{
         vis.fracs.forEach(([n,d],i)=>{
@@ -1069,8 +1208,8 @@ class MathQuizScene extends Phaser.Scene{
           g.fillStyle(0x1a2a3a);g.fillRect(bx,by,bw,bh);
           for(let j=0;j<d;j++){const pw2=bw/d;g.fillStyle(i===0?0x00aaff:0xff6600,j<n?0.85:0.2);g.fillRect(bx+j*pw2+1,by+1,pw2-2,bh-2);}
           g.lineStyle(1.5,i===0?0x0088aa:0xcc4400,0.8);g.strokeRect(bx,by,bw,bh);
-          const lbl=this.add.text(bx-36,by+11,`${n}/${d}`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:i===0?'#00aaff':'#ff8844'}).setOrigin(0.5).setAlpha(0);
-          this.qItems.push(lbl);this.tweens.add({targets:lbl,alpha:1,duration:200,delay:280});
+          const lbl=this.add.text(bx-36,by+11,`${n}/${d}`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:i===0?'#00aaff':'#ff8844'}).setOrigin(0.5).setAlpha(0).setDepth(5);
+          this.qItems.push(lbl);this.tweens.add({targets:lbl,alpha:1,duration:200,delay:370});
         });break;
       }
       case'number_line':case'number_line_dec':{
@@ -1081,9 +1220,9 @@ class MathQuizScene extends Phaser.Scene{
         for(let i=0;i<=den;i++){const tx=lx+i*(rx-lx)/den;g.lineStyle(1.5,0x668899,1);g.beginPath();g.moveTo(tx,ly2-7);g.lineTo(tx,ly2+7);g.strokePath();}
         const markX=lx+vis.num*(rx-lx)/den;
         g.fillStyle(0xffcc00,1);g.fillCircle(markX,ly2,7);
-        [['0',lx],['1',rx]].forEach(([t,x])=>{const tx2=this.add.text(x,ly2+14,t,{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#888'}).setOrigin(0.5).setAlpha(0);this.qItems.push(tx2);this.tweens.add({targets:tx2,alpha:1,duration:200,delay:260});});
-        const mt=this.add.text(markX,ly2-20,vis.type==='number_line_dec'?`${vis.dec}`:`${vis.num}/${vis.den}`,{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#ffcc00',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setAlpha(0);
-        this.qItems.push(mt);this.tweens.add({targets:mt,alpha:1,duration:200,delay:280});break;
+        [['0',lx],['1',rx]].forEach(([t,x])=>{const tx2=this.add.text(x,ly2+14,t,{fontSize:'11px',fontFamily:'"Courier New",monospace',color:'#888'}).setOrigin(0.5).setAlpha(0).setDepth(5);this.qItems.push(tx2);this.tweens.add({targets:tx2,alpha:1,duration:200,delay:360});});
+        const mt=this.add.text(markX,ly2-20,vis.type==='number_line_dec'?`${vis.dec}`:`${vis.num}/${vis.den}`,{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#ffcc00',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setAlpha(0).setDepth(5);
+        this.qItems.push(mt);this.tweens.add({targets:mt,alpha:1,duration:200,delay:370});break;
       }
       case'multiply_grid':{
         const [n1,d1]=vis.frac1,[n2,d2]=vis.frac2;
@@ -1102,96 +1241,195 @@ class MathQuizScene extends Phaser.Scene{
       default:break;
     }
   }
+
   selectAnswer(ans,bgGfx,bx,by,bw,bh,q){
     if(this.answeredThisQ)return;
     this.answeredThisQ=true;this.timerRunning=false;
     this.input.keyboard.off('keydown',this._qKey);
     const correct=ans.correct;
     GS.mathStats.totalAnswered++;
-    if(correct){GS.mathStats.totalCorrect++;this.numCorrect++;}
+    if(correct){
+      GS.mathStats.totalCorrect++;this.numCorrect++;
+      this.streak++;if(this.streak>this.maxStreak)this.maxStreak=this.streak;
+    }else{
+      this.streak=0;
+    }
+    this.updateStreakDisplay();
     if(bgGfx){
       bgGfx.clear();bgGfx.fillStyle(correct?0x004422:0x440000,1);bgGfx.fillRoundedRect(bx,by,bw,bh,10);bgGfx.lineStyle(3,correct?0x00ff66:0xff2200,1);bgGfx.strokeRoundedRect(bx,by,bw,bh,10);
     }
-    // Highlight correct answer
-    if(!correct){
-      this.qItems.forEach(item=>{
-        if(item.type==='Text'&&item.text===q.answers.find(a=>a.correct)?.text){
-          this.tweens.add({targets:item,alpha:{from:0.2,to:1},duration:300,yoyo:true,repeat:3});}
-      });
-    }
-    sfx(correct?'correct':'wrong');
-    // Result
+
+    // ── DRAMATIC GAME SHOW REVEAL ──
     const W2=GW,H2=GH;
-    const ico=this.add.text(W2/2,H2-148,correct?'✓ CORRECT!':'✗ WRONG!',{fontSize:'30px',fontFamily:'"Courier New",monospace',color:correct?'#00ff88':'#ff3300',stroke:'#000',strokeThickness:5}).setOrigin(0.5).setAlpha(0).setDepth(10);
-    const expl=this.add.text(W2/2,H2-110,q.explanation,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#aaddff',stroke:'#000',strokeThickness:2,align:'center'}).setOrigin(0.5).setAlpha(0).setDepth(10);
-    const scoreBar=this.add.text(W2/2,H2-82,`Score: ${this.numCorrect} correct out of ${this.questionIndex+1}`,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#ffaa44'}).setOrigin(0.5).setAlpha(0).setDepth(10);
-    this.tweens.add({targets:[ico,expl,scoreBar],alpha:1,duration:260});
-    this.time.delayedCall(1600,()=>{
-      this.qItems.push(ico,expl,scoreBar);
+    sfx(correct?'gs_reveal_good':'gs_reveal_bad');
+
+    // Screen flash
+    this.cameras.main.flash(correct?200:280,correct?0:255,correct?255:0,correct?100:0,true);
+    if(!correct)this.cameras.main.shake(220,0.012);
+
+    // Big result stamp — slams in
+    const stampTxt=correct?'CORRECT!':'WRONG!';
+    const stampCol=correct?'#00ff88':'#ff2200';
+    const stamp=this.add.text(W2/2,H2/2-30,stampTxt,{fontSize:'72px',fontFamily:'"Courier New",monospace',color:stampCol,stroke:'#000',strokeThickness:10}).setOrigin(0.5).setDepth(92).setScale(2.5).setAlpha(0).setRotation(correct?-0.08:0.06);
+    this.tweens.add({targets:stamp,scaleX:1,scaleY:1,alpha:1,rotation:0,duration:260,ease:'Back.easeOut'});
+    this.tweens.add({targets:stamp,alpha:0,y:H2/2-80,duration:500,delay:1100,ease:'Cubic.easeIn'});
+    // Collect transient reveal objects for safe cleanup
+    const _rev=[stamp];
+
+    // Streak bonus announcement
+    if(correct&&this.streak>=3){
+      const streakMsgs={3:'🔥 3x STREAK!',4:'🔥🔥 4x STREAK!',5:'🌟 5x STREAK — POWER-UP UPGRADED!'};
+      const smsg=streakMsgs[Math.min(this.streak,5)]||`🔥 ${this.streak}x STREAK!`;
+      const st=this.add.text(W2/2,H2/2+38,smsg,{fontSize:'18px',fontFamily:'"Courier New",monospace',color:'#ff8800',stroke:'#000',strokeThickness:4}).setOrigin(0.5).setDepth(93).setAlpha(0).setScale(0.5);
+      this.tweens.add({targets:st,alpha:1,scaleX:1,scaleY:1,duration:300,delay:200,ease:'Back.easeOut'});
+      this.tweens.add({targets:st,alpha:0,duration:300,delay:1300});
+      _rev.push(st);
+      sfx('gs_fanfare');
+    }
+
+    // Host comment
+    const hostComments={
+      correct:["🎙️ Nailed it! Incredible!","🎙️ The crowd goes wild!","🎙️ Textbook answer!","🎙️ That's how it's done!"],
+      wrong:["🎙️ Oh no, so close!","🎙️ The crowd gasps!","🎙️ Rough break, study up!","🎙️ Wrong! But don't give up!"],
+    };
+    const pool=correct?hostComments.correct:hostComments.wrong;
+    const hc=pool[Math.floor(Math.random()*pool.length)];
+    const hostBar=this.add.graphics().setDepth(91).setAlpha(0);
+    hostBar.fillStyle(correct?0x001a00:0x1a0000,0.95);hostBar.fillRoundedRect(W2/2-240,H2-80,480,36,8);
+    hostBar.lineStyle(2,correct?0x00cc44:0xcc0000,0.9);hostBar.strokeRoundedRect(W2/2-240,H2-80,480,36,8);
+    const hostTxt=this.add.text(W2/2,H2-62,hc,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:correct?'#88ffaa':'#ff8888',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setDepth(92).setAlpha(0);
+    this.tweens.add({targets:[hostBar,hostTxt],alpha:1,duration:200,delay:300});
+    this.tweens.add({targets:[hostBar,hostTxt],alpha:0,duration:300,delay:1500});
+    _rev.push(hostBar,hostTxt);
+
+    // Explanation
+    const exp=this.add.text(W2/2,H2/2+10,q.explanation,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#aaddff',stroke:'#000',strokeThickness:2,align:'center'}).setOrigin(0.5).setDepth(92).setAlpha(0);
+    this.tweens.add({targets:exp,alpha:1,duration:300,delay:350});
+    this.tweens.add({targets:exp,alpha:0,duration:300,delay:1400});
+    _rev.push(exp);
+
+    this.time.delayedCall(1750,()=>{
+      _rev.forEach(o=>{try{if(o&&o.scene)o.destroy();}catch(e){}});
       this.questionIndex++;
       if(this.questionIndex<this.totalQ)this.showQuestion(this.questionIndex);
       else this.showResults();
     });
   }
+
   showResults(){
     const W=GW,H=GH;
     this.qItems.forEach(i=>{try{i.destroy();}catch(e){}});
     this.timerRunning=false;
     const pct=this.numCorrect/this.totalQ;
-    const powerup=getPowerupForScore(this.numCorrect,this.totalQ);
+
+    // Streak upgrade: if maxStreak>=5 bump the powerup tier
+    let powerup=getPowerupForScore(this.numCorrect,this.totalQ);
+    if(this.maxStreak>=5&&powerup&&POWERUPS.indexOf(powerup)<POWERUPS.length-1){
+      powerup=POWERUPS[Math.min(POWERUPS.indexOf(powerup)+1,POWERUPS.length-1)];
+    }
     if(powerup){GS.pendingPowerup=powerup;powerup.apply(GS);}
-    // Results panel
-    const pw=560,ph=360,px2=(W-pw)/2,py2=(H-ph)/2-30;
-    const panel=this.add.graphics().setAlpha(0);
-    panel.fillStyle(0x060c18,1);panel.fillRoundedRect(px2,py2,pw,ph,16);
-    panel.lineStyle(3,pct===1?0xffcc00:pct>=0.6?0x00aaff:0xff4444,0.9);panel.strokeRoundedRect(px2,py2,pw,ph,16);
-    this.tweens.add({targets:panel,alpha:1,duration:300});
-    const grade=pct===1?'PERFECT! 🌟':pct>=0.8?'EXCELLENT! ⭐':pct>=0.6?'GOOD JOB! 👍':pct>=0.4?'KEEP TRYING':  'PRACTICE MORE';
-    const gradeCol=pct===1?'#ffcc00':pct>=0.8?'#00ff88':pct>=0.6?'#44aaff':pct>=0.4?'#ffaa00':'#ff5555';
-    const gt=this.add.text(W/2,py2+42,grade,{fontSize:'36px',fontFamily:'"Courier New",monospace',color:gradeCol,stroke:'#000',strokeThickness:5}).setOrigin(0.5).setAlpha(0).setScale(0.4);
-    this.tweens.add({targets:gt,alpha:1,scaleX:1,scaleY:1,duration:450,ease:'Back.easeOut'});
-    this.add.text(W/2,py2+84,`You got ${this.numCorrect} out of ${this.totalQ} correct`,{fontSize:'18px',fontFamily:'"Courier New",monospace',color:'#aaddff'}).setOrigin(0.5);
-    // Score breakdown
+
+    // Drumroll reveal
+    sfx('gs_drumroll');
+    this.time.delayedCall(600,()=>sfx('gs_fanfare'));
+
+    // Big results panel
+    const pw=600,ph=390,px2=(W-pw)/2,py2=(H-ph)/2-20;
+    const panel=this.add.graphics().setAlpha(0).setY(40);
+    panel.fillStyle(0x050d1a,1);panel.fillRoundedRect(px2,py2,pw,ph,16);
+    const borderCol=pct===1?0xffcc00:pct>=0.6?0xcc00ff:0xff3300;
+    panel.lineStyle(3,borderCol,0.95);panel.strokeRoundedRect(px2,py2,pw,ph,16);
+    this.tweens.add({targets:panel,alpha:1,y:0,duration:400,ease:'Back.easeOut'});
+
+    // Show name header
+    this.add.graphics().setDepth(2).fillStyle(borderCol,0.15).fillRoundedRect(px2,py2,pw,50,{tl:16,tr:16,bl:0,br:0});
+    this.add.text(W/2,py2+25,'🏆 QUIZ RESULTS 🏆',{fontSize:'18px',fontFamily:'"Courier New",monospace',color:'#'+borderCol.toString(16).padStart(6,'0'),stroke:'#000',strokeThickness:3}).setOrigin(0.5).setDepth(3);
+
+    const grade=pct===1?'PERFECT! 🌟':pct>=0.8?'EXCELLENT! ⭐':pct>=0.6?'GOOD! 👍':pct>=0.4?'KEEP TRYING':'STUDY HARDER';
+    const gradeCol=pct===1?'#ffcc00':pct>=0.8?'#00ff88':pct>=0.6?'#cc88ff':pct>=0.4?'#ffaa00':'#ff5555';
+    const gt=this.add.text(W/2,py2+78,grade,{fontSize:'38px',fontFamily:'"Courier New",monospace',color:gradeCol,stroke:'#000',strokeThickness:6}).setOrigin(0.5).setAlpha(0).setScale(0.3).setDepth(3);
+    this.tweens.add({targets:gt,alpha:1,scaleX:1,scaleY:1,duration:500,delay:400,ease:'Back.easeOut'});
+
+    // Score circles (animated one by one)
     for(let i=0;i<this.totalQ;i++){
-      const g2=this.add.graphics();const cx2=W/2-100+i*50,cy2=py2+118;
-      g2.fillStyle(i<this.numCorrect?0x00cc44:0x440000,1);g2.fillCircle(cx2,cy2,16);g2.lineStyle(2,i<this.numCorrect?0x00ff66:0xff2200,0.8);g2.strokeCircle(cx2,cy2,16);
-      this.add.text(cx2,cy2,i<this.numCorrect?'✓':'✗',{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#fff'}).setOrigin(0.5);
+      const cx2=W/2-100+i*50,cy2=py2+126;
+      this.time.delayedCall(500+i*120,()=>{
+        const dg=this.add.graphics().setDepth(3).setScale(0.3);
+        const wasCorrect=i<this.numCorrect;
+        dg.fillStyle(wasCorrect?0x00cc44:0x440000,1);dg.fillCircle(cx2,cy2,16);dg.lineStyle(2,wasCorrect?0x00ff66:0xff2200,0.9);dg.strokeCircle(cx2,cy2,16);
+        const mk=this.add.text(cx2,cy2,wasCorrect?'✓':'✗',{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#fff'}).setOrigin(0.5).setDepth(4).setAlpha(0);
+        this.tweens.add({targets:dg,scaleX:1,scaleY:1,duration:220,ease:'Back.easeOut'});
+        this.tweens.add({targets:mk,alpha:1,duration:180,delay:100});
+        if(wasCorrect)sfx('correct');else sfx('wrong');
+      });
     }
-    // Power-up display
+
+    // Streak badge
+    if(this.maxStreak>=3){
+      const sg=this.add.graphics().setAlpha(0).setDepth(3);
+      sg.fillStyle(0xff6600,0.2);sg.fillRoundedRect(px2+30,py2+152,140,34,8);
+      sg.lineStyle(2,0xff8800,0.9);sg.strokeRoundedRect(px2+30,py2+152,140,34,8);
+      const st=this.add.text(px2+100,py2+169,`🔥 Best Streak: ${this.maxStreak}`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#ffaa44'}).setOrigin(0.5).setAlpha(0).setDepth(4);
+      this.tweens.add({targets:[sg,st],alpha:1,duration:300,delay:1200});
+    }
+
+    // Power-up reveal — with dramatic box reveal animation
     if(powerup){
-      const pug=this.add.graphics().setAlpha(0);
-      pug.fillStyle(powerup.color,0.2);pug.fillRoundedRect(px2+30,py2+148,pw-60,90,12);
-      pug.lineStyle(2.5,powerup.color,0.9);pug.strokeRoundedRect(px2+30,py2+148,pw-60,90,12);
-      const put=this.add.text(W/2,py2+172,`🎁 POWER-UP UNLOCKED!`,{fontSize:'16px',fontFamily:'"Courier New",monospace',color:'#ffcc00',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setAlpha(0);
-      const pun=this.add.text(W/2,py2+196,`${powerup.icon} ${powerup.name}`,{fontSize:'22px',fontFamily:'"Courier New",monospace',color:'#'+powerup.color.toString(16).padStart(6,'0'),stroke:'#000',strokeThickness:3}).setOrigin(0.5).setAlpha(0);
-      const pud=this.add.text(W/2,py2+220,powerup.desc,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#aaddff'}).setOrigin(0.5).setAlpha(0);
-      this.tweens.add({targets:[pug,put,pun,pud],alpha:1,duration:400,delay:400});
-      sfx('powerup');
+      const pug=this.add.graphics().setAlpha(0).setDepth(3);
+      pug.fillStyle(powerup.color,0.18);pug.fillRoundedRect(px2+30,py2+196,pw-60,98,12);
+      pug.lineStyle(2.5,powerup.color,0.9);pug.strokeRoundedRect(px2+30,py2+196,pw-60,98,12);
+      const put=this.add.text(W/2,py2+220,'🎁 POWER-UP UNLOCKED!',{fontSize:'15px',fontFamily:'"Courier New",monospace',color:'#ffcc00',stroke:'#000',strokeThickness:2}).setOrigin(0.5).setAlpha(0).setDepth(4);
+      const pun=this.add.text(W/2,py2+244,`${powerup.icon} ${powerup.name}`,{fontSize:'24px',fontFamily:'"Courier New",monospace',color:'#'+powerup.color.toString(16).padStart(6,'0'),stroke:'#000',strokeThickness:4}).setOrigin(0.5).setAlpha(0).setDepth(4).setScale(0.4);
+      const pud=this.add.text(W/2,py2+270,powerup.desc,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#aaddff'}).setOrigin(0.5).setAlpha(0).setDepth(4);
+      this.tweens.add({targets:[pug,put],alpha:1,duration:350,delay:1400});
+      this.tweens.add({targets:pun,alpha:1,scaleX:1,scaleY:1,duration:400,delay:1600,ease:'Back.easeOut',onComplete:()=>sfx('powerup')});
+      this.tweens.add({targets:pud,alpha:1,duration:300,delay:1900});
     }else{
-      const nopt=this.add.text(W/2,py2+188,'No power-up this time.\nGet 2+ correct next race!',{fontSize:'16px',fontFamily:'"Courier New",monospace',color:'#445566',align:'center'}).setOrigin(0.5);
+      const nopt=this.add.text(W/2,py2+224,'No power-up — get 2+ correct next time!',{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#334455'}).setOrigin(0.5).setAlpha(0).setDepth(3);
+      this.tweens.add({targets:nopt,alpha:1,duration:300,delay:1300});
     }
-    // Math stats
+
+    // Math accuracy
     const acc=GS.mathStats.totalAnswered>0?Math.round(GS.mathStats.totalCorrect/GS.mathStats.totalAnswered*100):0;
-    this.add.text(W/2,py2+256,`Overall Math Accuracy: ${acc}% (${GS.mathStats.totalCorrect}/${GS.mathStats.totalAnswered})`,{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#445566'}).setOrigin(0.5);
-    // Continue button
-    const cob=this.add.graphics().setAlpha(0);cob.fillStyle(0xff4400);cob.fillRoundedRect(W/2-110,py2+ph-58,220,48,10);cob.lineStyle(2,0xffaa00);cob.strokeRoundedRect(W/2-110,py2+ph-58,220,48,10);
-    const cot=this.add.text(W/2,py2+ph-34,'START RACE! ▶',{fontSize:'20px',fontFamily:'"Courier New",monospace',color:'#fff',stroke:'#000',strokeThickness:3}).setOrigin(0.5).setAlpha(0);
-    this.tweens.add({targets:[cob,cot],alpha:1,duration:300,delay:600});
-    this.tweens.add({targets:[cob,cot],scaleX:1.05,scaleY:1.05,duration:600,yoyo:true,repeat:-1,delay:800,ease:'Sine.easeInOut'});
-    cob.setInteractive(new Phaser.Geom.Rectangle(W/2-110,py2+ph-58,220,48),Phaser.Geom.Rectangle.Contains);
+    this.add.text(W/2,py2+300,`Career Accuracy: ${acc}%  (${GS.mathStats.totalCorrect}/${GS.mathStats.totalAnswered})`,{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#334455'}).setOrigin(0.5).setDepth(3);
+
+    // Continue button with pulse
+    const cob=this.add.graphics().setAlpha(0).setDepth(3);
+    cob.fillStyle(borderCol);cob.fillRoundedRect(W/2-125,py2+ph-60,250,50,10);
+    cob.lineStyle(2,0xffffff,0.2);cob.strokeRoundedRect(W/2-125,py2+ph-60,250,50,10);
+    const cot=this.add.text(W/2,py2+ph-35,'START RACE! ▶',{fontSize:'20px',fontFamily:'"Courier New",monospace',color:'#fff',stroke:'#000',strokeThickness:3}).setOrigin(0.5).setAlpha(0).setDepth(4);
+    this.tweens.add({targets:[cob,cot],alpha:1,duration:300,delay:2200});
+    this.tweens.add({targets:[cob,cot],scaleX:1.05,scaleY:1.05,duration:600,yoyo:true,repeat:-1,delay:2500,ease:'Sine.easeInOut'});
+    cob.setInteractive(new Phaser.Geom.Rectangle(W/2-125,py2+ph-60,250,50),Phaser.Geom.Rectangle.Contains);
     cob.on('pointerdown',()=>this.goRace());
     this.input.keyboard.on('keydown-SPACE',()=>this.goRace());
     this.input.keyboard.on('keydown-ENTER',()=>this.goRace());
   }
+
   goRace(){sfx('start');this.cameras.main.flash(300,255,140,0);this.time.delayedCall(260,()=>this.scene.start('PreRaceScene'));}
+
   update(time,delta){
+    // Animate border lights
+    if(this.borderLights){
+      const t=time*0.003;
+      this.borderLights.forEach(bl=>{
+        bl.g.clear();
+        const on=Math.sin(t+bl.phase)>0.3;
+        const col=on?[0xffff00,0xff4400,0x00ffff,0xff00ff][Math.floor(bl.phase*2)%4]:0x333300;
+        bl.g.fillStyle(col,on?0.9:0.15);bl.g.fillCircle(bl.x,10,5);
+      });
+    }
     if(!this.timerRunning||!this.timerBar)return;
     const dt=delta/1000;this.timerLeft-=dt;
     if(this.timerLeft<=0){this.timerLeft=0;this.timerRunning=false;const q=this.questions[this.questionIndex];if(q&&!this.answeredThisQ)this.selectAnswer({correct:false,text:''},null,0,0,0,0,q);return;}
     const pct=this.timerLeft/this.timerMax;
-    const col=pct>0.5?0x00aaff:(pct>0.25?0xffaa00:0xff2200);
-    this.timerBar.clear();this.timerBar.fillStyle(col,0.9);this.timerBar.fillRect(this.timerPx,this.timerPy,(this.timerPw||720)*pct,14);
+    const col=pct>0.5?0xcc00ff:(pct>0.25?0xffaa00:0xff2200);
+    this.timerBar.clear();this.timerBar.fillStyle(col,0.9);this.timerBar.fillRect(this.timerPx,this.timerPy,(this.timerPw||720)*pct,16);
     if(this.timerTxt)this.timerTxt.setText(`${Math.ceil(this.timerLeft)}s`);
+    // Urgent pulse when <6s
+    if(this.timerLeft<6&&Math.floor(this.timerLeft*4)%2===0){
+      this.cameras.main.flash(30,255,0,0,true);
+    }
   }
 }
 
@@ -1206,6 +1444,18 @@ class PreRaceScene extends Phaser.Scene{
     this.add.text(W/2,22,`RACE ${rn+1} OF 10`,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#888'}).setOrigin(0.5);
     this.add.text(W/2,44,theme.name,{fontSize:'34px',fontFamily:'"Courier New",monospace',color:'#ffcc00',stroke:'#000',strokeThickness:5}).setOrigin(0.5);
     if(theme.wet)this.add.text(W/2,82,'⚠ WET TRACK — Reduced grip on puddles!',{fontSize:'13px',fontFamily:'"Courier New",monospace',color:'#88aaff'}).setOrigin(0.5);
+    // CALC boss warning
+    if(rn>=6){
+      const stacks=GS.calcWrongStacks||0;
+      const cg=this.add.graphics();
+      cg.fillStyle(0xcc00ff,0.14);cg.fillRoundedRect(W/2-255,78,510,42,9);
+      cg.lineStyle(2.5,0xcc00ff,0.9);cg.strokeRoundedRect(W/2-255,78,510,42,9);
+      const calcMsg=stacks>0
+        ?`⚡ CALC is POWERED UP — ${stacks} wrong answer stack${stacks>1?'s':''}! ${stacks*CALC_DEF.wrongAnswerBoost} bonus speed!`
+        :'⚡ CALC joins the race! Wrong answers give CALC speed boosts!';
+      this.add.text(W/2,99,calcMsg,{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#ff88ff',stroke:'#000',strokeThickness:2}).setOrigin(0.5);
+      sfx('calc_intro');
+    }
     // Active power-ups display
     if(GS.pendingPowerup||GS.activeBoosts.length>0){
       const pu=GS.pendingPowerup||POWERUPS.find(p=>GS.activeBoosts.find(b=>b.type===p.id?.replace('_','_')));
@@ -1218,7 +1468,7 @@ class PreRaceScene extends Phaser.Scene{
     }
     GS.pendingPowerup=null;
     // Standings
-    const names=['YOU',...AI_DEFS.map(a=>a.name)];
+    const names=['YOU',...AI_DEFS.map(a=>a.name).slice(0,2),(rn>=6?CALC_DEF.name:AI_DEFS[2].name)];
     const sorted=[0,1,2,3].sort((a,b)=>GS.points[b]-GS.points[a]);
     this.add.text(40,140,'CHAMPIONSHIP STANDINGS',{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#aaaaaa'});
     sorted.forEach((idx,rank)=>{
@@ -1294,7 +1544,17 @@ class GameScene extends Phaser.Scene{
     this.track=makeTrack(rn);this.trackLen=this.track.len;
     // AI
     this.aiRiders=AI_DEFS.map((def,i)=>this.createAI(def,i));
-    this.aiSpeechCD=AI_DEFS.map(()=>2+Math.random()*3);
+    // CALC boss appears from race 7 onwards (index 6)
+    this.calcRider=null;
+    if(rn>=6){
+      this.calcRider=this.createAI(CALC_DEF,3);
+      this.calcRider.wrongStacks=GS.calcWrongStacks||0;
+      this.calcRider.surgeFlash=0;
+      // Replace the 4th AI slot so total is still 4 racers
+      this.aiRiders[2]=this.calcRider;
+    }
+    this.aiSpeechCD=this.aiRiders.map(()=>2+Math.random()*3);
+    this.mathReactCD=0; // cooldown so rivals don't all react at once
     // Particles
     this.exhP=[];this.dustP=[];this.sparkP=[];this.debP=[];this.rainP=[];this.splashP=[];
     this.turboTrail=[];
@@ -1355,11 +1615,11 @@ class GameScene extends Phaser.Scene{
     const rows=[
       ['RACE '+(this.raceNum+1)+' — '+this.theme.name,'#ffcc00',20],
       ['🧮 HIT JUMPS & NITROS → MATH QUESTION!','#ffff44',15],
-      ['Get it RIGHT = earn the reward!','#ffff44',14],
-      ['Get it WRONG = no reward','#ff8888',13],
+      ['Get it RIGHT = reward!   WRONG = CONSEQUENCES!','#ff8888',14],
       ['◀ Brake  ▶ Speed  ▲▼ Lane  X=Boost','#aaddff',13],
       ['C=Wheelie  Z=Turbo (when meter full)','#aaddff',13],
       this.theme.wet?['💧 WET TRACK: Puddles = slide!','#88aaff',13]:['Draft rivals for SLIPSTREAM!','#ff88ff',13],
+      this.raceNum>=6?['⚠ CALC appears! Wrong answers = CALC SPEEDS UP!','#ff44ff',14]:['Rivals react to your math performance!','#ff88ff',13],
       ['[ TAP / SPACE TO START ]','#ffffff',15],
     ];
     const ys=[H/2-155,H/2-118,H/2-90,H/2-64,H/2-36,H/2-8,H/2+22,H/2+88];
@@ -1397,6 +1657,7 @@ class GameScene extends Phaser.Scene{
     this.updateAI(dt);this.physics(dt);this.particleUpdate(dt);
     this.checkCollisions();this.checkNitros();this.checkDraft();this.checkFinish();
     this.updateAISpeech(dt);this.engSfx(dt);updateMusicSpeed(this.speed,this.maxSpeed);
+    if(this.mathReactCD>0)this.mathReactCD-=dt;
     this.renderAll();
   }
 
@@ -1472,6 +1733,11 @@ class GameScene extends Phaser.Scene{
       if(ai.overheated)tgt=88;
       if(finalStretch&&ai.worldX<this.worldX-200)tgt=Math.min(tgt*1.25,this.maxSpeed*1.1);
       if(finalStretch&&ai.worldX>this.worldX+400)tgt*=0.88;
+      // CALC boss gets speed from player wrong answers
+      if(ai.def&&ai.def.isBoss&&ai.wrongStacks>0){
+        tgt+=ai.wrongStacks*CALC_DEF.wrongAnswerBoost;
+        if(ai.surgeFlash>0){ai.surgeFlash-=dt*2;ai.wobbleT+=dt*20;ai.wobble=Math.sin(ai.wobbleT)*6;}
+      }
       ai.speed=Phaser.Math.Linear(ai.speed,tgt,dt*2.5);
       if(!ai.airborne){for(const r of this.track.ramps){const rx=r.x-ai.worldX;if(Math.abs(rx-148)<46&&Math.abs(getLY(r.lane)-ai.y)<LH*0.55&&def.rampSkill>Math.random()){ai.airborne=true;ai.velY=-(260+r.h*7+ai.speed*0.3);ai.speed=Math.min(ai.speed+50,this.maxSpeed*1.1);break;}}}
       if(ai.airborne){ai.velY+=680*dt;ai.airY+=ai.velY*dt;if(ai.airY>=0){ai.airY=0;ai.velY=0;ai.airborne=false;}}
@@ -1489,6 +1755,45 @@ class GameScene extends Phaser.Scene{
       if(!aiAhead&&ai.wasAhead){mkBubble(this,screenX,bubbleY,def.reacts[Math.floor(Math.random()*def.reacts.length)],def.col);}
       ai.wasAhead=aiAhead;
     });
+  }
+
+  // ── RIVAL MATH REACTIONS ─────────────────────────────────────────
+  triggerRivalMathReaction(correct){
+    if(this.mathReactCD>0)return;
+    this.mathReactCD=4;
+    // Pick a random nearby visible rival to react
+    const visible=this.aiRiders.filter(ai=>{
+      if(ai.finished)return false;
+      const sx=148+(ai.worldX-this.worldX);
+      return sx>50&&sx<GW-50;
+    });
+    if(!visible.length)return;
+    const ai=visible[Math.floor(Math.random()*visible.length)];
+    const def=ai.def;
+    const pool=correct?def.mathRight:def.mathWrong;
+    if(!pool||!pool.length)return;
+    const msg=pool[Math.floor(Math.random()*pool.length)];
+    const sx=148+(ai.worldX-this.worldX);
+    const sy=ai.y+(ai.airY||0)-55;
+    mkBubble(this,sx,sy,msg,def.col);
+
+    // CALC special: wrong answer = POWER SURGE
+    if(!correct&&this.calcRider&&!this.calcRider.finished){
+      this.calcRider.wrongStacks=Math.min(
+        CALC_DEF.maxBonusStack,
+        (this.calcRider.wrongStacks||0)+1
+      );
+      GS.calcWrongStacks=this.calcRider.wrongStacks;
+      sfx('calc_surge');
+      this.cameras.main.shake(180,0.01);
+      // Purple surge flash on CALC
+      this.calcRider.surgeFlash=0.8;
+      // Show CALC surge text
+      const cx2=148+(this.calcRider.worldX-this.worldX);
+      const cy2=this.calcRider.y-70;
+      const surgeTxt=this.add.text(cx2,cy2,`⚡ POWER +${this.calcRider.wrongStacks}`,{fontSize:'15px',fontFamily:'"Courier New",monospace',color:'#ff44ff',stroke:'#000',strokeThickness:4}).setOrigin(0.5).setDepth(30);
+      this.tweens.add({targets:surgeTxt,y:cy2-50,alpha:0,duration:1200,ease:'Cubic.easeOut',onComplete:()=>surgeTxt.destroy()});
+    }
   }
 
   // ── MATH QUESTION TRIGGER ─────────────────────────────────────────
@@ -1518,8 +1823,20 @@ class GameScene extends Phaser.Scene{
               this.floatText(this.px,this.playerY-30,'+SPEED BOOST! ⚡','#ffcc00',1.2);
               this.spSpark(this.px,this.playerY-50,16,255,200,0);
             },
-            ()=>{// Wrong: no extra reward
-              this.floatText(this.px,this.playerY-30,'No bonus…','#888888',0.9);
+            ()=>{// Wrong: CRASH LANDING — slam into the ground hard
+              sfx('spinout');
+              this.cameras.main.shake(500,0.025);
+              this.cameras.main.flash(200,255,50,0,true);
+              // Force a hard landing crash
+              this.velY=Math.max(this.velY,400); // slam down fast
+              this.speed=Math.max(80,this.speed*0.45); // lose most speed
+              this.heat=Math.min(100,this.heat+25);   // overheat penalty
+              this.spDebris(this.px,this.playerY);
+              this.floatText(this.px,this.playerY-30,'💥 CRASH LANDING!','#ff4444',1.3);
+              // Short stun after landing
+              this.time.delayedCall(200,()=>{
+                if(this.airY>=0){this.doCrash();}
+              });
             }
           );
           break;
@@ -1564,9 +1881,19 @@ class GameScene extends Phaser.Scene{
             this.floatText(this.px,this.playerY-40,'NITRO! +200 💥','#ffff00',1.5);
             this.cameras.main.flash(150,255,220,0,true);this.spSpark(this.px,this.playerY,20,255,220,0);
           },
-          ()=>{// Wrong: small boost only
-            this.speed=Math.min(this.maxSpeed*1.1,this.speed+30);this.score+=50;
-            this.floatText(this.px,this.playerY-40,'Partial boost…+50','#888888',1.0);
+          ()=>{// Wrong: NITRO BACKFIRE — stun + speed loss + debris
+            sfx('spinout');
+            this.cameras.main.shake(420,0.022);
+            this.cameras.main.flash(300,255,30,0,true);
+            this.speed=Math.max(60,this.speed*0.35);   // brutal speed loss
+            this.heat=Math.min(100,this.heat+35);       // big heat spike
+            this.turboMeter=Math.max(0,this.turboMeter-40); // lose turbo
+            // Stun crash
+            this.doCrash();
+            this.crashT=1.8; // slightly shorter than normal crash
+            this.spDebris(this.px,this.playerY);
+            this.spSpark(this.px,this.playerY,22,255,60,0);
+            this.floatText(this.px,this.playerY-40,'💀 BACKFIRE! STUNNED!','#ff2200',1.4);
           }
         );
         break;
@@ -1672,6 +1999,22 @@ class GameScene extends Phaser.Scene{
     this.aiRiders.forEach(ai=>{
       if(ai.finished)return;const screenX=148+(ai.worldX-this.worldX);if(screenX<-80||screenX>GW+80)return;
       const py=ai.y+(ai.airY||0);
+      // CALC special aura
+      if(ai.def&&ai.def.isBoss){
+        const stacks=ai.wrongStacks||0;
+        if(stacks>0){
+          const auraAlpha=0.12+stacks*0.08+Math.sin(this.raceTime*8)*0.05;
+          g.fillStyle(0xcc00ff,auraAlpha);g.fillEllipse(screenX,py+5,90+stacks*10,50+stacks*6);
+          // Stack indicators — small ⚡ dots above
+          for(let s=0;s<stacks;s++){
+            const sx=screenX-22+s*11,sy=py-58;
+            g.fillStyle(0xff44ff,0.9);g.fillCircle(sx,sy,4);
+          }
+        }
+        if(ai.surgeFlash>0){
+          g.fillStyle(0xff00ff,ai.surgeFlash*0.4);g.fillEllipse(screenX,py+5,130,70);
+        }
+      }
       drawBikeFull(g,screenX,py,0,ai.def.col,false,ai.wheelRot||0,ai.speed||200,0,false,ai.wobble||0);
       if(ai.heat>80){const hA=(ai.heat-80)/20*0.4;g.fillStyle(0xdddddd,hA);g.fillCircle(screenX-25+(Math.random()-0.5)*8,py-50+(Math.random()-0.5)*6,5+Math.random()*4);}
     });
@@ -1765,7 +2108,8 @@ class PostRaceScene extends Phaser.Scene{
     this.tweens.add({targets:finTxt,scaleX:1,scaleY:1,alpha:1,duration:550,ease:'Back.easeOut'});
     const order=this.computeOrder(),pby=290;
     const podH=[120,90,65,40],podCols=[0xffcc00,0xaaaaaa,0xcc6600,0x554433];
-    const allNames=['YOU',...AI_DEFS.map(a=>a.name)];
+    const rn2=GS.currentRace-1;
+    const allNames=['YOU',...AI_DEFS.map(a=>a.name).slice(0,2),(rn2>=6?CALC_DEF.name:AI_DEFS[2].name)];
     order.forEach((pIdx,rank)=>{
       const px2=W/2-150+rank*100,bh=podH[rank],bc=podCols[rank],isP=pIdx===0;
       const bg=this.add.graphics().setAlpha(0);bg.fillStyle(bc,.85);bg.fillRect(px2-30,pby-bh,60,bh);bg.lineStyle(2,isP?0xffffff:0x555555,.35);bg.strokeRect(px2-30,pby-bh,60,bh);
@@ -1783,9 +2127,11 @@ class PostRaceScene extends Phaser.Scene{
     });
     const cx=W-295,cy=316;this.add.text(cx,cy,'STANDINGS',{fontSize:'12px',fontFamily:'"Courier New",monospace',color:'#888'});
     [0,1,2,3].sort((a,b)=>GS.points[b]-GS.points[a]).forEach((idx,rank)=>{
-      const isP=idx===0;const col=isP?0xffcc00:AI_DEFS[idx-1]?.col||0xaaaaaa;
+      const rn3=GS.currentRace-1;
+      const nameList=['YOU',...AI_DEFS.map(a=>a.name).slice(0,2),(rn3>=6?CALC_DEF.name:AI_DEFS[2].name)];
+      const isP=idx===0;const col=isP?0xffcc00:(idx===3&&rn3>=6)?CALC_DEF.col:AI_DEFS[idx-1]?.col||0xaaaaaa;
       const bg=this.add.graphics().setAlpha(0);bg.fillStyle(col,isP?.18:.08);bg.fillRoundedRect(cx,cy+18+rank*40,230,34,6);bg.lineStyle(1,col,.4);bg.strokeRoundedRect(cx,cy+18+rank*40,230,34,6);
-      this.add.text(cx+10,cy+26+rank*40,`${rank+1}. ${allNames[idx]}`,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#'+col.toString(16).padStart(6,'0')}).setAlpha(0);
+      this.add.text(cx+10,cy+26+rank*40,`${rank+1}. ${nameList[idx]}`,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#'+col.toString(16).padStart(6,'0')}).setAlpha(0);
       this.add.text(cx+220,cy+26+rank*40,`${GS.points[idx]}`,{fontSize:'14px',fontFamily:'"Courier New",monospace',color:'#aaa'}).setOrigin(1,0).setAlpha(0);
       this.tweens.add({targets:bg,alpha:1,duration:350,delay:650+rank*70});
     });
@@ -1828,7 +2174,7 @@ class ChampionshipEndScene extends Phaser.Scene{
     this.add.text(W/2,mry+48,`${GS.mathStats.totalCorrect} / ${GS.mathStats.totalAnswered} correct  —  ${acc}%`,{fontSize:'16px',fontFamily:'"Courier New",monospace',color:'#aaddff'}).setOrigin(0.5);
     this.add.text(W/2,mry+72,`Grade: ${grade}  (${GS.difficulty.toUpperCase()} difficulty)`,{fontSize:'20px',fontFamily:'"Courier New",monospace',color:gradeCol,stroke:'#000',strokeThickness:3}).setOrigin(0.5);
     const sorted=[0,1,2,3].sort((a,b)=>GS.points[b]-GS.points[a]);
-    const allNames=['YOU',...AI_DEFS.map(a=>a.name)];const podX=[W/2-10,W/2-175,W/2+155,W/2+315],podH=[140,110,85,55],podCols=[0xffcc00,0xaaaaaa,0xcc6600,0x554433];const pby=420;
+    const allNames=['YOU',...AI_DEFS.map(a=>a.name).slice(0,2),CALC_DEF.name];const podX=[W/2-10,W/2-175,W/2+155,W/2+315],podH=[140,110,85,55],podCols=[0xffcc00,0xaaaaaa,0xcc6600,0x554433];const pby=420;
     sorted.forEach((idx,rank)=>{
       const px3=podX[rank],bh=podH[rank],bc=podCols[rank],isP=idx===0;
       const bg=this.add.graphics().setAlpha(0);bg.fillStyle(bc,.88);bg.fillRect(px3-38,pby-bh,76,bh);bg.lineStyle(2,isP?0xffffff:0x555555,.4);bg.strokeRoundedRect(px3-38,pby-bh,76,bh,4);
