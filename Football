@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Math Super Bowl</title>
+    <style>
+        /* CRITICAL: Mobile-first viewport management to prevent nav bar clipping */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh; /* Fallback */
+            height: 100dvh;
+            background-color: #000;
+            overflow: hidden;
+            touch-action: none; /* Prevents pull-to-refresh on mobile */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #game-container {
+            width: 100%;
+            height: 100%;
+            max-width: 800px; /* Constrain width for desktop play */
+            position: relative;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+</head>
+<body>
+
+<div id="game-container"></div>
+
+<script>
+    // =========================================================================
+    // ⚙️ TWEAKABLE GAME PARAMETERS
+    // Grouped here so you can easily balance the game later!
+    // =========================================================================
+    const CONFIG = {
+        // Speeds & Physics
+        baseScrollSpeed: 150,        // Starting speed of the field moving towards player
+        maxScrollSpeed: 400,         // Maximum speed the game will reach
+        speedIncreasePerLevel: 30,   // Speed added after every Touchdown (100 yards)
+        playerLerpSpeed: 0.15,       // How quickly the player follows the finger/mouse (0.1 to 1)
+        
+        // Distances & Mechanics
+        yardsPerCorrect: 10,         // Yards gained per correct answer
+        touchdownYards: 100,         // Yards needed for a Touchdown
+        startingDowns: 4,            // How many mistakes (downs) allowed before Game Over
+        
+        // Colors
+        colors: {
+            field: 0x1a7a1a,         // Dark turf green
+            fieldLines: 0xffffff,
+            playerTeam: 0x0044ff,    // Blue
+            enemyTeam: 0xff0000,     // Red
+            helmet: 0xdddddd,        // Light gray
+            correctBurst: 0xffff00   // Yellow sparks on correct answer
+        },
+
+        // Progression & Math Generation Rules
+        // Level 1: Addition (1-10)
+        // Level 2: Addition (1-20)
+        // Level 3: Subtraction
+        // Level 4+: Multiplication (1-10)
+    };
+
+    // =========================================================================
+    // 📱 VIEWPORT RESIZE HANDLING
+    // =========================================================================
+    function resizeViewport() {
+        const h = window.innerHeight;
+        document.body.style.height = `${h}px`;
+        const container = document.getElementById('game-container');
+        container.style.height = `${h}px`;
+    }
+    window.addEventListener('resize', resizeViewport);
+    window.addEventListener('orientationchange', resizeViewport);
+    setTimeout(resizeViewport, 100);
+
+    // =========================================================================
+    // 🎮 GAME SCENES
+    // =========================================================================
+
+    // 1. Boot Scene: Generates simple retro graphics so no external assets are needed
+    class BootScene extends Phaser.Scene {
+        constructor() { super('BootScene'); }
+        create() {
+            const g = this.add.graphics();
+            
+            // Generate Player Sprite (Top down view: shoulders + helmet)
+            g.fillStyle(CONFIG.colors.playerTeam);
+            g.fillCircle(20, 20, 20); // Shoulders
+            g.fillStyle(CONFIG.colors.helmet);
+            g.fillCircle(20, 15, 12); // Helmet
+            g.generateTexture('player', 40, 40);
+            g.clear();
+
+            // Generate Enemy Sprite
+            g.fillStyle(CONFIG.colors.enemyTeam);
+            g.fillCircle(20, 20, 20);
+            g.fillStyle(CONFIG.colors.helmet);
+            g.fillCircle(20, 25, 12); // Helmet facing down
+            g.generateTexture('enemy', 40, 40);
+            g.clear();
+
+            // Generate Particle Textures
+            g.fillStyle(0xffffff);
+            g.fillRect(0, 0, 4, 4);
+            g.generateTexture('particle_turf', 4, 4);
+            g.clear();
+
+            g.fillStyle(CONFIG.colors.correctBurst);
+            g.fillRect(0, 0, 8, 8);
+            g.generateTexture('particle_star', 8, 8);
+            g.clear();
+
+            this.scene.start('MenuScene');
+        }
+    }
+
+    // 2. Main Menu Scene
+    class MenuScene extends Phaser.Scene {
+        constructor() { super('MenuScene'); }
+        create() {
+            const w = this.scale.width;
+            const h = this.scale.height;
+
+            this.add.rectangle(0, 0, w, h, CONFIG.colors.field).setOrigin(0);
+
+            this.add.text(w/2, h/3, 'MATH SUPER BOWL', { 
+                fontSize: '40px', fill: '#fff', fontStyle: 'bold', align: 'center', wordWrap: { width: w - 40 }
+            }).setOrigin(0.5).setStroke('#000', 6);
+
+            const startBtn = this.add.text(w/2, h/2 + 50, 'TAP TO KICK OFF', { 
+                fontSize: '28px', fill: '#ff0' 
+            }).setOrigin(0.5).setStroke('#000', 4).setInteractive();
+
+            this.tweens.add({
+                targets: startBtn,
+                alpha: 0.2,
+                yoyo: true,
+                repeat: -1,
+                duration: 800
+            });
+
+            this.input.on('pointerdown', () => {
+                this.scene.start('PlayScene');
+            });
+        }
+    }
+
+    // 3. Main Gameplay Scene
+    class PlayScene extends Phaser.Scene {
+        constructor() { super('PlayScene'); }
+
+        init() {
+            this.yards = 0;
+            this.downs = 1;
+            this.level = 1;
+            this.currentSpeed = CONFIG.baseScrollSpeed;
+            this.isPlayActive = false;
+            this.targetX = this.scale.width / 2;
+        }
+
+        create() {
+            const w = this.scale.width;
+            const h = this.scale.height;
+
+            // -- FIELD SETUP --
+            this.fieldGrp = this.add.group();
+            for(let i=0; i<10; i++) {
+                let line = this.add.rectangle(w/2, i * (h/5), w, 4, CONFIG.colors.fieldLines).setAlpha(0.5);
+                this.fieldGrp.add(line);
+            }
+
+            // -- PLAYER SETUP --
+            this.player = this.physics.add.sprite(w/2, h - 150, 'player');
+            this.player.setCollideWorldBounds(true);
+            
+            // Turf particle trail (Juice!)
+            this.turfParticles = this.add.particles(0, 0, 'particle_turf', {
+                speed: { min: 50, max: 150 },
+                angle: { min: 240, max: 300 },
+                scale: { start: 1, end: 0 },
+                lifespan: 400,
+                blendMode: 'ADD',
+                frequency: 50
+            });
+            this.turfParticles.startFollow(this.player, 0, 20);
+            this.turfParticles.stop();
+
+            // -- ENEMIES (Defenders) --
+            this.defenders = this.physics.add.group();
+            this.physics.add.overlap(this.player, this.defenders, this.handleTackle, null, this);
+
+            // -- UI SETUP --
+            const uiBg = this.add.rectangle(0, 0, w, 80, 0x000000).setOrigin(0).setAlpha(0.8);
+            uiBg.setDepth(10);
+
+            this.scoreText = this.add.text(10, 10, 'YARDS: 0', { fontSize: '20px', fill: '#fff', fontStyle: 'bold' }).setDepth(11);
+            this.downText = this.add.text(10, 40, 'DOWN: 1', { fontSize: '20px', fill: '#ff0', fontStyle: 'bold' }).setDepth(11);
+            this.levelText = this.add.text(w - 10, 10, 'LVL: 1', { fontSize: '20px', fill: '#fff' }).setOrigin(1, 0).setDepth(11);
+            
+            this.questionText = this.add.text(w/2, 40, 'HUT HUT!', { fontSize: '32px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5).setDepth(11);
+
+            // -- INPUT (Mobile drag/follow) --
+            this.input.on('pointermove', (pointer) => {
+                if (pointer.isDown && this.isPlayActive) {
+                    this.targetX = pointer.x;
+                }
+            });
+            this.input.on('pointerdown', (pointer) => {
+                if (this.isPlayActive) this.targetX = pointer.x;
+            });
+
+            // Start first play
+            this.startPlaySequence();
+        }
+
+        startPlaySequence() {
+            this.isPlayActive = false;
+            this.turfParticles.stop();
+            this.defenders.clear(true, true);
+            this.targetX = this.scale.width / 2;
+            this.player.x = this.targetX;
+            this.player.y = this.scale.height - 150;
+
+            this.questionText.setText("READY...");
+            this.questionText.setColor('#ffff00');
+
+            this.time.delayedCall(1000, () => {
+                this.questionText.setText("HUT!");
+                this.isPlayActive = true;
+                this.turfParticles.start();
+                this.spawnWave();
+            });
+        }
+
+        spawnWave() {
+            if (!this.isPlayActive) return;
+
+            const w = this.scale.width;
+            
+            // 1. Generate Math Problem based on Level
+            let num1, num2, operator, correctAnswer;
+            if (this.level === 1) { // Basic Addition
+                num1 = Phaser.Math.Between(1, 10);
+                num2 = Phaser.Math.Between(1, 10);
+                operator = '+';
+                correctAnswer = num1 + num2;
+            } else if (this.level === 2) { // Advanced Addition
+                num1 = Phaser.Math.Between(10, 20);
+                num2 = Phaser.Math.Between(1, 15);
+                operator = '+';
+                correctAnswer = num1 + num2;
+            } else if (this.level === 3) { // Subtraction
+                num1 = Phaser.Math.Between(10, 20);
+                num2 = Phaser.Math.Between(1, 9);
+                operator = '-';
+                correctAnswer = num1 - num2;
+            } else { // Multiplication
+                num1 = Phaser.Math.Between(1, 10);
+                num2 = Phaser.Math.Between(1, 10);
+                operator = 'x';
+                correctAnswer = num1 * num2;
+            }
+
+            this.questionText.setText(`${num1} ${operator} ${num2} = ?`);
+            this.questionText.setColor('#ffffff');
+
+            // 2. Generate Answers (1 correct, 2 wrong but close)
+            let answers = [correctAnswer];
+            while (answers.length < 3) {
+                let offset = Phaser.Math.Between(-3, 3);
+                if (offset === 0) offset = 4; 
+                let wrongAns = correctAnswer + offset;
+                if (wrongAns > 0 && !answers.includes(wrongAns)) {
+                    answers.push(wrongAns);
+                }
+            }
+            Phaser.Utils.Array.Shuffle(answers); // Randomize positions
+
+            // 3. Spawn 3 Defenders in Lanes
+            const laneWidth = w / 3;
+            for(let i=0; i<3; i++) {
+                let xPos = (laneWidth * i) + (laneWidth / 2);
+                let defender = this.defenders.create(xPos, -50, 'enemy');
+                defender.setVelocityY(this.currentSpeed);
+                defender.isCorrect = (answers[i] === correctAnswer);
+                
+                // Add Answer Text to Defender
+                let ansText = this.add.text(xPos, -50, answers[i].toString(), {
+                    fontSize: '24px', fill: '#fff', fontStyle: 'bold'
+                }).setOrigin(0.5);
+                
+                // Link text to update position in update loop
+                defender.label = ansText;
+            }
+
+            // Flag to spawn next wave once these get halfway down
+            this.waveSpawned = false; 
+        }
+
+        handleTackle(player, defender) {
+            if (!this.isPlayActive) return;
+
+            // Remove defender and its label
+            defender.label.destroy();
+            defender.destroy();
+
+            if (defender.isCorrect) {
+                // SUCCESS! Broken Tackle (Juice)
+                this.cameras.main.shake(100, 0.01);
+                
+                // Explode star particles
+                const sparks = this.add.particles(player.x, player.y, 'particle_star', {
+                    speed: 200, lifespan: 300, scale: {start: 1, end: 0}, blendMode: 'ADD', maxParticles: 15
+                });
+                
+                // Floating text
+                let floatText = this.add.text(player.x, player.y - 30, '+10 YDS!', { fontSize: '20px', fill: '#0f0', fontStyle: 'bold' }).setOrigin(0.5);
+                this.tweens.add({ targets: floatText, y: player.y - 80, alpha: 0, duration: 800, onComplete: () => floatText.destroy() });
+
+                // Update Progress
+                this.yards += CONFIG.yardsPerCorrect;
+                this.scoreText.setText(`YARDS: ${this.yards}`);
+
+                // Check Touchdown
+                if (this.yards > 0 && this.yards % CONFIG.touchdownYards === 0) {
+                    this.scoreTouchdown();
+                } else {
+                    // Instantly spawn next wave
+                    this.spawnWave();
+                }
+            } else {
+                // FAIL! Tackled
+                this.isPlayActive = false;
+                this.turfParticles.stop();
+                this.cameras.main.shake(300, 0.04);
+                
+                // Screen Flash Red
+                const flash = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0xff0000).setOrigin(0).setAlpha(0.5);
+                this.tweens.add({ targets: flash, alpha: 0, duration: 500, onComplete: () => flash.destroy() });
+
+                this.downs++;
+                if (this.downs > CONFIG.startingDowns) {
+                    // Game Over
+                    this.time.delayedCall(1000, () => {
+                        this.scene.start('GameOverScene', { score: this.yards });
+                    });
+                } else {
+                    // Next Down
+                    this.downText.setText(`DOWN: ${this.downs}`);
+                    let tackleText = this.add.text(this.scale.width/2, this.scale.height/2, 'TACKLED!', { fontSize: '48px', fill: '#f00', fontStyle: 'bold' }).setOrigin(0.5).setStroke('#fff', 6);
+                    this.time.delayedCall(1500, () => {
+                        tackleText.destroy();
+                        this.startPlaySequence();
+                    });
+                }
+            }
+        }
+
+        scoreTouchdown() {
+            this.isPlayActive = false;
+            this.turfParticles.stop();
+            this.level++;
+            this.currentSpeed = Math.min(this.currentSpeed + CONFIG.speedIncreasePerLevel, CONFIG.maxScrollSpeed);
+            this.levelText.setText(`LVL: ${this.level}`);
+            this.downs = 1; // Reset downs on TD
+            this.downText.setText(`DOWN: ${this.downs}`);
+
+            let tdText = this.add.text(this.scale.width/2, this.scale.height/2, 'TOUCHDOWN!', { fontSize: '50px', fill: '#ff0', fontStyle: 'bold' }).setOrigin(0.5).setStroke('#000', 8);
+            
+            // Fun confetti
+            this.add.particles(this.scale.width/2, 0, 'particle_star', {
+                x: { min: 0, max: this.scale.width },
+                speedY: { min: 100, max: 300 },
+                lifespan: 2000,
+                maxParticles: 100
+            });
+
+            this.time.delayedCall(2500, () => {
+                tdText.destroy();
+                this.startPlaySequence();
+            });
+        }
+
+        update() {
+            if (!this.isPlayActive) return;
+
+            // Player Movement (Lerp towards target X)
+            this.player.x += (this.targetX - this.player.x) * CONFIG.playerLerpSpeed;
+
+            // Scroll Field Lines to create illusion of forward movement
+            this.fieldGrp.children.iterate((line) => {
+                line.y += (this.currentSpeed / 60); // frame delta adjustment approx
+                if (line.y > this.scale.height) {
+                    line.y = 0;
+                }
+            });
+
+            // Update Defenders and their text labels
+            this.defenders.children.iterate((defender) => {
+                if(defender) {
+                    if (defender.label) {
+                        defender.label.y = defender.y;
+                    }
+                    // Remove if they fall off bottom
+                    if (defender.y > this.scale.height + 50) {
+                        defender.label.destroy();
+                        defender.destroy();
+                    }
+                }
+            });
+        }
+    }
+
+    // 4. Game Over Scene
+    class GameOverScene extends Phaser.Scene {
+        constructor() { super('GameOverScene'); }
+        init(data) { this.finalScore = data.score; }
+        
+        create() {
+            const w = this.scale.width;
+            const h = this.scale.height;
+
+            this.add.rectangle(0, 0, w, h, 0x000000).setOrigin(0);
+
+            this.add.text(w/2, h/3, 'TURNOVER ON DOWNS', { fontSize: '36px', fill: '#f00', fontStyle: 'bold', align: 'center', wordWrap: { width: w-40 } }).setOrigin(0.5);
+            this.add.text(w/2, h/2, `TOTAL YARDS: ${this.finalScore}`, { fontSize: '28px', fill: '#fff' }).setOrigin(0.5);
+
+            const retryBtn = this.add.text(w/2, h/1.5, 'TAP TO PLAY AGAIN', { fontSize: '24px', fill: '#0f0' }).setOrigin(0.5).setInteractive();
+            
+            this.tweens.add({ targets: retryBtn, alpha: 0.2, yoyo: true, repeat: -1, duration: 800 });
+
+            this.input.on('pointerdown', () => {
+                this.scene.start('PlayScene');
+            });
+        }
+    }
+
+    // =========================================================================
+    // 🚀 INITIALIZE PHASER GAME
+    // =========================================================================
+    const phaserConfig = {
+        type: Phaser.AUTO,
+        parent: 'game-container',
+        width: 800,
+        height: 600,
+        backgroundColor: '#1a7a1a',
+        scale: {
+            mode: Phaser.Scale.RESIZE,
+            autoCenter: Phaser.Scale.CENTER_BOTH
+        },
+        physics: {
+            default: 'arcade',
+            arcade: { debug: false }
+        },
+        scene: [BootScene, MenuScene, PlayScene, GameOverScene]
+    };
+
+    const game = new Phaser.Game(phaserConfig);
+
+</script>
+</body>
+</html>
