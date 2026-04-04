@@ -1183,16 +1183,20 @@ function endRoundBattle() {
     const revealC = document.getElementById('battle-reveal-container');
     revealC.innerHTML = '';
 
-    const sortedIndices = [...Array(state.slotsConfig.length).keys()];
-    sortedIndices.sort((a,b) => state.slotsConfig[a].pv - state.slotsConfig[b].pv);
+    // Display order: highest place value on left (like reading a number)
+    const displayOrder = [...Array(state.slotsConfig.length).keys()];
+    displayOrder.sort((a,b) => state.slotsConfig[b].pv - state.slotsConfig[a].pv);
+
+    // Reveal order: ones first (right-to-left) for suspense
+    const revealOrder = [...displayOrder].reverse();
 
     // Player row
     const pRow = document.createElement('div');
     pRow.className = 'battle-slots-row';
     pRow.innerHTML = '<span class="battle-label">You:</span>';
-    sortedIndices.forEach((si, i) => {
+    displayOrder.forEach((si, dispIdx) => {
         const d = document.createElement('div');
-        d.className = 'battle-digit'; d.id = `bp-${i}`; d.innerText = '?';
+        d.className = 'battle-digit'; d.id = `bp-${dispIdx}`; d.innerText = '?';
         pRow.appendChild(d);
     });
     const pTotal = document.createElement('span');
@@ -1204,9 +1208,9 @@ function endRoundBattle() {
     const eRow = document.createElement('div');
     eRow.className = 'battle-slots-row';
     eRow.innerHTML = '<span class="battle-label">Enemy:</span>';
-    sortedIndices.forEach((si, i) => {
+    displayOrder.forEach((si, dispIdx) => {
         const d = document.createElement('div');
-        d.className = 'battle-digit'; d.id = `be-${i}`; d.innerText = '?';
+        d.className = 'battle-digit'; d.id = `be-${dispIdx}`; d.innerText = '?';
         eRow.appendChild(d);
     });
     const eTotal = document.createElement('span');
@@ -1214,11 +1218,11 @@ function endRoundBattle() {
     eRow.appendChild(eTotal);
     revealC.appendChild(eRow);
 
-    // Place value labels
+    // Place value labels (matches display order)
     const labelRow = document.createElement('div');
     labelRow.className = 'battle-slots-row';
     labelRow.innerHTML = '<span class="battle-label"></span>';
-    sortedIndices.forEach(si => {
+    displayOrder.forEach(si => {
         const l = document.createElement('div');
         l.style.cssText = 'width:45px;text-align:center;font-size:0.6rem;color:#999;';
         l.innerText = state.slotsConfig[si].name;
@@ -1227,19 +1231,24 @@ function endRoundBattle() {
     labelRow.innerHTML += '<span style="min-width:80px;"></span>';
     revealC.appendChild(labelRow);
 
-    // Animate reveal
+    // Build a map from slot index -> display position for quick lookup
+    const slotToDispPos = {};
+    displayOrder.forEach((si, dispIdx) => { slotToDispPos[si] = dispIdx; });
+
+    // Animate reveal: ones first (right side) for drama
     let pRunning = 0, eRunning = 0;
     SFX.cannon();
 
-    sortedIndices.forEach((si, i) => {
+    revealOrder.forEach((si, revealStep) => {
         setTimeout(() => {
             SFX.reveal();
             const pDigit = state.playerNumber[si];
             const eDigit = state.aiNumber[si];
             const pvMult = Math.pow(10, state.slotsConfig[si].pv - 1);
 
-            const pEl = document.getElementById(`bp-${i}`);
-            const eEl = document.getElementById(`be-${i}`);
+            const dispIdx = slotToDispPos[si];
+            const pEl = document.getElementById(`bp-${dispIdx}`);
+            const eEl = document.getElementById(`be-${dispIdx}`);
 
             pEl.innerText = pDigit; pEl.classList.add('revealed', 'pop-in');
             eEl.innerText = eDigit; eEl.classList.add('revealed', 'pop-in');
@@ -1255,10 +1264,10 @@ function endRoundBattle() {
             else if (eVal > pVal) { eEl.classList.add('winning'); pEl.classList.add('losing'); }
 
             // Last digit revealed
-            if (i === sortedIndices.length - 1) {
+            if (revealStep === revealOrder.length - 1) {
                 setTimeout(() => finalizeBattle(pRunning, eRunning), 800);
             }
-        }, 800 + i * 700);
+        }, 800 + revealStep * 700);
     });
 }
 
