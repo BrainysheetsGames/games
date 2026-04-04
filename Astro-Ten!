@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Astro-Ten: Phaser Math Defender</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
+
+        :root {
+            --primary-glow: #66fcf1;
+            --accent: #45a29e;
+            --bg-dark: #0b0c10;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            touch-action: none;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            font-family: 'Fredoka One', cursive;
+            overflow: hidden;
+            /* Use dvh for mobile browser chrome awareness */
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #game-wrapper {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+        }
+
+        #phaser-container {
+            width: 100%;
+            flex-grow: 1;
+            max-width: 800px;
+            max-height: 600px;
+            border: 4px solid var(--accent);
+            border-radius: 15px;
+            box-shadow: 0 0 25px rgba(102, 252, 241, 0.3);
+            overflow: hidden;
+            position: relative;
+        }
+
+        #controls {
+            width: 100%;
+            max-width: 800px;
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 5px;
+            padding: 10px 0;
+        }
+
+        .num-btn {
+            aspect-ratio: 1 / 1;
+            background: #1f2833;
+            color: var(--primary-glow);
+            border: 2px solid var(--accent);
+            border-radius: 10px;
+            font-family: 'Fredoka One', cursive;
+            font-size: clamp(18px, 5vw, 28px);
+            cursor: pointer;
+            box-shadow: 0 4px 0 var(--accent);
+            transition: transform 0.05s, box-shadow 0.05s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .num-btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 var(--accent);
+            background: var(--accent);
+            color: var(--bg-dark);
+        }
+
+        .instructions {
+            color: #c5c6c7;
+            font-size: 14px;
+            margin-top: 5px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="phaser-container"></div>
+    
+    <div id="controls">
+        <script>
+            for(let i=1; i<=9; i++) {
+                document.write(`<button class="num-btn" onmousedown="handleInput(${i})" ontouchstart="handleInput(${i})">${i}</button>`);
+            }
+        </script>
+    </div>
+    <div class="instructions">Find the pair that makes 10! (Keyboard 1-9 works too)</div>
+</div>
+
+<script>
+/** * GAME CONFIGURATION & TWEAKABLES
+ */
+const SETTINGS = {
+    initialFallSpeed: 80,       // Starting velocity of asteroids
+    speedIncrement: 15,         // How much faster they get per level
+    initialSpawnDelay: 2500,    // Time between spawns (ms)
+    minSpawnDelay: 800,         // Faster possible spawn rate
+    asteroidRadius: 40,
+    playerLives: 3,
+    pointsPerKill: 10,
+    pointsPerLevel: 100,        // Points needed to increase difficulty
+    colors: {
+        asteroid: 0xe85a4f,
+        laser: 0x66fcf1,
+        ship: 0x45a29e,
+        text: '#ffffff'
+    }
+};
+
+// Global reference for the number button handler
+let handleInput;
+
+const config = {
+    type: Phaser.AUTO,
+    parent: 'phaser-container',
+    width: 800,
+    height: 600,
+    transparent: true,
+    physics: {
+        default: 'arcade',
+        arcade: { gravity: { y: 0 }, debug: false }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    }
+};
+
+const game = new Phaser.Game(config);
+
+function preload() {
+    // We generate graphics programmatically to keep it 1 file
+}
+
+function create() {
+    const scene = this;
+    
+    // Game Variables
+    this.score = 0;
+    this.lives = SETTINGS.playerLives;
+    this.level = 1;
+    this.isGameOver = false;
+    this.currentSpawnDelay = SETTINGS.initialSpawnDelay;
+
+    // Groups
+    this.asteroids = this.physics.add.group();
+    
+    // UI Setup
+    this.scoreText = this.add.text(20, 20, 'SCORE: 0', { fontSize: '32px', fontFill: SETTINGS.colors.text, fontFamily: 'Fredoka One' }).setDepth(10);
+    this.livesText = this.add.text(780, 20, '♥♥♥', { fontSize: '32px', fill: '#ff5252' }).setOrigin(1, 0).setDepth(10);
+
+    // Ship (Visual only at bottom center)
+    const shipGraphics = this.add.graphics();
+    shipGraphics.fillStyle(SETTINGS.colors.ship, 1);
+    shipGraphics.fillRoundedRect(-25, -20, 50, 40, 10);
+    shipGraphics.fillCircle(0, -20, 15);
+    this.ship = this.add.container(400, 580, [shipGraphics]);
+
+    // Starfield Background
+    this.stars = [];
+    for(let i=0; i<80; i++) {
+        let s = this.add.circle(Phaser.Math.Between(0, 800), Phaser.Math.Between(0, 600), Phaser.Math.FloatBetween(0.5, 2), 0xffffff, 0.5);
+        this.stars.push(s);
+    }
+
+    // Input Handling
+    handleInput = (val) => {
+        if(this.isGameOver) return;
+        this.fireLaser(val);
+    };
+
+    this.input.keyboard.on('keydown', (event) => {
+        const num = parseInt(event.key);
+        if(num >= 1 && num <= 9) handleInput(num);
+    });
+
+    // Spawn Loop
+    this.spawnTimer = this.time.addEvent({
+        delay: this.currentSpawnDelay,
+        callback: this.spawnAsteroid,
+        callbackScope: this,
+        loop: true
+    });
+
+    // Resize Handler
+    const resize = () => {
+        const container = document.getElementById('phaser-container');
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        this.cameras.main.setViewport(0, 0, 800, 600);
+        
+        // Match internal height to window to avoid nav-bar issues
+        document.body.style.height = `${window.innerHeight}px`;
+    };
+    window.addEventListener('resize', resize);
+    setTimeout(resize, 100);
+
+    // Initial Start Screen Overlay
+    this.createMenu();
+}
+
+function update() {
+    if (this.isGameOver) return;
+
+    // Move stars for parallax
+    this.stars.forEach(s => {
+        s.y += 0.5;
+        if(s.y > 600) s.y = 0;
+    });
+
+    // Check for asteroids hitting bottom
+    this.asteroids.getChildren().forEach(a => {
+        if(a.y > 560) {
+            this.takeDamage();
+            this.destroyAsteroid(a, false);
+        }
+    });
+}
+
+// --- Custom Game Methods ---
+
+Phaser.Scene.prototype.spawnAsteroid = function() {
+    if(this.isGameOver) return;
+
+    const x = Phaser.Math.Between(SETTINGS.asteroidRadius, 800 - SETTINGS.asteroidRadius);
+    const targetNum = Phaser.Math.Between(1, 9);
+    
+    const container = this.add.container(x, -50);
+    const circle = this.add.circle(0, 0, SETTINGS.asteroidRadius, 0x333333).setStrokeStyle(3, SETTINGS.colors.asteroid);
+    const label = this.add.text(0, 0, targetNum, { 
+        fontSize: '32px', 
+        fontFamily: 'Fredoka One',
+        color: '#ffffff' 
+    }).setOrigin(0.5);
+
+    container.add([circle, label]);
+    container.mathValue = targetNum;
+
+    this.asteroids.add(container);
+    this.physics.world.enable(container);
+    container.body.setVelocityY(SETTINGS.initialFallSpeed + (this.level * SETTINGS.speedIncrement));
+};
+
+Phaser.Scene.prototype.fireLaser = function(playerValue) {
+    let target = null;
+    let lowestY = -100;
+
+    // Logic: Find the lowest asteroid that makes 10
+    this.asteroids.getChildren().forEach(a => {
+        if(a.mathValue + playerValue === 10) {
+            if(a.y > lowestY) {
+                lowestY = a.y;
+                target = a;
+            }
+        }
+    });
+
+    if(target) {
+        // Laser Beam Effect
+        const beam = this.add.graphics();
+        beam.lineStyle(4, SETTINGS.colors.laser, 1);
+        beam.lineBetween(400, 560, target.x, target.y);
+        
+        this.tweens.add({
+            targets: beam,
+            alpha: 0,
+            duration: 150,
+            onComplete: () => beam.destroy()
+        });
+
+        this.score += SETTINGS.pointsPerKill;
+        this.scoreText.setText('SCORE: ' + this.score);
+        
+        // Difficulty scaling
+        const newLevel = Math.floor(this.score / SETTINGS.pointsPerLevel) + 1;
+        if(newLevel > this.level) {
+            this.level = newLevel;
+            this.currentSpawnDelay = Math.max(SETTINGS.minSpawnDelay, SETTINGS.initialSpawnDelay - (this.level * 200));
+            this.spawnTimer.reset({
+                delay: this.currentSpawnDelay,
+                callback: this.spawnAsteroid,
+                callbackScope: this,
+                loop: true
+            });
+        }
+
+        this.destroyAsteroid(target, true);
+    } else {
+        // Miss - Screen Shake
+        this.cameras.main.shake(200, 0.01);
+    }
+};
+
+Phaser.Scene.prototype.destroyAsteroid = function(asteroid, isKill) {
+    if(isKill) {
+        // Explosion particles
+        const emitter = this.add.particles(asteroid.x, asteroid.y, null, {
+            speed: { min: -100, max: 100 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 4, end: 0 },
+            lifespan: 400,
+            gravityY: 0,
+            quantity: 15,
+            emitting: false
+        });
+        // Create a temporary circle texture for particles
+        const graphics = this.make.graphics({x: 0, y: 0, add: false});
+        graphics.fillStyle(SETTINGS.colors.laser);
+        graphics.fillCircle(4, 4, 4);
+        graphics.generateTexture('pop', 8, 8);
+        emitter.setTexture('pop');
+        emitter.explode();
+        
+        // Cleanup emitter after finish
+        this.time.delayedCall(500, () => emitter.destroy());
+    }
+    asteroid.destroy();
+};
+
+Phaser.Scene.prototype.takeDamage = function() {
+    this.lives--;
+    this.livesText.setText('♥'.repeat(this.lives));
+    this.cameras.main.flash(300, 255, 0, 0, 0.3);
+    this.cameras.main.shake(300, 0.02);
+
+    if(this.lives <= 0) {
+        this.gameOver();
+    }
+};
+
+Phaser.Scene.prototype.gameOver = function() {
+    this.isGameOver = true;
+    this.physics.pause();
+    this.spawnTimer.remove();
+    
+    const bg = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.8).setDepth(20);
+    const title = this.add.text(400, 250, 'GAME OVER', { fontSize: '64px', fontFamily: 'Fredoka One', fill: '#66fcf1' }).setOrigin(0.5).setDepth(21);
+    const sub = this.add.text(400, 330, `Final Score: ${this.score}\nGreat Job, Astronaut!`, { fontSize: '28px', fontFamily: 'Fredoka One', fill: '#ffffff', align: 'center' }).setOrigin(0.5).setDepth(21);
+    
+    const restartBtn = this.add.text(400, 450, 'TRY AGAIN', { fontSize: '32px', fontFamily: 'Fredoka One', fill: '#0b0c10', backgroundColor: '#66fcf1', padding: {x: 20, y: 10} })
+        .setOrigin(0.5)
+        .setDepth(21)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => window.location.reload());
+};
+
+Phaser.Scene.prototype.createMenu = function() {
+    this.physics.pause();
+    const menuBg = this.add.rectangle(400, 300, 800, 600, 0x0b0c10, 0.9).setDepth(30);
+    const logo = this.add.text(400, 200, 'ASTRO-TEN', { fontSize: '80px', fontFamily: 'Fredoka One', fill: '#66fcf1' }).setOrigin(0.5).setDepth(31);
+    const hint = this.add.text(400, 300, 'Make 10 to save the base!\nExample: If a 7 falls, press 3.', { fontSize: '24px', fontFamily: 'Fredoka One', fill: '#c5c6c7', align: 'center' }).setOrigin(0.5).setDepth(31);
+    
+    const startBtn = this.add.text(400, 420, 'START MISSION', { fontSize: '32px', fontFamily: 'Fredoka One', fill: '#0b0c10', backgroundColor: '#66fcf1', padding: {x: 20, y: 10} })
+        .setOrigin(0.5)
+        .setDepth(31)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => {
+            menuBg.destroy();
+            logo.destroy();
+            hint.destroy();
+            startBtn.destroy();
+            this.physics.resume();
+        });
+        
+    this.tweens.add({
+        targets: startBtn,
+        scale: 1.1,
+        duration: 800,
+        yoyo: true,
+        repeat: -1
+    });
+};
+</script>
+
+</body>
+</html>
