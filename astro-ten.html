@@ -1,375 +1,930 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Astro-Ten: Portrait Defender</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Astro-Ten: Math Defender</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        :root {
-            --primary-glow: #66fcf1;
-            --accent: #45a29e;
-            --bg-dark: #0b0c10;
-        }
+  :root {
+    --cyan: #66fcf1;
+    --teal: #45a29e;
+    --dark: #0b0c10;
+    --panel: #1f2833;
+    --red: #ff5252;
+    --orange: #ff9a3c;
+    --yellow: #ffe566;
+    --green: #a8ff78;
+    --purple: #c77dff;
+    --pink: #ff6eb4;
+    --mid-gray: #c5c6c7;
+  }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
-            touch-action: none;
-        }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--dark);
+    color: #fff;
+    font-family: 'Fredoka One', cursive;
+    overflow: hidden;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
 
-        body {
-            background-color: var(--bg-dark);
-            font-family: 'Fredoka One', cursive;
-            overflow: hidden;
-            /* Critical for mobile browser bars */
-            height: 100vh;
-            height: 100dvh; 
-            display: flex;
-            justify-content: center;
-        }
+  #app {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    height: 100%;
+    padding: 8px;
+    gap: 6px;
+  }
 
-        #app-wrapper {
-            width: 100%;
-            max-width: 500px; /* Constrain width for a sleek portrait look */
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            background: var(--bg-dark);
-        }
+  #game-wrap {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+  }
 
-        #phaser-container {
-            width: 100%;
-            flex-grow: 1; /* Game takes available top space */
-            position: relative;
-        }
+  #game-container {
+    position: absolute;
+    inset: 0;
+    border: 3px solid var(--teal);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 0 24px rgba(102,252,241,0.3);
+  }
 
-        #controls-ui {
-            background: #1f2833;
-            padding: 15px;
-            border-top: 4px solid var(--accent);
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
 
-        .numpad {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            width: 100%;
-        }
+  /* HUD */
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 10px 14px;
+    pointer-events: none;
+    z-index: 5;
+  }
 
-        .num-btn {
-            aspect-ratio: 1.5 / 1;
-            background: #0b0c10;
-            color: var(--primary-glow);
-            border: 2px solid var(--accent);
-            border-radius: 12px;
-            font-family: 'Fredoka One', cursive;
-            font-size: 28px;
-            cursor: pointer;
-            box-shadow: 0 5px 0 var(--accent);
-            transition: all 0.1s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+  #score-display {
+    font-size: clamp(18px, 4vw, 26px);
+    color: var(--cyan);
+    text-shadow: 0 0 8px rgba(102,252,241,0.6);
+    line-height: 1.2;
+  }
 
-        .num-btn:active {
-            transform: translateY(4px);
-            box-shadow: 0 1px 0 var(--accent);
-            background: var(--accent);
-            color: #0b0c10;
-        }
+  #level-display {
+    font-size: clamp(12px, 2.5vw, 16px);
+    color: var(--teal);
+    line-height: 1.2;
+  }
 
-        .hint-text {
-            color: #c5c6c7;
-            font-size: 14px;
-            text-align: center;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-    </style>
+  #health-display {
+    font-size: clamp(18px, 4vw, 24px);
+    color: var(--red);
+    text-align: right;
+    line-height: 1.2;
+    letter-spacing: 3px;
+  }
+
+  #combo-display {
+    font-size: clamp(11px, 2vw, 14px);
+    color: var(--orange);
+    text-align: right;
+    line-height: 1;
+  }
+
+  #fs-btn {
+    pointer-events: auto;
+    position: absolute;
+    top: 10px; right: 14px;
+    width: 34px; height: 34px;
+    background: rgba(31,40,51,0.7);
+    border: 1.5px solid var(--teal);
+    border-radius: 8px;
+    color: var(--cyan);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+    z-index: 20;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #fs-btn:hover { background: var(--teal); color: var(--dark); }
+
+  /* Screens overlay */
+  #screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(11,12,16,0.88);
+    z-index: 15;
+    padding: 20px;
+    gap: 10px;
+  }
+
+  #screen.hidden { display: none; }
+
+  #screen h1 {
+    font-size: clamp(28px, 7vw, 52px);
+    color: var(--cyan);
+    text-shadow: 0 0 12px rgba(102,252,241,0.5);
+    text-align: center;
+    line-height: 1.1;
+  }
+
+  #screen .tagline {
+    font-family: 'Nunito', sans-serif;
+    font-size: clamp(13px, 3vw, 18px);
+    color: var(--mid-gray);
+    text-align: center;
+    max-width: 380px;
+    line-height: 1.5;
+  }
+
+  #screen .final-score {
+    font-size: clamp(22px, 5vw, 36px);
+    color: var(--yellow);
+    text-align: center;
+  }
+
+  #screen .high-score-line {
+    font-family: 'Nunito', sans-serif;
+    font-size: clamp(12px, 2.5vw, 16px);
+    color: var(--teal);
+    text-align: center;
+  }
+
+  .btn {
+    background: var(--cyan);
+    color: var(--dark);
+    border: none;
+    border-radius: 10px;
+    padding: 13px 36px;
+    font-size: clamp(18px, 4vw, 24px);
+    font-family: 'Fredoka One', cursive;
+    cursor: pointer;
+    box-shadow: 0 5px 0 var(--teal);
+    transition: transform 0.1s, box-shadow 0.1s;
+    -webkit-tap-highlight-color: transparent;
+    margin-top: 8px;
+  }
+  .btn:active { transform: translateY(5px); box-shadow: none; }
+
+  /* How to play mini-legend */
+  .rules-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    background: rgba(69,162,158,0.1);
+    border: 1px solid rgba(69,162,158,0.3);
+    border-radius: 10px;
+    padding: 10px 16px;
+    max-width: 340px;
+    width: 100%;
+  }
+  .rules-grid .label {
+    font-family: 'Nunito', sans-serif;
+    font-weight: 700;
+    font-size: clamp(12px, 2.5vw, 15px);
+    color: var(--cyan);
+    text-align: right;
+  }
+  .rules-grid .desc {
+    font-family: 'Nunito', sans-serif;
+    font-size: clamp(12px, 2.5vw, 15px);
+    color: var(--mid-gray);
+  }
+
+  /* Number pad */
+  #numpad {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    width: 100%;
+    max-width: 600px;
+    flex-shrink: 0;
+  }
+
+  .num-btn {
+    background: var(--panel);
+    color: var(--cyan);
+    border: 2.5px solid var(--teal);
+    border-radius: 12px;
+    aspect-ratio: 1.1;
+    font-size: clamp(22px, 5vw, 34px);
+    font-family: 'Fredoka One', cursive;
+    cursor: pointer;
+    box-shadow: 0 4px 0 rgba(69,162,158,0.6);
+    transition: all 0.08s;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .num-btn:active, .num-btn.pressed {
+    transform: translateY(4px);
+    box-shadow: none;
+    background: var(--teal);
+    color: var(--dark);
+  }
+
+  .num-btn.wrong-flash {
+    background: rgba(255,82,82,0.4);
+    border-color: var(--red);
+    color: var(--red);
+  }
+
+  .num-btn.correct-flash {
+    background: rgba(102,252,241,0.3);
+    border-color: var(--cyan);
+    color: var(--cyan);
+  }
+
+  /* complement hint badge on button */
+  .num-btn .hint {
+    position: absolute;
+    top: 2px; right: 4px;
+    font-size: clamp(9px, 1.8vw, 12px);
+    color: rgba(102,252,241,0.5);
+    font-family: 'Nunito', sans-serif;
+    font-weight: 700;
+    pointer-events: none;
+  }
+
+  #hint-text {
+    font-family: 'Nunito', sans-serif;
+    font-size: clamp(11px, 2vw, 14px);
+    color: var(--teal);
+    text-align: center;
+    min-height: 16px;
+    flex-shrink: 0;
+  }
+
+  /* Shake animation */
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    15% { transform: translateX(-8px); }
+    30% { transform: translateX(8px); }
+    45% { transform: translateX(-6px); }
+    60% { transform: translateX(6px); }
+    75% { transform: translateX(-3px); }
+    90% { transform: translateX(3px); }
+  }
+  .shake { animation: shake 0.35s ease; }
+
+  /* Floating score pop */
+  .score-pop {
+    position: absolute;
+    font-family: 'Fredoka One', cursive;
+    font-size: 22px;
+    color: var(--cyan);
+    pointer-events: none;
+    animation: floatUp 0.9s ease-out forwards;
+    z-index: 30;
+    text-shadow: 0 0 6px rgba(0,0,0,0.8);
+    white-space: nowrap;
+  }
+  .score-pop.neg { color: var(--red); font-size: 18px; }
+  .score-pop.big { font-size: 30px; color: var(--yellow); }
+
+  @keyframes floatUp {
+    0%   { opacity: 1; transform: translateY(0) scale(1); }
+    60%  { opacity: 1; transform: translateY(-40px) scale(1.1); }
+    100% { opacity: 0; transform: translateY(-70px) scale(0.8); }
+  }
+
+  /* Power-up badge */
+  #powerup-banner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: clamp(18px, 4vw, 26px);
+    color: var(--yellow);
+    background: rgba(11,12,16,0.85);
+    border: 2px solid var(--yellow);
+    border-radius: 12px;
+    padding: 8px 24px;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 25;
+    transition: opacity 0.3s;
+    text-align: center;
+  }
+  #powerup-banner.show { opacity: 1; }
+
+  /* Streak indicator */
+  #streak-bar {
+    position: absolute;
+    bottom: 8px;
+    left: 14px;
+    right: 14px;
+    height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    overflow: hidden;
+    z-index: 5;
+    pointer-events: none;
+  }
+  #streak-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--teal), var(--cyan));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.2s;
+  }
+</style>
 </head>
 <body>
-
-<div id="app-wrapper">
-    <div id="phaser-container"></div>
-    
-    <div id="controls-ui">
-        <div class="hint-text">Shoot the pair that makes 10!</div>
-        <div class="numpad">
-            <button class="num-btn" onpointerdown="handleInput(1)">1</button>
-            <button class="num-btn" onpointerdown="handleInput(2)">2</button>
-            <button class="num-btn" onpointerdown="handleInput(3)">3</button>
-            <button class="num-btn" onpointerdown="handleInput(4)">4</button>
-            <button class="num-btn" onpointerdown="handleInput(5)">5</button>
-            <button class="num-btn" onpointerdown="handleInput(6)">6</button>
-            <button class="num-btn" onpointerdown="handleInput(7)">7</button>
-            <button class="num-btn" onpointerdown="handleInput(8)">8</button>
-            <button class="num-btn" onpointerdown="handleInput(9)">9</button>
+<div id="app">
+  <div id="game-wrap">
+    <div id="game-container">
+      <canvas id="c"></canvas>
+      <div id="hud">
+        <div>
+          <div id="score-display">Score: 0</div>
+          <div id="level-display">Level 1</div>
         </div>
+        <div style="text-align:right">
+          <div id="health-display">♥♥♥</div>
+          <div id="combo-display"></div>
+        </div>
+      </div>
+      <button id="fs-btn" title="Fullscreen">⛶</button>
+      <div id="streak-bar"><div id="streak-fill"></div></div>
+      <div id="powerup-banner"></div>
+
+      <div id="screen">
+        <h1 id="s-title">Astro-Ten!</h1>
+        <div class="tagline" id="s-sub">Asteroids are falling — shoot the one that adds up to 10!<br>If a <strong style="color:var(--cyan)">7</strong> falls, press <strong style="color:var(--cyan)">3</strong>.</div>
+        <div class="rules-grid" id="s-rules">
+          <span class="label">Goal</span><span class="desc">Make every shot add to 10</span>
+          <span class="label">Miss</span><span class="desc">Lose a life ♥</span>
+          <span class="label">Wrong key</span><span class="desc">−5 points</span>
+          <span class="label">Streak</span><span class="desc">Bonus points × multiplier</span>
+          <span class="label">Power-ups</span><span class="desc">Gold asteroids = bonus!</span>
+        </div>
+        <div class="final-score" id="s-score" style="display:none"></div>
+        <div class="high-score-line" id="s-hi" style="display:none"></div>
+        <button class="btn" id="start-btn">Launch!</button>
+      </div>
     </div>
+  </div>
+
+  <div id="numpad"></div>
+  <div id="hint-text">Make 10 with each asteroid!</div>
 </div>
 
 <script>
-/** * ADJUSTABLE PARAMETERS
- */
-const GAME_SPEEDS = {
-    startVelocity: 100,
-    velocityStep: 20,
-    spawnDelay: 2200,
-    minSpawnDelay: 900
-};
+(function(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const container = document.getElementById('game-container');
+  const screen = document.getElementById('screen');
+  const startBtn = document.getElementById('start-btn');
+  const fsBtn = document.getElementById('fs-btn');
+  const scoreEl = document.getElementById('score-display');
+  const levelEl = document.getElementById('level-display');
+  const healthEl = document.getElementById('health-display');
+  const comboEl = document.getElementById('combo-display');
+  const hintEl = document.getElementById('hint-text');
+  const streakFill = document.getElementById('streak-fill');
+  const powerupBanner = document.getElementById('powerup-banner');
+  const numpad = document.getElementById('numpad');
+  const sTitle = document.getElementById('s-title');
+  const sSub = document.getElementById('s-sub');
+  const sRules = document.getElementById('s-rules');
+  const sScore = document.getElementById('s-score');
+  const sHi = document.getElementById('s-hi');
 
-const COLORS = {
-    primary: 0x66fcf1,
-    danger: 0xff5252,
-    asteroid: 0x45a29e,
-    ship: 0x66fcf1
-};
+  // Game state
+  let state = 'title';
+  let score = 0, health = 3, level = 1, combo = 0, streak = 0;
+  let frameCount = 0, rafId = null;
+  let asteroids = [], particles = [], lasers = [], stars = [], floatPops = [];
+  let spawnRate = 110, fallSpeed = 0.8;
+  let highScore = parseInt(localStorage.getItem('astroTenHi') || '0');
+  let shieldActive = false, slowActive = false, slowTimer = 0;
+  let warningAsteroids = new Set();
+  const STREAK_MAX = 5;
+  const TARGET = 10;
 
-// Global for Numpad
-let handleInput;
+  // Canvas size
+  let CW = 800, CH = 600;
 
-const config = {
-    type: Phaser.AUTO,
-    parent: 'phaser-container',
-    width: 600,  // Native Portrait Width
-    height: 900, // Native Portrait Height
-    transparent: true,
-    physics: {
-        default: 'arcade',
-        arcade: { gravity: { y: 0 } }
-    },
-    scene: { preload, create, update }
-};
+  function resize() {
+    const r = container.getBoundingClientRect();
+    CW = r.width; CH = r.height;
+    canvas.width = Math.round(CW);
+    canvas.height = Math.round(CH);
+  }
 
-const game = new Phaser.Game(config);
+  const ro = new ResizeObserver(resize);
+  ro.observe(container);
+  resize();
 
-function preload() {}
-
-function create() {
-    const scene = this;
-    
-    // Variables
-    this.score = 0;
-    this.lives = 3;
-    this.level = 1;
-    this.isGameOver = false;
-
-    // Background Stars
-    this.stars = [];
-    for(let i=0; i<60; i++) {
-        this.stars.push(this.add.circle(
-            Phaser.Math.Between(0, 600), 
-            Phaser.Math.Between(0, 900), 
-            Phaser.Math.FloatBetween(1, 3), 
-            0xffffff, 0.4
-        ));
+  // Stars
+  function makeStars() {
+    stars = [];
+    for(let i=0; i<120; i++) {
+      stars.push({
+        x: Math.random()*CW, y: Math.random()*CH,
+        s: Math.random()*1.8+0.2,
+        spd: Math.random()*0.4+0.1,
+        b: Math.random()*0.5+0.5
+      });
     }
+  }
+  makeStars();
 
-    // Ship (Bottom of the viewport)
-    const shipBase = this.add.graphics();
-    shipBase.fillStyle(COLORS.ship, 1);
-    shipBase.fillTriangle(-30, 20, 30, 20, 0, -30);
-    shipBase.lineStyle(2, 0xffffff, 1);
-    shipBase.strokeTriangle(-30, 20, 30, 20, 0, -30);
-    this.ship = this.add.container(300, 850, [shipBase]);
-
-    // Groups
-    this.asteroids = this.physics.add.group();
-
-    // UI
-    this.scoreText = this.add.text(30, 30, 'SCORE: 0', { 
-        fontFamily: 'Fredoka One', fontSize: '36px', fill: '#66fcf1' 
+  // Numpad
+  const numColors = [
+    '#ff5252','#ff9a3c','#ffe566','#a8ff78','#66fcf1',
+    '#45a29e','#c77dff','#ff6eb4','#85c1e9'
+  ];
+  for(let i=1;i<=9;i++) {
+    const btn = document.createElement('button');
+    btn.className = 'num-btn';
+    btn.setAttribute('data-n', i);
+    btn.innerHTML = `${i}<span class="hint">${TARGET-i}</span>`;
+    btn.style.setProperty('--ncolor', numColors[i-1]);
+    btn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if(state === 'playing') fireCannon(i, btn);
     });
-    this.livesText = this.add.text(570, 30, '♥♥♥', { 
-        fontSize: '36px', fill: '#ff5252' 
-    }).setOrigin(1, 0);
+    numpad.appendChild(btn);
+  }
 
-    // Particles (for juice)
-    this.createEmitter = (x, y) => {
-        const particles = this.add.particles(0, 0, 'dot', {
-            x, y,
-            speed: { min: -200, max: 200 },
-            scale: { start: 0.6, end: 0 },
-            lifespan: 400,
-            blendMode: 'ADD',
-            emitting: false
-        });
-        
-        // Generate a quick texture for the particle
-        const dot = this.make.graphics({x: 0, y: 0, add: false});
-        dot.fillStyle(0x66fcf1);
-        dot.fillCircle(5, 5, 5);
-        dot.generateTexture('dot', 10, 10);
-        
-        particles.explode(20);
-        this.time.delayedCall(500, () => particles.destroy());
-    };
+  function flashBtn(n, cls) {
+    const btn = numpad.querySelector(`[data-n="${n}"]`);
+    if(!btn) return;
+    btn.classList.add(cls);
+    setTimeout(() => btn.classList.remove(cls), 220);
+  }
 
-    // Logic for Input
-    handleInput = (val) => {
-        if(this.isGameOver) return;
-        this.fire(val);
-    };
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if(e.key >= '1' && e.key <= '9' && state === 'playing') {
+      fireCannon(parseInt(e.key));
+    }
+    if((e.key === 'Enter' || e.key === ' ') && state !== 'playing') {
+      startGame();
+    }
+  });
 
-    // Keyboard support
-    this.input.keyboard.on('keydown', (e) => {
-        const n = parseInt(e.key);
-        if(n >= 1 && n <= 9) handleInput(n);
-    });
-
-    // Spawning
-    this.spawnTimer = this.time.addEvent({
-        delay: GAME_SPEEDS.spawnDelay,
-        callback: this.spawnAsteroid,
-        callbackScope: this,
-        loop: true
-    });
-
-    // Resize functionality
-    const resize = () => {
-        const container = document.getElementById('phaser-container');
-        if (container) {
-            document.body.style.height = `${window.innerHeight}px`;
-        }
-    };
-    window.addEventListener('resize', resize);
-    setTimeout(resize, 200);
-
-    this.createStartScreen();
-}
-
-function update() {
-    if(this.isGameOver) return;
-
-    // Star parallax
-    this.stars.forEach(s => {
-        s.y += 1;
-        if(s.y > 900) s.y = 0;
-    });
-
-    // Asteroid logic
-    this.asteroids.getChildren().forEach(a => {
-        if(a.y > 830) {
-            this.hitBase();
-            a.destroy();
-        }
-    });
-}
-
-// --- Scene Methods ---
-
-Phaser.Scene.prototype.spawnAsteroid = function() {
-    const x = Phaser.Math.Between(60, 540);
-    const num = Phaser.Math.Between(1, 9);
-    
-    const container = this.add.container(x, -50);
-    const circ = this.add.circle(0, 0, 45, 0x1f2833).setStrokeStyle(4, COLORS.asteroid);
-    const txt = this.add.text(0, 0, num, { 
-        fontFamily: 'Fredoka One', fontSize: '42px', fill: '#ffffff' 
-    }).setOrigin(0.5);
-
-    container.add([circ, txt]);
-    container.mathValue = num;
-
-    this.asteroids.add(container);
-    this.physics.world.enable(container);
-    container.body.setVelocityY(GAME_SPEEDS.startVelocity + (this.level * GAME_SPEEDS.velocityStep));
-};
-
-Phaser.Scene.prototype.fire = function(val) {
-    let target = null;
-    let lowestY = -100;
-
-    this.asteroids.getChildren().forEach(a => {
-        if(a.mathValue + val === 10) {
-            if(a.y > lowestY) {
-                lowestY = a.y;
-                target = a;
-            }
-        }
-    });
-
-    if(target) {
-        // Juice: Beam
-        const beam = this.add.graphics();
-        beam.lineStyle(6, 0x66fcf1, 1);
-        beam.lineBetween(this.ship.x, this.ship.y - 30, target.x, target.y);
-        this.tweens.add({
-            targets: beam, alpha: 0, duration: 100, onComplete: () => beam.destroy()
-        });
-
-        // Juice: Explosion
-        this.createEmitter(target.x, target.y);
-        target.destroy();
-
-        // Progress
-        this.score += 10;
-        this.scoreText.setText('SCORE: ' + this.score);
-        if(this.score % 100 === 0) {
-            this.level++;
-            this.spawnTimer.delay = Math.max(GAME_SPEEDS.minSpawnDelay, this.spawnTimer.delay - 200);
-        }
+  // Fullscreen
+  fsBtn.addEventListener('click', () => {
+    const el = document.documentElement;
+    if(!document.fullscreenElement) {
+      (el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullscreen).call(el);
     } else {
-        this.cameras.main.shake(150, 0.01);
+      (document.exitFullscreen || document.webkitExitFullscreen || document.mozExitFullscreen).call(document);
     }
-};
+  });
 
-Phaser.Scene.prototype.hitBase = function() {
-    this.lives--;
-    this.livesText.setText('♥'.repeat(this.lives));
-    this.cameras.main.flash(200, 255, 0, 0, 0.4);
-    this.cameras.main.shake(300, 0.02);
+  startBtn.addEventListener('click', startGame);
 
-    if(this.lives <= 0) {
-        this.gameOver();
+  // ---- GAME LOGIC ----
+
+  function startGame() {
+    state = 'playing';
+    score = 0; health = 3; level = 1; combo = 0; streak = 0;
+    frameCount = 0;
+    asteroids = []; particles = []; lasers = []; floatPops = [];
+    spawnRate = 110; fallSpeed = 0.8;
+    shieldActive = false; slowActive = false; slowTimer = 0;
+    warningAsteroids.clear();
+    screen.classList.add('hidden');
+    makeStars();
+    updateHUD();
+    if(rafId) cancelAnimationFrame(rafId);
+    loop();
+  }
+
+  function gameOver() {
+    state = 'gameover';
+    if(score > highScore) {
+      highScore = score;
+      localStorage.setItem('astroTenHi', highScore);
     }
-};
+    screen.classList.remove('hidden');
+    sTitle.textContent = score > 0 && score >= highScore ? '🏆 New Record!' : 'Game Over!';
+    sSub.style.display = 'none';
+    sRules.style.display = 'none';
+    sScore.style.display = 'block';
+    sScore.textContent = `Score: ${score}`;
+    sHi.style.display = 'block';
+    sHi.textContent = `Best: ${highScore}  •  Level reached: ${level}`;
+    startBtn.textContent = 'Play Again';
+  }
 
-Phaser.Scene.prototype.gameOver = function() {
-    this.isGameOver = true;
-    this.physics.pause();
-    this.spawnTimer.remove();
-    
-    const overlay = this.add.rectangle(300, 450, 600, 900, 0x000000, 0.85).setDepth(100);
-    this.add.text(300, 350, 'MISSION OVER', { 
-        fontSize: '60px', fontFamily: 'Fredoka One', fill: COLORS.primary 
-    }).setOrigin(0.5).setDepth(101);
-
-    this.add.text(300, 450, `Final Score: ${this.score}\nGreat effort!`, { 
-        fontSize: '32px', fontFamily: 'Fredoka One', fill: '#ffffff', align: 'center' 
-    }).setOrigin(0.5).setDepth(101);
-
-    const btn = this.add.text(300, 600, 'RETRY', { 
-        fontSize: '40px', fontFamily: 'Fredoka One', fill: '#0b0c10', backgroundColor: '#66fcf1', padding: 20 
-    }).setOrigin(0.5).setDepth(101).setInteractive().on('pointerdown', () => window.location.reload());
-};
-
-Phaser.Scene.prototype.createStartScreen = function() {
-    this.physics.pause();
-    const overlay = this.add.rectangle(300, 450, 600, 900, 0x0b0c10, 1).setDepth(100);
-    this.add.text(300, 300, 'ASTRO-TEN', { 
-        fontSize: '80px', fontFamily: 'Fredoka One', fill: COLORS.primary 
-    }).setOrigin(0.5).setDepth(101);
-
-    const btn = this.add.text(300, 500, 'LAUNCH', { 
-        fontSize: '40px', fontFamily: 'Fredoka One', fill: '#0b0c10', backgroundColor: '#66fcf1', padding: 20 
-    }).setOrigin(0.5).setDepth(101).setInteractive().on('pointerdown', () => {
-        overlay.destroy();
-        this.physics.resume();
-        btn.destroy();
+  function spawnAsteroid() {
+    const radius = Math.round(CW * 0.053);
+    const num = Math.floor(Math.random() * 9) + 1;
+    const x = radius + Math.random() * (CW - radius*2);
+    const isPower = Math.random() < 0.08; // gold power-up asteroid
+    const isSpeed = Math.random() < 0.06; // fast red asteroid
+    asteroids.push({
+      x, y: -radius - 5,
+      r: radius,
+      num,
+      isPower, isSpeed,
+      wobble: Math.random() * Math.PI * 2,
+      wobbleSpd: (Math.random() - 0.5) * 0.02,
+      color: isPower ? '#ffd700' : isSpeed ? '#ff4444' : numColors[num-1],
+      pulseT: 0
     });
-};
+  }
+
+  function fireCannon(n, btnEl) {
+    if(state !== 'playing') return;
+
+    // find lowest matching asteroid
+    let bestIdx = -1, bestY = -999;
+    for(let i=0; i<asteroids.length; i++) {
+      if(asteroids[i].num + n === TARGET) {
+        if(asteroids[i].y > bestY) { bestY = asteroids[i].y; bestIdx = i; }
+      }
+    }
+
+    if(bestIdx !== -1) {
+      const a = asteroids[bestIdx];
+      flashBtn(n, 'correct-flash');
+
+      // Laser
+      lasers.push({ sx: CW/2, sy: CH - 40, tx: a.x, ty: a.y, life: 12, color: '#66fcf1' });
+
+      // Explosion
+      explode(a.x, a.y, a.color, a.isPower ? 25 : 15);
+      asteroids.splice(bestIdx, 1);
+
+      // Scoring
+      combo++;
+      streak = Math.min(streak + 1, STREAK_MAX);
+      let pts = 10 * (1 + Math.floor(streak / 2));
+      if(a.isPower) { pts *= 2; showBanner('⚡ Power Hit! ×2'); }
+      score += pts;
+
+      // Float pop
+      addPop(`+${pts}`, a.x, a.y, pts > 15 ? 'big' : '');
+
+      // Difficulty ramp
+      if(score % 100 === 0 && score > 0) levelUp();
+
+      updateHUD();
+    } else {
+      flashBtn(n, 'wrong-flash');
+      // wrong key penalty
+      score = Math.max(0, score - 5);
+      streak = Math.max(0, streak - 1);
+      combo = 0;
+      addPop('-5', CW/2, CH * 0.6, 'neg');
+      shakeContainer();
+      updateHUD();
+    }
+  }
+
+  function levelUp() {
+    level++;
+    fallSpeed += 0.18;
+    spawnRate = Math.max(38, spawnRate - 8);
+    showBanner(`Level ${level}!`);
+    levelEl.textContent = `Level ${level}`;
+  }
+
+  function explode(x, y, color, count) {
+    for(let i=0; i<count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = Math.random() * 7 + 1;
+      particles.push({
+        x, y,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd,
+        life: 1,
+        decay: Math.random() * 0.04 + 0.025,
+        r: Math.random() * 4 + 2,
+        color: Math.random() < 0.4 ? '#fff' : color
+      });
+    }
+  }
+
+  function addPop(text, x, y, cls='') {
+    const div = document.createElement('div');
+    div.className = 'score-pop ' + cls;
+    div.textContent = text;
+    const rect = container.getBoundingClientRect();
+    // convert canvas coords to container-relative
+    const px = (x / CW) * rect.width;
+    const py = (y / CH) * rect.height;
+    div.style.left = px + 'px';
+    div.style.top = py + 'px';
+    container.appendChild(div);
+    setTimeout(() => div.remove(), 950);
+  }
+
+  let bannerTimer = null;
+  function showBanner(txt) {
+    powerupBanner.textContent = txt;
+    powerupBanner.classList.add('show');
+    if(bannerTimer) clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(() => powerupBanner.classList.remove('show'), 1600);
+  }
+
+  let shakeTimer = null;
+  function shakeContainer() {
+    container.classList.remove('shake');
+    void container.offsetWidth;
+    container.classList.add('shake');
+    if(shakeTimer) clearTimeout(shakeTimer);
+    shakeTimer = setTimeout(() => container.classList.remove('shake'), 360);
+  }
+
+  function updateHUD() {
+    scoreEl.textContent = `Score: ${score}`;
+    levelEl.textContent = `Level ${level}`;
+    let hearts = '';
+    for(let i=0; i<health; i++) hearts += '♥';
+    for(let i=0; i<3-health; i++) hearts += '♡';
+    healthEl.textContent = hearts;
+
+    if(combo > 1) {
+      comboEl.textContent = `${combo}× combo!`;
+    } else {
+      comboEl.textContent = '';
+    }
+
+    streakFill.style.width = (streak / STREAK_MAX * 100) + '%';
+
+    // Hint: show what's on screen
+    const nums = [...new Set(asteroids.map(a=>a.num))].sort((a,b)=>a-b);
+    if(nums.length > 0) {
+      const pairs = nums.map(n => `${n}→${TARGET-n}`).slice(0,4).join('  ');
+      hintEl.textContent = pairs;
+    } else {
+      hintEl.textContent = 'Make 10 with each asteroid!';
+    }
+  }
+
+  // ---- DRAW ----
+
+  function drawStars() {
+    ctx.save();
+    stars.forEach(s => {
+      const alpha = s.b * (0.6 + 0.4 * Math.sin(frameCount * 0.02 + s.x));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.s, 0, Math.PI*2);
+      ctx.fill();
+      s.y += s.spd * (slowActive ? 0.3 : 1);
+      if(s.y > CH) { s.y = 0; s.x = Math.random()*CW; }
+    });
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawCannon() {
+    const cx = CW/2, cy = CH - 28;
+    const r = Math.min(22, CW*0.03);
+    // base glow
+    ctx.save();
+    ctx.shadowColor = '#66fcf1';
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = '#45a29e';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 8, r*1.5, r*0.5, 0, 0, Math.PI*2);
+    ctx.fill();
+    // turret
+    ctx.fillStyle = '#66fcf1';
+    ctx.fillRect(cx - r*0.35, cy - r*1.2, r*0.7, r*1.3);
+    // dome
+    ctx.fillStyle = '#45a29e';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, 0);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  function drawAsteroid(a) {
+    a.wobble += a.wobbleSpd;
+    a.pulseT += 0.06;
+
+    const r = a.r;
+    const wobbleAmt = r * 0.12;
+
+    ctx.save();
+    ctx.translate(a.x, a.y);
+
+    // Danger glow if near bottom
+    const danger = a.y / (CH * 0.8);
+    if(danger > 0.7) {
+      ctx.shadowColor = a.color;
+      ctx.shadowBlur = 15 * ((danger - 0.7)/0.3);
+    }
+
+    // Asteroid shape (multi-point polygon)
+    const sides = 8;
+    ctx.beginPath();
+    for(let i=0; i<sides; i++) {
+      const angle = (i/sides)*Math.PI*2 + a.wobble * 0.3;
+      const jitter = 0.75 + 0.25 * Math.sin(i * 2.3 + a.wobble);
+      const rx = (r + Math.sin(i*1.7+a.wobble)*wobbleAmt) * jitter;
+      const ry = (r + Math.cos(i*2.1+a.wobble)*wobbleAmt) * jitter;
+      if(i===0) ctx.moveTo(Math.cos(angle)*rx, Math.sin(angle)*ry);
+      else ctx.lineTo(Math.cos(angle)*rx, Math.sin(angle)*ry);
+    }
+    ctx.closePath();
+
+    // Fill
+    ctx.fillStyle = '#1a1f28';
+    ctx.fill();
+
+    // Stroke
+    ctx.lineWidth = 3;
+    if(a.isPower) {
+      const pulse = 0.7 + 0.3*Math.sin(a.pulseT * 2);
+      ctx.strokeStyle = `rgba(255,215,0,${pulse})`;
+      ctx.lineWidth = 3.5;
+    } else {
+      ctx.strokeStyle = a.color;
+    }
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+
+    // Number
+    const fs = Math.round(r * 0.85);
+    ctx.font = `${fs}px "Fredoka One", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Shadow for readability
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText(a.num, 2, 2);
+
+    ctx.fillStyle = a.isPower ? '#ffd700' : '#fff';
+    ctx.fillText(a.num, 0, 0);
+
+    if(a.isPower) {
+      ctx.font = `${Math.round(r*0.35)}px "Fredoka One"`;
+      ctx.fillStyle = 'rgba(255,215,0,0.8)';
+      ctx.fillText('★', r*0.5, -r*0.5);
+    }
+
+    ctx.restore();
+  }
+
+  function drawLaser(l) {
+    const progress = 1 - l.life/12;
+    ctx.save();
+    ctx.globalAlpha = l.life/12;
+    ctx.strokeStyle = '#66fcf1';
+    ctx.lineWidth = 4 * (1 - progress*0.5);
+    ctx.shadowColor = '#66fcf1';
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(l.sx, l.sy);
+    ctx.lineTo(l.tx, l.ty);
+    ctx.stroke();
+    // tip glow
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(l.tx, l.ty, 5*(1-progress), 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // ---- LOOP ----
+
+  function loop() {
+    if(state !== 'playing') return;
+    rafId = requestAnimationFrame(loop);
+    frameCount++;
+
+    ctx.clearRect(0, 0, CW, CH);
+
+    // Background gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, CH);
+    grad.addColorStop(0, '#050608');
+    grad.addColorStop(1, '#0d1117');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CW, CH);
+
+    drawStars();
+
+    // Spawn
+    if(frameCount % Math.round(spawnRate) === 0) spawnAsteroid();
+
+    // Lasers
+    lasers = lasers.filter(l => l.life-- > 0);
+    lasers.forEach(drawLaser);
+
+    // Asteroids
+    const spd = slowActive ? fallSpeed * 0.4 : fallSpeed;
+    for(let i=asteroids.length-1; i>=0; i--) {
+      const a = asteroids[i];
+      a.y += spd;
+
+      // Hit ground
+      if(a.y + a.r >= CH - 28) {
+        explode(a.x, a.y, a.color, 12);
+        lasers.push({ sx: a.x, sy: a.y, tx: a.x, ty: CH, life: 8, color: '#ff5252' });
+        asteroids.splice(i, 1);
+        if(!shieldActive) {
+          health--;
+          combo = 0;
+          streak = Math.max(0, streak-2);
+          updateHUD();
+          shakeContainer();
+          addPop('♥', CW/2, CH*0.4, 'neg');
+          if(health <= 0) {
+            state = 'done';
+            setTimeout(gameOver, 400);
+            break;
+          }
+        } else {
+          shieldActive = false;
+          showBanner('🛡 Shield used!');
+        }
+        continue;
+      }
+
+      drawAsteroid(a);
+    }
+
+    // Particles
+    particles = particles.filter(p => p.life > 0);
+    particles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.15;
+      p.vx *= 0.97;
+      p.life -= p.decay;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    drawCannon();
+
+    // Slow timer
+    if(slowActive) {
+      slowTimer--;
+      if(slowTimer <= 0) slowActive = false;
+    }
+
+    updateHUD();
+  }
+
+  // Init
+  screen.classList.remove('hidden');
+  sScore.style.display = 'none';
+  sHi.style.display = 'none';
+  sRules.style.display = 'grid';
+  sSub.style.display = 'block';
+  sTitle.textContent = 'Astro-Ten!';
+  startBtn.textContent = 'Launch!';
+
+  // Start background star animation even on title
+  (function titleLoop() {
+    if(state === 'playing') return;
+    rafId = requestAnimationFrame(titleLoop);
+    frameCount++;
+    ctx.clearRect(0, 0, CW, CH);
+    const grad = ctx.createLinearGradient(0, 0, 0, CH);
+    grad.addColorStop(0, '#050608');
+    grad.addColorStop(1, '#0d1117');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CW, CH);
+    drawStars();
+    drawCannon();
+  })();
+})();
 </script>
 </body>
 </html>
