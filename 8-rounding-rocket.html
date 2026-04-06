@@ -608,18 +608,33 @@
         scoreDisplay.innerText = `Height: ${Math.floor(score)}m`;
     }
 
-    function endGame() {
-        gameState = 'gameOver';
-        gameOverScreen.classList.remove('hidden');
-        targetPanel.classList.add('hidden');
-        
-        if (score > highScore) {
-            highScore = score;
-            highScoreDisplay.innerText = `Best: ${Math.floor(highScore)}m`;
-        }
-        
-        finalScoreEl.innerText = `You climbed ${Math.floor(score)} meters.`;
+    
+   function endGame() {
+    gameState = 'gameOver';
+    gameOverScreen.classList.remove('hidden');
+    targetPanel.classList.add('hidden');
+    
+    if (score > highScore) {
+        highScore = score;
+        highScoreDisplay.innerText = `Best: ${Math.floor(highScore)}m`;
     }
+    
+    finalScoreEl.innerText = `You climbed ${Math.floor(score)} meters.`;
+
+    // Send score to Brainy Arcade app
+    if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'GAME_OVER',
+            score: Math.floor(score),
+            gameId: 'rounding-rocket'
+        }));
+    }
+}
+
+</script>
+</body>
+</html>
+
 
 </script>
 </body>
