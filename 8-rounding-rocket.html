@@ -608,19 +608,32 @@
         scoreDisplay.innerText = `Height: ${Math.floor(score)}m`;
     }
 
-    function endGame() {
-        gameState = 'gameOver';
-        gameOverScreen.classList.remove('hidden');
-        targetPanel.classList.add('hidden');
-        
-        if (score > highScore) {
-            highScore = score;
-            highScoreDisplay.innerText = `Best: ${Math.floor(highScore)}m`;
-        }
-        
-        finalScoreEl.innerText = `You climbed ${Math.floor(score)} meters.`;
+   function endGame() {
+    gameState = 'gameOver';
+    gameOverScreen.classList.remove('hidden');
+    targetPanel.classList.add('hidden');
+    
+    if (score > highScore) {
+        highScore = score;
+        highScoreDisplay.innerText = `Best: ${Math.floor(highScore)}m`;
     }
+    
+    finalScoreEl.innerText = `You climbed ${Math.floor(score)} meters.`;
 
+    setTimeout(function() {
+        try {
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'GAME_OVER',
+                    score: Math.floor(score),
+                    gameId: '8-rounding-rocket'
+                }));
+            }
+        } catch(err) {
+            console.log('postMessage error:', err);
+        }
+    }, 3000);
+}
 </script>
 </body>
 </html>
