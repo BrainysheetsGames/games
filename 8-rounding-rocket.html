@@ -620,12 +620,15 @@
     
     finalScoreEl.innerText = `You climbed ${Math.floor(score)} meters.`;
 
+    // Capture score NOW before anything changes
+    var finalScore = Math.floor(score);
+
     setTimeout(function() {
         try {
             if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({
                     type: 'GAME_OVER',
-                    score: Math.floor(score),
+                    score: finalScore,
                     gameId: '8-rounding-rocket'
                 }));
             }
