@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Coordinate Connect 4 - Space Pirates</title>
+    <style>
+        /* Mobile viewport setup to prevent navigation bar cutoffs */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden;
+            background-color: #0B0C10; 
+            font-family: 'Courier New', Courier, monospace;
+            touch-action: none;
+        }
+        #game-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #loading {
+            position: absolute;
+            color: #66FCF1;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #66FCF1;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+</head>
+<body>
+    <div id="loading">INITIALIZING PROTOCOLS...</div>
+    <div id="game-container"></div>
+
+    <script>
+        // ==============================================================================
+        // GAME CONFIGURATION & GLOBAL STATE
+        // ==============================================================================
+        const GAME_CONFIG = {
+            colors: {
+                bg: 0x0B0C10, grid: 0x1F2833, axis: 0x45A29E, 
+                player: 0x66FCF1, computer: 0xFF003C, text: 0xC5C6C7, 
+                error: 0xFF4500, highlight: 0xF2A900, coin: 0xFFD700
+            },
+            economy: {
+                correctPlacement: 20,
+                winBonus: 100
+            },
+            upgrades: {
+                hull: { name: 'Hull Plating', base: 100, inc: 100, max: 5 },       // HP
+                damage: { name: 'Blaster Power', base: 20, inc: 25, max: 5 },      // Dmg per shot
+                fireRate: { name: 'Targeting Array', base: 1, inc: 1, max: 5 },    // Shots per second
+                shield: { name: 'Deflector Shield', base: 0, inc: 75, max: 5 }     // Overshield
+            },
+            upgradeCosts: [100, 250, 500, 1000, 2000] // Cost for level 1, 2, 3, 4, 5
+        };
+
+        // Generate 20 Scaling Levels
+        let gameLevels = [];
+        for(let i=1; i<=20; i++) {
+            let maxC = i <= 5 ? 5 : (i <= 10 ? 8 : (i <= 15 ? 4 : 5));
+            let minC = i <= 9 ? 0 : -maxC; // Introduce negative coords at level 10
+            let t = i < 4 ? 0 : Math.max(8, 20 - Math.floor(i/1.5)); // Shrinking timer
+            let waveEnemies = 5 + Math.floor(i * 2.5); // Enemies in defense
+            let enemyHp = 20 + (i * 15);
+            gameLevels.push({ id: i, min: minC, max: maxC, timer: t, enemies: waveEnemies, enemyHp: enemyHp });
+        }
+
+        let GLOBAL_STATE = {
+            levelIndex: 0,
+            coins: 0,
+            pendingCoins: 0,
+            upgrades: { hull: 0, damage: 0, fireRate: 0, shield: 0 } // Current levels (0-5)
+        };
+
+        // ==============================================================================
+        // SCENES
+        // ==============================================================================
+
+        class BootScene extends Phaser.Scene {
+            constructor() { super('BootScene'); }
+            create() {
+                let g = this.add.graphics();
+                // Player Piece
+                g.lineStyle(4, GAME_CONFIG.colors.player, 1); g.fillStyle(GAME_CONFIG.colors.player, 0.3);
+                g.strokeCircle(16, 16, 14); g.fillCircle(16, 16, 14);
+                g.fillStyle(GAME_CONFIG.colors.player, 1); g.fillCircle(16, 16, 6);
+                g.generateTexture('playerPiece', 32, 32); g.clear();
+
+                // Computer Piece
+                g.lineStyle(4, GAME_CONFIG.colors.computer, 1); g.fillStyle(GAME_CONFIG.colors.computer, 0.3);
+                g.strokeRect(2, 2, 28, 28); g.fillStyle(GAME_CONFIG.colors.computer, 1); g.fillRect(8, 8, 16, 16);
+                g.generateTexture('computerPiece', 32, 32); g.clear();
+
+                // Defense Base
+                g.fillStyle(GAME_CONFIG.colors.player, 1); g.fillCircle(32, 32, 24);
+                g.lineStyle(4, 0xffffff, 1); g.strokeCircle(32, 32, 28);
+                g.generateTexture('base', 64, 64); g.clear();
+
+                // Defense Enemy
+                g.fillStyle(GAME_CONFIG.colors.computer, 1); g.fillTriangle(16, 0, 32, 32, 0, 32);
+                g.generateTexture('enemy', 32, 32); g.clear();
+
+                // Popup Spawner Base
+                g.fillStyle(GAME_CONFIG.colors.highlight, 0.3); g.fillRect(0, 0, 40, 40);
+                g.lineStyle(4, GAME_CONFIG.colors.highlight, 1); g.strokeRect(0, 0, 40, 40);
+                g.fillStyle(0xffffff, 1); g.fillCircle(20, 20, 10);
+                g.generateTexture('popup', 40, 40); g.clear();
+
+                // Laser
+                g.fillStyle(GAME_CONFIG.colors.highlight, 1); g.fillRect(0, 0, 16, 4);
+                g.generateTexture('laser', 16, 4); g.clear();
+
+                // Particle
+                g.fillStyle(0xffffff, 1); g.fillCircle(4, 4, 4);
+                g.generateTexture('particle', 8, 8); g.destroy();
+
+                document.getElementById('loading').style.display = 'none';
+                this.scene.start('TitleScene');
+            }
+        }
+
+        class TitleScene extends Phaser.Scene {
+            constructor() { super('TitleScene'); }
+            create() {
+                const w = this.cameras.main.width, h = this.cameras.main.height;
+                this.add.text(w/2, h*0.3, "COORDINATE\nDEFENDER", {
+                    fontSize: Math.min(w*0.1, 48) + 'px', fill: '#66FCF1', align: 'center', fontFamily: 'Courier', fontStyle: 'bold'
+                }).setOrigin(0.5);
+
+                this.add.text(w/2, h*0.5, "Plot coordinates to earn coins.\nUpgrade your base to survive\nthe 10-second pirate attacks!", {
+                    fontSize: Math.min(w*0.04, 20) + 'px', fill: '#C5C6C7', align: 'center', fontFamily: 'Courier'
+                }).setOrigin(0.5);
+
+                const btn = this.add.rectangle(w/2, h*0.7, 200, 60, GAME_CONFIG.colors.player, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.player).setInteractive();
+                const btnText = this.add.text(w/2, h*0.7, "START", { fontSize: '24px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
+                this.tweens.add({ targets: [btn, btnText], alpha: 0.5, duration: 800, yoyo: true, repeat: -1 });
+
+                btn.on('pointerdown', () => this.scene.start('GameScene'));
+            }
+        }
+
+        class GameScene extends Phaser.Scene {
+            constructor() { super('GameScene'); }
+            init() {
+                this.levelData = gameLevels[GLOBAL_STATE.levelIndex];
+                this.gridMin = this.levelData.min; this.gridMax = this.levelData.max;
+                this.gridSize = this.gridMax - this.gridMin + 1;
+                this.board = Array(this.gridSize).fill(null).map(() => Array(this.gridSize).fill(0));
+                
+                // Track visual sprites so we can destroy them during an override
+                this.pieceSprites = Array(this.gridSize).fill(null).map(() => Array(this.gridSize).fill(null));
+                this.overrideMode = false;
+                
+                this.gameState = 'IDLE'; 
+                GLOBAL_STATE.pendingCoins = 0; // Reset pending
+            }
+            create() {
+                this.w = this.cameras.main.width; this.h = this.cameras.main.height;
+                this.createUI();
+                this.calculateGridDimensions();
+                this.drawGrid();
+                this.input.on('pointerdown', this.handleGridClick, this);
+                this.startPlayerTurn();
+            }
+            createUI() {
+                this.headerText = this.add.text(this.w/2, this.h*0.04, `LEVEL ${this.levelData.id} / 20`, { fontSize: '20px', fill: '#FFF', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                this.coinText = this.add.text(this.w*0.05, this.h*0.04, `COINS: ${GLOBAL_STATE.coins}`, { fontSize: '18px', fill: '#FFD700', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                this.pendingText = this.add.text(this.w*0.05, this.h*0.08, `EARNED: +${GLOBAL_STATE.pendingCoins}`, { fontSize: '16px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                this.statusText = this.add.text(this.w/2, this.h*0.13, "CHOOSE A TARGET:", { fontSize: '20px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
+                this.timerText = this.add.text(this.w*0.95, this.h*0.04, "", { fontSize: '20px', fill: '#FF003C', fontFamily: 'Courier' }).setOrigin(1, 0.5);
+
+                this.optGroup = this.add.group();
+                const btnW = Math.min(this.w * 0.4, 150), btnY = this.h * 0.9;
+                this.btnA = this.createOptionButton(this.w*0.25, btnY, btnW, "A");
+                this.btnB = this.createOptionButton(this.w*0.75, btnY, btnW, "B");
+            }
+            createOptionButton(x, y, w, id) {
+                let rect = this.add.rectangle(x, y, w, 50, GAME_CONFIG.colors.player, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.player).setInteractive();
+                let txt = this.add.text(x, y, "(?, ?)", { fontSize: '22px', fill: '#FFF', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                rect.on('pointerdown', () => this.selectOption(id));
+                this.optGroup.add(rect); this.optGroup.add(txt);
+                return { rect, txt, target: null };
+            }
+            calculateGridDimensions() {
+                const availW = this.w * 0.9, availH = this.h * 0.6;
+                this.cellSize = Math.min(availW / (this.gridSize - 1), availH / (this.gridSize - 1));
+                const actualW = this.cellSize * (this.gridSize - 1);
+                this.gridX = (this.w - actualW) / 2;
+                this.gridY = this.h * 0.78; 
+            }
+            drawGrid() {
+                let g = this.add.graphics();
+                for(let col = 0; col < this.gridSize; col++) {
+                    let x = this.gridX + (col * this.cellSize); let label = col + this.gridMin;
+                    g.lineStyle(label === 0 ? 3 : 1, label === 0 ? GAME_CONFIG.colors.axis : GAME_CONFIG.colors.grid);
+                    g.strokeLineShape(new Phaser.Geom.Line(x, this.gridY, x, this.gridY - (this.gridSize - 1) * this.cellSize));
+                    this.add.text(x, this.gridY + 10, label, { fontSize: '14px', fill: '#FFF', fontFamily: 'Courier' }).setOrigin(0.5, 0);
+                }
+                for(let row = 0; row < this.gridSize; row++) {
+                    let y = this.gridY - (row * this.cellSize); let label = row + this.gridMin;
+                    g.lineStyle(label === 0 ? 3 : 1, label === 0 ? GAME_CONFIG.colors.axis : GAME_CONFIG.colors.grid);
+                    g.strokeLineShape(new Phaser.Geom.Line(this.gridX, y, this.gridX + (this.gridSize - 1) * this.cellSize, y));
+                    this.add.text(this.gridX - 10, y, label, { fontSize: '14px', fill: '#FFF', fontFamily: 'Courier' }).setOrigin(1, 0.5);
+                }
+            }
+            getScreenPos(cx, cy) {
+                return { x: this.gridX + ((cx - this.gridMin) * this.cellSize), y: this.gridY - ((cy - this.gridMin) * this.cellSize) };
+            }
+            
+            checkOverrideMode() {
+                let empties = 0;
+                for(let c=0; c<this.gridSize; c++) for(let r=0; r<this.gridSize; r++) if(this.board[c][r] === 0) empties++;
+                
+                if(empties < 2 && !this.overrideMode) {
+                    this.overrideMode = true;
+                    let txt = this.add.text(this.w/2, this.h/2, "BOARD FULL!\nOVERRIDE ENGAGED!", {fontSize:'32px', fill:'#FF003C', fontStyle:'bold', align:'center'}).setOrigin(0.5).setDepth(100);
+                    this.tweens.add({targets: txt, y: this.h/2 - 100, alpha: 0, duration: 3000, onComplete: ()=>txt.destroy()});
+                    this.cameras.main.shake(500, 0.02);
+                }
+            }
+
+            getValidMoves(type) {
+                let moves = [];
+                let enemyType = type === 1 ? 2 : 1;
+                for(let c=0; c<this.gridSize; c++) {
+                    for(let r=0; r<this.gridSize; r++) {
+                        if(this.board[c][r] === 0) moves.push({c: c, r: r, x: c+this.gridMin, y: r+this.gridMin});
+                        // In override mode, you can target enemy spots!
+                        if(this.overrideMode && this.board[c][r] === enemyType) moves.push({c: c, r: r, x: c+this.gridMin, y: r+this.gridMin});
+                    }
+                }
+                return moves;
+            }
+
+            startPlayerTurn() {
+                this.checkOverrideMode();
+                this.gameState = 'PICK_OPTION';
+                this.statusText.setText("CHOOSE YOUR NEXT TARGET"); this.statusText.setFill('#FFF');
+                let options = this.generateOptions();
+                this.btnA.target = options[0]; this.btnB.target = options[1];
+                this.btnA.txt.setText(`(${options[0].x}, ${options[0].y})`); this.btnB.txt.setText(`(${options[1].x}, ${options[1].y})`);
+                this.optGroup.setVisible(true);
+
+                if(this.levelData.timer > 0) {
+                    this.timeRemaining = this.levelData.timer;
+                    this.timerText.setText(`TIME: ${this.timeRemaining}`);
+                    if(this.timerEvent) this.timerEvent.remove();
+                    this.timerEvent = this.time.addEvent({ delay: 1000, callback: this.tickTimer, callbackScope: this, loop: true });
+                } else this.timerText.setText("");
+            }
+            tickTimer() {
+                if(this.gameState !== 'PICK_OPTION' && this.gameState !== 'PLACE_PIECE') return;
+                this.timeRemaining--; this.timerText.setText(`TIME: ${this.timeRemaining}`);
+                if(this.timeRemaining <= 0) {
+                    this.timerEvent.remove(); this.statusText.setText("TIME'S UP!"); this.statusText.setFill('#FF4500');
+                    this.optGroup.setVisible(false); this.gameState = 'IDLE';
+                    this.cameras.main.shake(200, 0.01);
+                    this.time.delayedCall(1500, this.computerTurn, [], this);
+                }
+            }
+            generateOptions() {
+                let validSpots = this.getValidMoves(1);
+                if(validSpots.length < 2) return [validSpots[0] || {x:0, y:0}, validSpots[0] || {x:0, y:0}];
+                
+                let best = this.findBestMove(1) || this.findBestMove(2) || Phaser.Utils.Array.GetRandom(validSpots);
+                let rand = Phaser.Utils.Array.GetRandom(validSpots);
+                
+                let attempts = 0;
+                while(rand.x === best.x && rand.y === best.y && validSpots.length > 1 && attempts < 10) {
+                    rand = Phaser.Utils.Array.GetRandom(validSpots);
+                    attempts++;
+                }
+                return Phaser.Math.Between(0, 1) === 0 ? [best, rand] : [rand, best];
+            }
+            selectOption(id) {
+                if(this.gameState !== 'PICK_OPTION') return;
+                this.selectedTarget = (id === 'A') ? this.btnA.target : this.btnB.target;
+                this.optGroup.setVisible(false);
+                this.statusText.setText(`TAP (${this.selectedTarget.x}, ${this.selectedTarget.y}) TO DEPLOY`);
+                this.statusText.setFill('#66FCF1');
+                this.gameState = 'PLACE_PIECE';
+            }
+            handleGridClick(pointer) {
+                if(this.gameState !== 'PLACE_PIECE') return;
+                let c = Math.round((pointer.x - this.gridX) / this.cellSize), r = Math.round((this.gridY - pointer.y) / this.cellSize);
+                if(c < 0 || c >= this.gridSize || r < 0 || r >= this.gridSize) return;
+                let cx = c + this.gridMin, cy = r + this.gridMin;
+                
+                if(cx === this.selectedTarget.x && cy === this.selectedTarget.y) {
+                    if(this.timerEvent) this.timerEvent.remove();
+                    // Award Coins
+                    GLOBAL_STATE.pendingCoins += GAME_CONFIG.economy.correctPlacement;
+                    this.pendingText.setText(`EARNED: +${GLOBAL_STATE.pendingCoins}`);
+                    // Coin visual pop
+                    let coinPop = this.add.text(pointer.x, pointer.y - 20, '+20', {fontSize:'24px', fill:'#FFD700', fontStyle:'bold'}).setOrigin(0.5);
+                    this.tweens.add({targets: coinPop, y: pointer.y - 60, alpha: 0, duration: 1000, onComplete: ()=>coinPop.destroy()});
+                    
+                    this.placePiece(c, r, 1);
+                } else {
+                    if(this.timerEvent) this.timerEvent.remove();
+                    if(this.board[c][r] === 1 || (!this.overrideMode && this.board[c][r] !== 0)) {
+                        return this.showOops(cx, cy, "SPOT TAKEN!");
+                    }
+                    this.showOops(cx, cy, `ERROR! YOU TAPPED (${cx}, ${cy})`);
+                }
+            }
+            showOops(x, y, msg) {
+                this.gameState = 'IDLE'; this.cameras.main.shake(300, 0.015);
+                let pos = this.getScreenPos(x, y);
+                let errText = this.add.text(pos.x, pos.y, 'X', { fontSize: '40px', fill: '#FF4500', fontStyle: 'bold' }).setOrigin(0.5);
+                this.statusText.setText(msg); this.statusText.setFill('#FF4500');
+                this.tweens.add({ targets: errText, y: pos.y - 50, alpha: 0, duration: 1500, onComplete: () => { errText.destroy(); this.computerTurn(); } });
+            }
+            placePiece(col, row, type) {
+                this.gameState = 'IDLE'; this.board[col][row] = type;
+                let pos = this.getScreenPos(col + this.gridMin, row + this.gridMin);
+                
+                // Destroy existing piece if we are overriding it
+                if(this.pieceSprites[col][row]) {
+                    this.add.particles(0, 0, 'particle', { x: pos.x, y: pos.y, speed: 100, scale:{start:1,end:0}, tint: 0xFFFFFF, lifespan: 300, quantity: 5 }).explode();
+                    this.pieceSprites[col][row].destroy();
+                }
+
+                let piece = this.add.sprite(pos.x, pos.y, type === 1 ? 'playerPiece' : 'computerPiece').setScale(0);
+                this.pieceSprites[col][row] = piece; // Track the new visual piece
+                
+                this.tweens.add({ targets: piece, scale: 1, duration: 300, ease: 'Back.easeOut' });
+                let color = type === 1 ? GAME_CONFIG.colors.player : GAME_CONFIG.colors.computer;
+                this.add.particles(0, 0, 'particle', { x: pos.x, y: pos.y, speed: {min:50,max:150}, scale:{start:1,end:0}, tint: color, blendMode: 'ADD', lifespan: 600, quantity: 10 }).explode();
+
+                let winLine = this.checkWin(type);
+                if(winLine) this.handleWin(type, winLine);
+                else this.time.delayedCall(500, () => type === 1 ? this.computerTurn() : this.startPlayerTurn());
+            }
+
+            computerTurn() {
+                if(this.gameState === 'GAME_OVER') return;
+                this.checkOverrideMode();
+                this.gameState = 'COMPUTER_TURN'; this.statusText.setText("PIRATE BOT IS HACKING..."); this.statusText.setFill('#FF003C');
+                
+                this.time.delayedCall(800, () => {
+                    let lvl = GLOBAL_STATE.levelIndex;
+                    
+                    // AI Progression Mechanics (Percentages increase as level goes up)
+                    let winChance = Math.min(1.0, 0.3 + (lvl * 0.1));    // Starts at 30% awareness, 100% by lvl 7
+                    let blockChance = Math.min(1.0, 0.1 + (lvl * 0.08)); // Starts at 10% awareness, 100% by lvl 12
+                    let buildChance = Math.min(1.0, lvl * 0.05);         // Starts at 0%, 100% chance to strategize by lvl 20
+
+                    let move = null;
+
+                    // 1. Try to Win (Scales with level)
+                    if (Math.random() <= winChance) {
+                        move = this.findBestMove(2);
+                    }
+
+                    // 2. Try to Block Player (Scales with level)
+                    if (!move && Math.random() <= blockChance) {
+                        move = this.findBestMove(1);
+                    }
+
+                    // 3. Fallback (Build adjacent pieces for strategy, or pick Random)
+                    if (!move) {
+                        let validMoves = this.getValidMoves(2);
+                        if (validMoves.length > 0) {
+                            if (Math.random() <= buildChance) {
+                                move = this.findAdjacencyMove(2, validMoves);
+                            }
+                            // If still no move found, pick completely randomly
+                            if (!move) {
+                                move = Phaser.Utils.Array.GetRandom(validMoves);
+                            }
+                        }
+                    }
+
+                    if(move) {
+                        this.statusText.setText(`PIRATE PLACED AT (${move.x}, ${move.y})`);
+                        this.placePiece(move.c, move.r, 2);
+                    } else {
+                        this.statusText.setText("DRAW! RETRYING...");
+                        this.time.delayedCall(2000, () => this.scene.restart());
+                    }
+                });
+            }
+
+            // Advanced AI Logic: Tries to place a piece next to its own existing pieces
+            findAdjacencyMove(type, validMoves) {
+                let goodMoves = [];
+                for (let move of validMoves) {
+                    let isAdjacent = false;
+                    for (let dc = -1; dc <= 1; dc++) {
+                        for (let dr = -1; dr <= 1; dr++) {
+                            if (dc === 0 && dr === 0) continue; // Skip center
+                            let nc = move.c + dc;
+                            let nr = move.r + dr;
+                            // Check if an adjacent tile belongs to the computer
+                            if (nc >= 0 && nc < this.gridSize && nr >= 0 && nr < this.gridSize) {
+                                if (this.board[nc][nr] === type) {
+                                    isAdjacent = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if(isAdjacent) break;
+                    }
+                    if (isAdjacent) goodMoves.push(move);
+                }
+                return goodMoves.length > 0 ? Phaser.Utils.Array.GetRandom(goodMoves) : null;
+            }
+
+            findBestMove(type) {
+                let moves = this.getValidMoves(type);
+                for(let move of moves) {
+                    let original = this.board[move.c][move.r];
+                    this.board[move.c][move.r] = type;
+                    if(this.checkWin(type)) { 
+                        this.board[move.c][move.r] = original; // Revert change 
+                        return move; 
+                    }
+                    this.board[move.c][move.r] = original; // Revert change
+                }
+                return null;
+            }
+            checkWin(type) {
+                const dirs = [[1,0], [0,1], [1,1], [1,-1]];
+                for(let c=0; c<this.gridSize; c++) for(let r=0; r<this.gridSize; r++) {
+                    if(this.board[c][r] === type) {
+                        for(let d of dirs) {
+                            let w = [{c, r}], nc = c+d[0], nr = r+d[1];
+                            while(nc>=0 && nc<this.gridSize && nr>=0 && nr<this.gridSize && this.board[nc][nr]===type) {
+                                w.push({c:nc, r:nr}); if(w.length===4) return w;
+                                nc+=d[0]; nr+=d[1];
+                            }
+                        }
+                    }
+                }
+                return null;
+            }
+            handleWin(type, lineCoords) {
+                this.gameState = 'GAME_OVER';
+                if(this.timerEvent) this.timerEvent.remove();
+                let p1 = this.getScreenPos(lineCoords[0].c + this.gridMin, lineCoords[0].r + this.gridMin);
+                let p2 = this.getScreenPos(lineCoords[3].c + this.gridMin, lineCoords[3].r + this.gridMin);
+                this.add.graphics().lineStyle(8, GAME_CONFIG.colors.highlight, 0.8).strokeLineShape(new Phaser.Geom.Line(p1.x, p1.y, p2.x, p2.y));
+                this.cameras.main.shake(500, 0.02);
+
+                if(type === 1) {
+                    GLOBAL_STATE.coins += GLOBAL_STATE.pendingCoins + GAME_CONFIG.economy.winBonus;
+                    this.statusText.setText(`SECTOR SECURED! +${GAME_CONFIG.economy.winBonus} BONUS`); this.statusText.setFill('#F2A900');
+                    this.add.particles(0, 0, 'particle', { x:{min:0,max:this.w}, y:-20, speedY:{min:100,max:300}, tint:[0x66FCF1, 0xFFD700, 0xFFFFFF], lifespan:3000, quantity:2 });
+                    this.time.delayedCall(2500, () => this.scene.start('ShopScene'));
+                } else {
+                    GLOBAL_STATE.pendingCoins = 0; // Lose pending
+                    this.statusText.setText("PIRATES WIN! PENDING COINS LOST."); this.statusText.setFill('#FF003C');
+                    this.time.delayedCall(3000, () => this.scene.restart()); // Retry level
+                }
+            }
+        }
+
+        class ShopScene extends Phaser.Scene {
+            constructor() { super('ShopScene'); }
+            create() {
+                this.w = this.cameras.main.width; this.h = this.cameras.main.height;
+                
+                this.add.text(this.w/2, this.h*0.1, "BASE UPGRADE SHOP", { fontSize: '32px', fill: '#66FCF1', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                this.coinDisplay = this.add.text(this.w/2, this.h*0.18, `AVAILABLE COINS: ${GLOBAL_STATE.coins}`, { fontSize: '24px', fill: '#FFD700', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+
+                const keys = Object.keys(GAME_CONFIG.upgrades);
+                let startY = this.h * 0.3;
+                this.spacing = this.h * 0.12;
+
+                keys.forEach((key, index) => {
+                    this.createUpgradeRow(key, this.w/2, startY + (index * this.spacing));
+                });
+
+                let defBtn = this.add.rectangle(this.w/2, this.h*0.85, 250, 60, GAME_CONFIG.colors.error, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.error).setInteractive();
+                let defTxt = this.add.text(this.w/2, this.h*0.85, "INITIATE DEFENSE", { fontSize: '22px', fill: '#FF4500', fontFamily: 'Courier', fontStyle:'bold' }).setOrigin(0.5);
+                this.tweens.add({ targets: [defBtn, defTxt], alpha: 0.6, duration: 500, yoyo: true, repeat: -1 });
+
+                defBtn.on('pointerdown', () => this.scene.start('DefenseScene'));
+            }
+
+            createUpgradeRow(key, x, y) {
+                const data = GAME_CONFIG.upgrades[key];
+                const currentLvl = GLOBAL_STATE.upgrades[key];
+                const isMax = currentLvl >= data.max;
+                const cost = isMax ? 'MAX' : GAME_CONFIG.upgradeCosts[currentLvl];
+
+                let rowBg = this.add.rectangle(x, y, this.w * 0.9, this.spacing * 0.8, 0x1F2833, 0.8).setStrokeStyle(1, 0x45A29E);
+                
+                let title = this.add.text(x - this.w*0.4, y - 10, data.name, { fontSize: '18px', fill: '#FFF', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                let lvlTxt = this.add.text(x - this.w*0.4, y + 15, `Level: ${currentLvl}/${data.max}`, { fontSize: '14px', fill: '#C5C6C7', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                
+                // Show current stat calculation
+                let statVal = data.base + (currentLvl * data.inc);
+                let statTxt = this.add.text(x, y, `Stat: ${statVal}`, { fontSize: '16px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
+
+                let btnW = 100;
+                let btn = this.add.rectangle(x + this.w*0.25, y, btnW, 40, isMax ? 0x555555 : GAME_CONFIG.colors.highlight, 0.3).setStrokeStyle(2, isMax ? 0x555555 : GAME_CONFIG.colors.highlight).setInteractive();
+                let btnTxt = this.add.text(x + this.w*0.25, y, isMax ? 'MAXED' : `${cost} C`, { fontSize: '16px', fill: isMax ? '#FFF' : '#FFD700', fontFamily: 'Courier', fontStyle:'bold' }).setOrigin(0.5);
+
+                if(!isMax) {
+                    btn.on('pointerdown', () => {
+                        if(GLOBAL_STATE.coins >= cost) {
+                            GLOBAL_STATE.coins -= cost;
+                            GLOBAL_STATE.upgrades[key]++;
+                            this.scene.restart(); // Refresh shop UI
+                        } else {
+                            this.cameras.main.shake(100, 0.01); // Not enough coins
+                            btnTxt.setFill('#FF003C');
+                            this.time.delayedCall(300, () => btnTxt.setFill('#FFD700'));
+                        }
+                    });
+                }
+            }
+        }
+
+        class DefenseScene extends Phaser.Scene {
+            constructor() { super('DefenseScene'); }
+            init() {
+                this.levelData = gameLevels[GLOBAL_STATE.levelIndex];
+                
+                // Calculate Stats
+                this.maxHp = GAME_CONFIG.upgrades.hull.base + (GLOBAL_STATE.upgrades.hull * GAME_CONFIG.upgrades.hull.inc);
+                this.currentHp = this.maxHp;
+                this.maxShield = GAME_CONFIG.upgrades.shield.base + (GLOBAL_STATE.upgrades.shield * GAME_CONFIG.upgrades.shield.inc);
+                this.currentShield = this.maxShield;
+                this.damage = GAME_CONFIG.upgrades.damage.base + (GLOBAL_STATE.upgrades.damage * GAME_CONFIG.upgrades.damage.inc);
+                this.fireRate = GAME_CONFIG.upgrades.fireRate.base + (GLOBAL_STATE.upgrades.fireRate * GAME_CONFIG.upgrades.fireRate.inc);
+
+                this.timeRemaining = 30; // Increased to 30 seconds for interaction
+                this.isGameOver = false;
+                this.isAnswering = false; // Flags when multiple choice is open
+                this.nextFireTime = 0;
+                
+                // Grid for defense (0 to 10)
+                this.gridMin = 0; this.gridMax = 10; this.gridSize = 11;
+            }
+
+            create() {
+                this.w = this.cameras.main.width; this.h = this.cameras.main.height;
+                
+                // Draw Grid
+                this.calculateGridDimensions();
+                this.drawGrid();
+
+                // Base at mathematical center (5,5)
+                let centerPos = this.getScreenPos(5, 5);
+                this.base = this.physics.add.sprite(centerPos.x, centerPos.y, 'base').setImmovable(true);
+                
+                // Groups
+                this.enemies = this.physics.add.group();
+                this.lasers = this.physics.add.group();
+                this.popups = this.physics.add.group();
+
+                // UI
+                this.timerTxt = this.add.text(this.w/2, this.h*0.05, `SURVIVE: ${this.timeRemaining}s`, { fontSize: '28px', fill: '#FF003C', fontFamily: 'Courier', fontStyle:'bold' }).setOrigin(0.5);
+                this.hpTxt = this.add.text(this.w*0.05, this.h*0.05, `HP: ${this.currentHp}`, { fontSize: '18px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                if(this.maxShield > 0) this.shieldTxt = this.add.text(this.w*0.05, this.h*0.08, `SHLD: ${this.currentShield}`, { fontSize: '18px', fill: '#F2A900', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+
+                // Timers
+                this.time.addEvent({ delay: 1000, callback: this.tickSecond, callbackScope: this, loop: true });
+                
+                // Spawn popups periodically based on level
+                let popupInterval = Math.max(3000, 8000 - (GLOBAL_STATE.levelIndex * 200));
+                this.time.addEvent({ delay: popupInterval, callback: this.spawnPopup, callbackScope: this, loop: true });
+                
+                // Spawn initial popup immediately
+                this.time.delayedCall(1000, this.spawnPopup, [], this);
+
+                // Constant trickle of enemies from the edges
+                let edgeSpawnInterval = Math.max(1500, 5000 - (GLOBAL_STATE.levelIndex * 150));
+                this.time.addEvent({ delay: edgeSpawnInterval, callback: this.spawnEdgeEnemy, callbackScope: this, loop: true });
+
+                // Collisions
+                this.physics.add.overlap(this.lasers, this.enemies, this.hitEnemy, null, this);
+                this.physics.add.overlap(this.base, this.enemies, this.hitBase, null, this);
+                
+                this.uiContainer = this.add.container(0, 0).setDepth(100);
+            }
+
+            calculateGridDimensions() {
+                const availW = this.w * 0.9, availH = this.h * 0.65;
+                this.cellSize = Math.min(availW / 10, availH / 10);
+                const actualW = this.cellSize * 10;
+                this.gridX = (this.w - actualW) / 2;
+                this.gridY = this.h * 0.85; 
+            }
+
+            drawGrid() {
+                let g = this.add.graphics();
+                for(let col = 0; col < this.gridSize; col++) {
+                    let x = this.gridX + (col * this.cellSize);
+                    g.lineStyle(col === 5 ? 3 : 1, col === 5 ? GAME_CONFIG.colors.axis : GAME_CONFIG.colors.grid);
+                    g.strokeLineShape(new Phaser.Geom.Line(x, this.gridY, x, this.gridY - 10 * this.cellSize));
+                    this.add.text(x, this.gridY + 10, col, { fontSize: '12px', fill: '#FFF', fontFamily: 'Courier' }).setOrigin(0.5, 0);
+                }
+                for(let row = 0; row < this.gridSize; row++) {
+                    let y = this.gridY - (row * this.cellSize);
+                    g.lineStyle(row === 5 ? 3 : 1, row === 5 ? GAME_CONFIG.colors.axis : GAME_CONFIG.colors.grid);
+                    g.strokeLineShape(new Phaser.Geom.Line(this.gridX, y, this.gridX + 10 * this.cellSize, y));
+                    this.add.text(this.gridX - 10, y, row, { fontSize: '12px', fill: '#FFF', fontFamily: 'Courier' }).setOrigin(1, 0.5);
+                }
+            }
+
+            getScreenPos(cx, cy) {
+                return { x: this.gridX + (cx * this.cellSize), y: this.gridY - (cy * this.cellSize) };
+            }
+
+            spawnEdgeEnemy() {
+                if(this.isGameOver || this.isAnswering) return;
+
+                // Spawn on a random edge (outside the screen bounds)
+                let x, y;
+                if(Math.random() > 0.5) { x = Math.random() > 0.5 ? -20 : this.w + 20; y = Math.random() * this.h; } 
+                else { x = Math.random() * this.w; y = Math.random() > 0.5 ? -20 : this.h + 20; }
+
+                let enemy = this.enemies.create(x, y, 'enemy');
+                enemy.hp = this.levelData.enemyHp;
+                enemy.rotation = Phaser.Math.Angle.Between(x, y, this.base.x, this.base.y) + Math.PI/2;
+                
+                let speed = 80 + (GLOBAL_STATE.levelIndex * 5);
+                this.physics.moveToObject(enemy, this.base, speed);
+            }
+
+            spawnPopup() {
+                if(this.isGameOver || this.isAnswering) return;
+                
+                let cx = Phaser.Math.Between(0, 10);
+                let cy = Phaser.Math.Between(0, 10);
+                // Prevent spawning on base (5,5) or directly adjacent
+                while(Math.abs(cx - 5) <= 1 && Math.abs(cy - 5) <= 1) {
+                    cx = Phaser.Math.Between(0, 10);
+                    cy = Phaser.Math.Between(0, 10);
+                }
+
+                let pos = this.getScreenPos(cx, cy);
+                let popup = this.popups.create(pos.x, pos.y, 'popup').setInteractive();
+                popup.cx = cx; popup.cy = cy;
+
+                // Pulse effect to draw the player's eye
+                this.tweens.add({ targets: popup, scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
+
+                // Spawns enemies while alive
+                let enemyInterval = Math.max(1000, 4000 - (GLOBAL_STATE.levelIndex * 150));
+                popup.spawnTimer = this.time.addEvent({
+                    delay: enemyInterval,
+                    callback: () => this.spawnEnemyFromPopup(popup),
+                    callbackScope: this,
+                    loop: true
+                });
+
+                popup.on('pointerdown', () => this.openQuestion(popup));
+            }
+
+            spawnEnemyFromPopup(popup) {
+                if(this.isGameOver || !popup.active || this.isAnswering) return;
+                
+                let enemy = this.enemies.create(popup.x, popup.y, 'enemy');
+                enemy.hp = this.levelData.enemyHp;
+                enemy.rotation = Phaser.Math.Angle.Between(popup.x, popup.y, this.base.x, this.base.y) + Math.PI/2;
+                
+                let speed = 60 + (GLOBAL_STATE.levelIndex * 4);
+                this.physics.moveToObject(enemy, this.base, speed);
+            }
+
+            openQuestion(popup) {
+                if(this.isGameOver || this.isAnswering) return;
+
+                this.isAnswering = true;
+                this.physics.world.pause(); // Freeze enemies during the question
+
+                let overlay = this.add.rectangle(this.w/2, this.h/2, this.w, this.h, 0x000000, 0.85).setInteractive();
+                this.uiContainer.add(overlay);
+
+                let title = this.add.text(this.w/2, this.h*0.2, "TARGET LOCKED!\nIDENTIFY COORDINATES TO DESTROY:", { fontSize: Math.min(this.w*0.05, 24) + 'px', fill: '#F2A900', fontFamily: 'Courier', fontStyle: 'bold', align: 'center' }).setOrigin(0.5);
+                this.uiContainer.add(title);
+
+                // Generate Options
+                let correct = {x: popup.cx, y: popup.cy};
+                let d1 = {x: popup.cy, y: popup.cx}; // Common math mistake (flipped coordinates)
+                if(d1.x === correct.x && d1.y === correct.y) d1.x = (d1.x + 1) % 11; 
+                
+                let d2 = {x: Phaser.Math.Between(0, 10), y: Phaser.Math.Between(0, 10)}; // Random
+                while((d2.x === correct.x && d2.y === correct.y) || (d2.x === d1.x && d2.y === d1.y)) {
+                    d2 = {x: Phaser.Math.Between(0, 10), y: Phaser.Math.Between(0, 10)};
+                }
+
+                let options = [correct, d1, d2];
+                Phaser.Utils.Array.Shuffle(options);
+
+                let startY = this.h * 0.4;
+                options.forEach((opt, idx) => {
+                    let btnY = startY + (idx * 80);
+                    let btnBg = this.add.rectangle(this.w/2, btnY, 200, 60, GAME_CONFIG.colors.player, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.player).setInteractive();
+                    let btnTxt = this.add.text(this.w/2, btnY, `(${opt.x}, ${opt.y})`, { fontSize: '28px', fill: '#FFF', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                    
+                    this.uiContainer.add([btnBg, btnTxt]);
+
+                    btnBg.on('pointerdown', () => {
+                        let isCorrect = (opt.x === correct.x && opt.y === correct.y);
+                        this.handleAnswer(popup, isCorrect);
+                    });
+                });
+            }
+
+            handleAnswer(popup, isCorrect) {
+                this.uiContainer.removeAll(true);
+                this.physics.world.resume();
+                this.isAnswering = false;
+
+                if(isCorrect) {
+                    if(popup.spawnTimer) popup.spawnTimer.remove();
+                    this.cameras.main.shake(300, 0.02);
+                    this.add.particles(0,0,'particle',{x:popup.x, y:popup.y, speed:200, tint:0xF2A900, lifespan:600, scale:{start:2,end:0}, quantity:30}).explode();
+                    popup.destroy();
+                    // Bonus: small heal for correctly identifying!
+                    this.currentHp = Math.min(this.maxHp, this.currentHp + 10);
+                    this.hpTxt.setText(`HP: ${this.currentHp}`);
+                } else {
+                    this.cameras.main.shake(100, 0.01);
+                    // Spawn an immediate revenge enemy for getting it wrong
+                    this.spawnEnemyFromPopup(popup); 
+                }
+            }
+
+            update(time, delta) {
+                if(this.isGameOver || this.isAnswering) return;
+
+                // Auto-Aim Logic against enemies
+                if (time > this.nextFireTime && this.enemies.getChildren().length > 0) {
+                    let closest = null; let minDist = Infinity;
+                    this.enemies.getChildren().forEach(e => {
+                        if(!e.active) return;
+                        let d = Phaser.Math.Distance.Between(this.base.x, this.base.y, e.x, e.y);
+                        if (d < minDist) { minDist = d; closest = e; }
+                    });
+
+                    if (closest) {
+                        let laser = this.lasers.create(this.base.x, this.base.y, 'laser');
+                        this.physics.moveToObject(laser, closest, 800);
+                        laser.rotation = Phaser.Math.Angle.Between(this.base.x, this.base.y, closest.x, closest.y);
+                        this.nextFireTime = time + (1000 / this.fireRate);
+                    }
+                }
+
+                // Cleanup offscreen lasers
+                this.lasers.getChildren().forEach(l => {
+                    if(l.x < 0 || l.x > this.w || l.y < 0 || l.y > this.h) l.destroy();
+                });
+            }
+
+            tickSecond() {
+                if(this.isGameOver || this.isAnswering) return;
+                this.timeRemaining--;
+                this.timerTxt.setText(`SURVIVE: ${this.timeRemaining}s`);
+                
+                if(this.timeRemaining <= 0) {
+                    this.endDefense(true);
+                }
+            }
+
+            hitEnemy(laser, enemy) {
+                laser.destroy();
+                enemy.hp -= this.damage;
+                this.add.particles(0,0,'particle',{x:enemy.x, y:enemy.y, speed:50, tint:0xF2A900, lifespan:200, scale:{start:0.5,end:0}, quantity:3}).explode();
+
+                if(enemy.hp <= 0) {
+                    this.add.particles(0,0,'particle',{x:enemy.x, y:enemy.y, speed:150, tint:0xFF003C, lifespan:400, scale:{start:1,end:0}, quantity:10}).explode();
+                    enemy.destroy();
+                }
+            }
+
+            hitBase(base, enemy) {
+                enemy.destroy();
+                this.cameras.main.shake(200, 0.02);
+                this.add.particles(0,0,'particle',{x:base.x, y:base.y, speed:200, tint:0xFF003C, lifespan:500, scale:{start:1.5,end:0}, quantity:15}).explode();
+
+                let dmg = 20 + (GLOBAL_STATE.levelIndex * 10);
+                
+                if(this.currentShield > 0) {
+                    this.currentShield -= dmg;
+                    if(this.currentShield < 0) {
+                        this.currentHp += this.currentShield; 
+                        this.currentShield = 0;
+                    }
+                } else {
+                    this.currentHp -= dmg;
+                }
+
+                this.hpTxt.setText(`HP: ${Math.max(0, this.currentHp)}`);
+                if(this.shieldTxt) this.shieldTxt.setText(`SHLD: ${Math.max(0, this.currentShield)}`);
+
+                if(this.currentHp <= 0) this.endDefense(false);
+            }
+
+            endDefense(won) {
+                this.isGameOver = true;
+                this.enemies.getChildren().forEach(e => e.body.stop());
+                this.physics.world.pause(); // Freeze everything
+                
+                let msg = won ? "DEFENSE SUCCESSFUL!" : "BASE DESTROYED!";
+                let col = won ? '#66FCF1' : '#FF003C';
+                
+                this.add.rectangle(this.w/2, this.h/2, this.w, 100, 0x000000, 0.8).setDepth(100);
+                this.add.text(this.w/2, this.h/2, msg, { fontSize: '32px', fill: col, fontFamily: 'Courier', fontStyle:'bold' }).setOrigin(0.5).setDepth(100);
+
+                this.time.delayedCall(3000, () => {
+                    if(won) {
+                        GLOBAL_STATE.levelIndex++;
+                        if(GLOBAL_STATE.levelIndex >= 20) {
+                            alert("YOU BEAT ALL 20 LEVELS! CONGRATULATIONS COMMANDER!");
+                            GLOBAL_STATE.levelIndex = 0; 
+                        }
+                    }
+                    this.scene.start('GameScene');
+                });
+            }
+        }
+
+        // ==============================================================================
+        // INITIALIZATION & RESIZE
+        // ==============================================================================
+        const config = {
+            type: Phaser.AUTO, parent: 'game-container',
+            width: window.innerWidth, height: window.innerHeight,
+            backgroundColor: GAME_CONFIG.colors.bg,
+            physics: { default: 'arcade', arcade: { gravity: { y: 0 } } }, // Added physics for defense!
+            scene: [BootScene, TitleScene, GameScene, ShopScene, DefenseScene],
+            scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH }
+        };
+
+        const game = new Phaser.Game(config);
+
+        function resize() {
+            const h = window.innerHeight, w = window.innerWidth;
+            document.body.style.height = `${h}px`;
+            if (game && game.isBooted) game.scale.resize(w, h);
+        }
+        window.addEventListener('resize', resize);
+        window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+        setTimeout(resize, 100);
+
+    </script>
+</body>
+</html>
