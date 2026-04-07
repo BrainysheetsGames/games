@@ -35,7 +35,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
 </head>
 <body>
-    <div id="loading">INITIALIZING PROTOCOLS...</div>
+    <div id="loading">BOOTING NAV-COMPUTER...</div>
     <div id="game-container"></div>
 
     <script>
@@ -44,7 +44,7 @@
         // ==============================================================================
         const GAME_CONFIG = {
             colors: {
-                bg: 0x0B0C10, grid: 0x1F2833, axis: 0x45A29E, 
+                bg: 0x05050A, grid: 0x1F2833, axis: 0x45A29E, 
                 player: 0x66FCF1, computer: 0xFF003C, text: 0xC5C6C7, 
                 error: 0xFF4500, highlight: 0xF2A900, coin: 0xFFD700
             },
@@ -79,6 +79,39 @@
             upgrades: { hull: 0, damage: 0, fireRate: 0, shield: 0 } // Current levels (0-5)
         };
 
+        // Helper to create space atmosphere
+        function createSpaceBackground(scene) {
+            const w = scene.cameras.main.width;
+            const h = scene.cameras.main.height;
+            
+            // Twinkling stars
+            for(let i=0; i<150; i++) {
+                let star = scene.add.rectangle(Phaser.Math.Between(0, w), Phaser.Math.Between(0, h), 2, 2, 0xffffff, Phaser.Math.FloatBetween(0.1, 0.8)).setDepth(-10);
+                scene.tweens.add({ targets: star, alpha: 0, duration: Phaser.Math.Between(1000, 3000), yoyo: true, repeat: -1, delay: Phaser.Math.Between(0, 1000) });
+            }
+
+            // Drifting Asteroids
+            for(let i=0; i<5; i++) {
+                let size = Phaser.Math.Between(20, 60);
+                let ast = scene.add.graphics({x: Phaser.Math.Between(0, w), y: Phaser.Math.Between(0, h)}).setDepth(-5);
+                ast.fillStyle(0x333333, 0.4);
+                ast.fillCircle(0, 0, size);
+                // Crater
+                ast.fillStyle(0x1a1a1a, 0.4);
+                ast.fillCircle(size*0.3, -size*0.2, size*0.3);
+                
+                scene.tweens.add({
+                    targets: ast,
+                    x: `+=${Phaser.Math.Between(100, 300) * (Math.random() > 0.5 ? 1 : -1)}`,
+                    y: `+=${Phaser.Math.Between(100, 300) * (Math.random() > 0.5 ? 1 : -1)}`,
+                    rotation: Phaser.Math.FloatBetween(-Math.PI, Math.PI),
+                    duration: Phaser.Math.Between(20000, 40000),
+                    repeat: -1,
+                    yoyo: true
+                });
+            }
+        }
+
         // ==============================================================================
         // SCENES
         // ==============================================================================
@@ -87,30 +120,71 @@
             constructor() { super('BootScene'); }
             create() {
                 let g = this.add.graphics();
-                // Player Piece
-                g.lineStyle(4, GAME_CONFIG.colors.player, 1); g.fillStyle(GAME_CONFIG.colors.player, 0.3);
-                g.strokeCircle(16, 16, 14); g.fillCircle(16, 16, 14);
-                g.fillStyle(GAME_CONFIG.colors.player, 1); g.fillCircle(16, 16, 6);
+                
+                // Player Piece (Federation Satellite / Radar)
+                g.lineStyle(2, GAME_CONFIG.colors.player, 1);
+                g.strokeCircle(16, 16, 12);
+                g.fillStyle(GAME_CONFIG.colors.player, 0.6);
+                g.fillCircle(16, 16, 4);
+                g.beginPath();
+                g.moveTo(16, 0); g.lineTo(16, 32);
+                g.moveTo(0, 16); g.lineTo(32, 16);
+                g.strokePath();
                 g.generateTexture('playerPiece', 32, 32); g.clear();
 
-                // Computer Piece
-                g.lineStyle(4, GAME_CONFIG.colors.computer, 1); g.fillStyle(GAME_CONFIG.colors.computer, 0.3);
-                g.strokeRect(2, 2, 28, 28); g.fillStyle(GAME_CONFIG.colors.computer, 1); g.fillRect(8, 8, 16, 16);
+                // Computer Piece (Pirate Mine)
+                g.fillStyle(0x440000, 1);
+                g.fillCircle(16, 16, 10);
+                g.lineStyle(2, GAME_CONFIG.colors.computer, 1);
+                g.strokeCircle(16, 16, 10);
+                g.beginPath(); // spikes
+                g.moveTo(16, 0); g.lineTo(16, 32);
+                g.moveTo(0, 16); g.lineTo(32, 16);
+                g.moveTo(4, 4); g.lineTo(28, 28);
+                g.moveTo(4, 28); g.lineTo(28, 4);
+                g.strokePath();
                 g.generateTexture('computerPiece', 32, 32); g.clear();
 
-                // Defense Base
-                g.fillStyle(GAME_CONFIG.colors.player, 1); g.fillCircle(32, 32, 24);
-                g.lineStyle(4, 0xffffff, 1); g.strokeCircle(32, 32, 28);
+                // Defense Base (Space Station)
+                g.fillStyle(0x555555, 1);
+                g.fillCircle(32, 32, 18); // core
+                g.fillStyle(0x2244aa, 1);
+                g.fillRect(4, 26, 20, 12); // left solar panel
+                g.fillRect(40, 26, 20, 12); // right solar panel
+                g.fillStyle(GAME_CONFIG.colors.player, 1);
+                g.fillCircle(32, 32, 8); // glowing center
+                g.lineStyle(2, GAME_CONFIG.colors.player, 0.5);
+                g.strokeCircle(32, 32, 26); // energy shield visual
                 g.generateTexture('base', 64, 64); g.clear();
 
-                // Defense Enemy
-                g.fillStyle(GAME_CONFIG.colors.computer, 1); g.fillTriangle(16, 0, 32, 32, 0, 32);
+                // Defense Enemy (Pirate Fighter Ship)
+                g.fillStyle(GAME_CONFIG.colors.computer, 1);
+                g.beginPath();
+                g.moveTo(16, 0); // nose
+                g.lineTo(32, 32); // right wing
+                g.lineTo(16, 24); // engine indent
+                g.lineTo(0, 32); // left wing
+                g.closePath();
+                g.fillPath();
+                g.fillStyle(0xffaa00, 1); // engine glow
+                g.fillCircle(16, 28, 4);
                 g.generateTexture('enemy', 32, 32); g.clear();
 
-                // Popup Spawner Base
-                g.fillStyle(GAME_CONFIG.colors.highlight, 0.3); g.fillRect(0, 0, 40, 40);
-                g.lineStyle(4, GAME_CONFIG.colors.highlight, 1); g.strokeRect(0, 0, 40, 40);
-                g.fillStyle(0xffffff, 1); g.fillCircle(20, 20, 10);
+                // Popup Spawner Base (Pirate Mothership)
+                g.fillStyle(0x333333, 1);
+                g.fillCircle(20, 20, 18); // hull
+                g.lineStyle(3, GAME_CONFIG.colors.computer, 1);
+                g.strokeCircle(20, 20, 18); // red trim
+                g.fillStyle(GAME_CONFIG.colors.error, 1);
+                g.fillCircle(20, 20, 6); // glowing red core
+                g.lineStyle(2, GAME_CONFIG.colors.highlight, 0.8);
+                g.strokeRect(0, 0, 40, 40); // targeting box
+                g.beginPath(); // crosshairs
+                g.moveTo(0, 20); g.lineTo(10, 20);
+                g.moveTo(30, 20); g.lineTo(40, 20);
+                g.moveTo(20, 0); g.lineTo(20, 10);
+                g.moveTo(20, 30); g.lineTo(20, 40);
+                g.strokePath();
                 g.generateTexture('popup', 40, 40); g.clear();
 
                 // Laser
@@ -130,16 +204,18 @@
             constructor() { super('TitleScene'); }
             create() {
                 const w = this.cameras.main.width, h = this.cameras.main.height;
-                this.add.text(w/2, h*0.3, "COORDINATE\nDEFENDER", {
+                createSpaceBackground(this);
+
+                this.add.text(w/2, h*0.3, "SPACE PIRATE\nCOORDINATES", {
                     fontSize: Math.min(w*0.1, 48) + 'px', fill: '#66FCF1', align: 'center', fontFamily: 'Courier', fontStyle: 'bold'
                 }).setOrigin(0.5);
 
-                this.add.text(w/2, h*0.5, "Plot coordinates to earn coins.\nUpgrade your base to survive\nthe 10-second pirate attacks!", {
+                this.add.text(w/2, h*0.5, "Plot coordinates to earn Space Credits.\nUpgrade your starbase to survive\nthe dreaded Pirate Motherships!", {
                     fontSize: Math.min(w*0.04, 20) + 'px', fill: '#C5C6C7', align: 'center', fontFamily: 'Courier'
                 }).setOrigin(0.5);
 
-                const btn = this.add.rectangle(w/2, h*0.7, 200, 60, GAME_CONFIG.colors.player, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.player).setInteractive();
-                const btnText = this.add.text(w/2, h*0.7, "START", { fontSize: '24px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
+                const btn = this.add.rectangle(w/2, h*0.7, 240, 60, GAME_CONFIG.colors.player, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.player).setInteractive();
+                const btnText = this.add.text(w/2, h*0.7, "LAUNCH MISSION", { fontSize: '24px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
                 this.tweens.add({ targets: [btn, btnText], alpha: 0.5, duration: 800, yoyo: true, repeat: -1 });
 
                 btn.on('pointerdown', () => this.scene.start('GameScene'));
@@ -154,15 +230,15 @@
                 this.gridSize = this.gridMax - this.gridMin + 1;
                 this.board = Array(this.gridSize).fill(null).map(() => Array(this.gridSize).fill(0));
                 
-                // Track visual sprites so we can destroy them during an override
                 this.pieceSprites = Array(this.gridSize).fill(null).map(() => Array(this.gridSize).fill(null));
                 this.overrideMode = false;
                 
                 this.gameState = 'IDLE'; 
-                GLOBAL_STATE.pendingCoins = 0; // Reset pending
+                GLOBAL_STATE.pendingCoins = 0; 
             }
             create() {
                 this.w = this.cameras.main.width; this.h = this.cameras.main.height;
+                createSpaceBackground(this);
                 this.createUI();
                 this.calculateGridDimensions();
                 this.drawGrid();
@@ -170,10 +246,10 @@
                 this.startPlayerTurn();
             }
             createUI() {
-                this.headerText = this.add.text(this.w/2, this.h*0.04, `LEVEL ${this.levelData.id} / 20`, { fontSize: '20px', fill: '#FFF', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
-                this.coinText = this.add.text(this.w*0.05, this.h*0.04, `COINS: ${GLOBAL_STATE.coins}`, { fontSize: '18px', fill: '#FFD700', fontFamily: 'Courier' }).setOrigin(0, 0.5);
-                this.pendingText = this.add.text(this.w*0.05, this.h*0.08, `EARNED: +${GLOBAL_STATE.pendingCoins}`, { fontSize: '16px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0, 0.5);
-                this.statusText = this.add.text(this.w/2, this.h*0.13, "CHOOSE A TARGET:", { fontSize: '20px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
+                this.headerText = this.add.text(this.w/2, this.h*0.04, `SECTOR ${this.levelData.id} / 20`, { fontSize: '20px', fill: '#FFF', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                this.coinText = this.add.text(this.w*0.05, this.h*0.04, `CREDITS: ${GLOBAL_STATE.coins}`, { fontSize: '18px', fill: '#FFD700', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                this.pendingText = this.add.text(this.w*0.05, this.h*0.08, `BOUNTY: +${GLOBAL_STATE.pendingCoins}`, { fontSize: '16px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                this.statusText = this.add.text(this.w/2, this.h*0.13, "SET NAV-COMPUTER TARGET:", { fontSize: '20px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
                 this.timerText = this.add.text(this.w*0.95, this.h*0.04, "", { fontSize: '20px', fill: '#FF003C', fontFamily: 'Courier' }).setOrigin(1, 0.5);
 
                 this.optGroup = this.add.group();
@@ -197,6 +273,10 @@
             }
             drawGrid() {
                 let g = this.add.graphics();
+                // Add a glowing radar backdrop for the grid
+                g.fillStyle(0x0a111a, 0.8);
+                g.fillRect(this.gridX - 20, this.gridY - (this.gridSize - 1) * this.cellSize - 20, (this.gridSize - 1) * this.cellSize + 40, (this.gridSize - 1) * this.cellSize + 40);
+
                 for(let col = 0; col < this.gridSize; col++) {
                     let x = this.gridX + (col * this.cellSize); let label = col + this.gridMin;
                     g.lineStyle(label === 0 ? 3 : 1, label === 0 ? GAME_CONFIG.colors.axis : GAME_CONFIG.colors.grid);
@@ -220,7 +300,7 @@
                 
                 if(empties < 2 && !this.overrideMode) {
                     this.overrideMode = true;
-                    let txt = this.add.text(this.w/2, this.h/2, "BOARD FULL!\nOVERRIDE ENGAGED!", {fontSize:'32px', fill:'#FF003C', fontStyle:'bold', align:'center'}).setOrigin(0.5).setDepth(100);
+                    let txt = this.add.text(this.w/2, this.h/2, "SECTOR OVERRUN!\nOVERRIDE WEAPONS ONLINE!", {fontSize:'32px', fill:'#FF003C', fontStyle:'bold', align:'center'}).setOrigin(0.5).setDepth(100);
                     this.tweens.add({targets: txt, y: this.h/2 - 100, alpha: 0, duration: 3000, onComplete: ()=>txt.destroy()});
                     this.cameras.main.shake(500, 0.02);
                 }
@@ -232,7 +312,6 @@
                 for(let c=0; c<this.gridSize; c++) {
                     for(let r=0; r<this.gridSize; r++) {
                         if(this.board[c][r] === 0) moves.push({c: c, r: r, x: c+this.gridMin, y: r+this.gridMin});
-                        // In override mode, you can target enemy spots!
                         if(this.overrideMode && this.board[c][r] === enemyType) moves.push({c: c, r: r, x: c+this.gridMin, y: r+this.gridMin});
                     }
                 }
@@ -242,7 +321,7 @@
             startPlayerTurn() {
                 this.checkOverrideMode();
                 this.gameState = 'PICK_OPTION';
-                this.statusText.setText("CHOOSE YOUR NEXT TARGET"); this.statusText.setFill('#FFF');
+                this.statusText.setText("SET NAV-COMPUTER TARGET"); this.statusText.setFill('#FFF');
                 let options = this.generateOptions();
                 this.btnA.target = options[0]; this.btnB.target = options[1];
                 this.btnA.txt.setText(`(${options[0].x}, ${options[0].y})`); this.btnB.txt.setText(`(${options[1].x}, ${options[1].y})`);
@@ -259,7 +338,7 @@
                 if(this.gameState !== 'PICK_OPTION' && this.gameState !== 'PLACE_PIECE') return;
                 this.timeRemaining--; this.timerText.setText(`TIME: ${this.timeRemaining}`);
                 if(this.timeRemaining <= 0) {
-                    this.timerEvent.remove(); this.statusText.setText("TIME'S UP!"); this.statusText.setFill('#FF4500');
+                    this.timerEvent.remove(); this.statusText.setText("SCAN TIME EXPIRED!"); this.statusText.setFill('#FF4500');
                     this.optGroup.setVisible(false); this.gameState = 'IDLE';
                     this.cameras.main.shake(200, 0.01);
                     this.time.delayedCall(1500, this.computerTurn, [], this);
@@ -283,7 +362,7 @@
                 if(this.gameState !== 'PICK_OPTION') return;
                 this.selectedTarget = (id === 'A') ? this.btnA.target : this.btnB.target;
                 this.optGroup.setVisible(false);
-                this.statusText.setText(`TAP (${this.selectedTarget.x}, ${this.selectedTarget.y}) TO DEPLOY`);
+                this.statusText.setText(`TAP (${this.selectedTarget.x}, ${this.selectedTarget.y}) TO DEPLOY BUOY`);
                 this.statusText.setFill('#66FCF1');
                 this.gameState = 'PLACE_PIECE';
             }
@@ -295,20 +374,17 @@
                 
                 if(cx === this.selectedTarget.x && cy === this.selectedTarget.y) {
                     if(this.timerEvent) this.timerEvent.remove();
-                    // Award Coins
                     GLOBAL_STATE.pendingCoins += GAME_CONFIG.economy.correctPlacement;
-                    this.pendingText.setText(`EARNED: +${GLOBAL_STATE.pendingCoins}`);
-                    // Coin visual pop
+                    this.pendingText.setText(`BOUNTY: +${GLOBAL_STATE.pendingCoins}`);
                     let coinPop = this.add.text(pointer.x, pointer.y - 20, '+20', {fontSize:'24px', fill:'#FFD700', fontStyle:'bold'}).setOrigin(0.5);
                     this.tweens.add({targets: coinPop, y: pointer.y - 60, alpha: 0, duration: 1000, onComplete: ()=>coinPop.destroy()});
-                    
                     this.placePiece(c, r, 1);
                 } else {
                     if(this.timerEvent) this.timerEvent.remove();
                     if(this.board[c][r] === 1 || (!this.overrideMode && this.board[c][r] !== 0)) {
-                        return this.showOops(cx, cy, "SPOT TAKEN!");
+                        return this.showOops(cx, cy, "COORDINATE OCCUPIED!");
                     }
-                    this.showOops(cx, cy, `ERROR! YOU TAPPED (${cx}, ${cy})`);
+                    this.showOops(cx, cy, `RADAR ERROR! YOU TAPPED (${cx}, ${cy})`);
                 }
             }
             showOops(x, y, msg) {
@@ -322,14 +398,16 @@
                 this.gameState = 'IDLE'; this.board[col][row] = type;
                 let pos = this.getScreenPos(col + this.gridMin, row + this.gridMin);
                 
-                // Destroy existing piece if we are overriding it
                 if(this.pieceSprites[col][row]) {
                     this.add.particles(0, 0, 'particle', { x: pos.x, y: pos.y, speed: 100, scale:{start:1,end:0}, tint: 0xFFFFFF, lifespan: 300, quantity: 5 }).explode();
                     this.pieceSprites[col][row].destroy();
                 }
 
                 let piece = this.add.sprite(pos.x, pos.y, type === 1 ? 'playerPiece' : 'computerPiece').setScale(0);
-                this.pieceSprites[col][row] = piece; // Track the new visual piece
+                // Slowly spin pieces to make them feel like floating space objects
+                this.tweens.add({ targets: piece, angle: 360, duration: 8000, repeat: -1 });
+
+                this.pieceSprites[col][row] = piece; 
                 
                 this.tweens.add({ targets: piece, scale: 1, duration: 300, ease: 'Back.easeOut' });
                 let color = type === 1 ? GAME_CONFIG.colors.player : GAME_CONFIG.colors.computer;
@@ -343,68 +421,45 @@
             computerTurn() {
                 if(this.gameState === 'GAME_OVER') return;
                 this.checkOverrideMode();
-                this.gameState = 'COMPUTER_TURN'; this.statusText.setText("PIRATE BOT IS HACKING..."); this.statusText.setFill('#FF003C');
+                this.gameState = 'COMPUTER_TURN'; this.statusText.setText("PIRATE SCANNERS SEARCHING..."); this.statusText.setFill('#FF003C');
                 
                 this.time.delayedCall(800, () => {
                     let lvl = GLOBAL_STATE.levelIndex;
-                    
-                    // AI Progression Mechanics (Percentages increase as level goes up)
-                    let winChance = Math.min(1.0, 0.3 + (lvl * 0.1));    // Starts at 30% awareness, 100% by lvl 7
-                    let blockChance = Math.min(1.0, 0.1 + (lvl * 0.08)); // Starts at 10% awareness, 100% by lvl 12
-                    let buildChance = Math.min(1.0, lvl * 0.05);         // Starts at 0%, 100% chance to strategize by lvl 20
+                    let winChance = Math.min(1.0, 0.3 + (lvl * 0.1));   
+                    let blockChance = Math.min(1.0, 0.1 + (lvl * 0.08)); 
+                    let buildChance = Math.min(1.0, lvl * 0.05);         
 
                     let move = null;
-
-                    // 1. Try to Win (Scales with level)
-                    if (Math.random() <= winChance) {
-                        move = this.findBestMove(2);
-                    }
-
-                    // 2. Try to Block Player (Scales with level)
-                    if (!move && Math.random() <= blockChance) {
-                        move = this.findBestMove(1);
-                    }
-
-                    // 3. Fallback (Build adjacent pieces for strategy, or pick Random)
+                    if (Math.random() <= winChance) move = this.findBestMove(2);
+                    if (!move && Math.random() <= blockChance) move = this.findBestMove(1);
                     if (!move) {
                         let validMoves = this.getValidMoves(2);
                         if (validMoves.length > 0) {
-                            if (Math.random() <= buildChance) {
-                                move = this.findAdjacencyMove(2, validMoves);
-                            }
-                            // If still no move found, pick completely randomly
-                            if (!move) {
-                                move = Phaser.Utils.Array.GetRandom(validMoves);
-                            }
+                            if (Math.random() <= buildChance) move = this.findAdjacencyMove(2, validMoves);
+                            if (!move) move = Phaser.Utils.Array.GetRandom(validMoves);
                         }
                     }
 
                     if(move) {
-                        this.statusText.setText(`PIRATE PLACED AT (${move.x}, ${move.y})`);
+                        this.statusText.setText(`PIRATE MINE PLACED AT (${move.x}, ${move.y})`);
                         this.placePiece(move.c, move.r, 2);
                     } else {
-                        this.statusText.setText("DRAW! RETRYING...");
+                        this.statusText.setText("SECTOR STALEMATE! RETRYING...");
                         this.time.delayedCall(2000, () => this.scene.restart());
                     }
                 });
             }
 
-            // Advanced AI Logic: Tries to place a piece next to its own existing pieces
             findAdjacencyMove(type, validMoves) {
                 let goodMoves = [];
                 for (let move of validMoves) {
                     let isAdjacent = false;
                     for (let dc = -1; dc <= 1; dc++) {
                         for (let dr = -1; dr <= 1; dr++) {
-                            if (dc === 0 && dr === 0) continue; // Skip center
-                            let nc = move.c + dc;
-                            let nr = move.r + dr;
-                            // Check if an adjacent tile belongs to the computer
+                            if (dc === 0 && dr === 0) continue;
+                            let nc = move.c + dc; let nr = move.r + dr;
                             if (nc >= 0 && nc < this.gridSize && nr >= 0 && nr < this.gridSize) {
-                                if (this.board[nc][nr] === type) {
-                                    isAdjacent = true;
-                                    break;
-                                }
+                                if (this.board[nc][nr] === type) { isAdjacent = true; break; }
                             }
                         }
                         if(isAdjacent) break;
@@ -420,10 +475,10 @@
                     let original = this.board[move.c][move.r];
                     this.board[move.c][move.r] = type;
                     if(this.checkWin(type)) { 
-                        this.board[move.c][move.r] = original; // Revert change 
+                        this.board[move.c][move.r] = original; 
                         return move; 
                     }
-                    this.board[move.c][move.r] = original; // Revert change
+                    this.board[move.c][move.r] = original;
                 }
                 return null;
             }
@@ -456,9 +511,9 @@
                     this.add.particles(0, 0, 'particle', { x:{min:0,max:this.w}, y:-20, speedY:{min:100,max:300}, tint:[0x66FCF1, 0xFFD700, 0xFFFFFF], lifespan:3000, quantity:2 });
                     this.time.delayedCall(2500, () => this.scene.start('ShopScene'));
                 } else {
-                    GLOBAL_STATE.pendingCoins = 0; // Lose pending
-                    this.statusText.setText("PIRATES WIN! PENDING COINS LOST."); this.statusText.setFill('#FF003C');
-                    this.time.delayedCall(3000, () => this.scene.restart()); // Retry level
+                    GLOBAL_STATE.pendingCoins = 0; 
+                    this.statusText.setText("PIRATES CLAIMED SECTOR! BOUNTY LOST."); this.statusText.setFill('#FF003C');
+                    this.time.delayedCall(3000, () => this.scene.restart()); 
                 }
             }
         }
@@ -467,9 +522,10 @@
             constructor() { super('ShopScene'); }
             create() {
                 this.w = this.cameras.main.width; this.h = this.cameras.main.height;
-                
-                this.add.text(this.w/2, this.h*0.1, "BASE UPGRADE SHOP", { fontSize: '32px', fill: '#66FCF1', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
-                this.coinDisplay = this.add.text(this.w/2, this.h*0.18, `AVAILABLE COINS: ${GLOBAL_STATE.coins}`, { fontSize: '24px', fill: '#FFD700', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                createSpaceBackground(this);
+
+                this.add.text(this.w/2, this.h*0.1, "STARBASE ARMORY", { fontSize: '32px', fill: '#66FCF1', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
+                this.coinDisplay = this.add.text(this.w/2, this.h*0.18, `AVAILABLE CREDITS: ${GLOBAL_STATE.coins}`, { fontSize: '24px', fill: '#FFD700', fontFamily: 'Courier', fontStyle: 'bold' }).setOrigin(0.5);
 
                 const keys = Object.keys(GAME_CONFIG.upgrades);
                 let startY = this.h * 0.3;
@@ -479,7 +535,7 @@
                     this.createUpgradeRow(key, this.w/2, startY + (index * this.spacing));
                 });
 
-                let defBtn = this.add.rectangle(this.w/2, this.h*0.85, 250, 60, GAME_CONFIG.colors.error, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.error).setInteractive();
+                let defBtn = this.add.rectangle(this.w/2, this.h*0.85, 300, 60, GAME_CONFIG.colors.error, 0.2).setStrokeStyle(2, GAME_CONFIG.colors.error).setInteractive();
                 let defTxt = this.add.text(this.w/2, this.h*0.85, "INITIATE DEFENSE", { fontSize: '22px', fill: '#FF4500', fontFamily: 'Courier', fontStyle:'bold' }).setOrigin(0.5);
                 this.tweens.add({ targets: [defBtn, defTxt], alpha: 0.6, duration: 500, yoyo: true, repeat: -1 });
 
@@ -497,7 +553,6 @@
                 let title = this.add.text(x - this.w*0.4, y - 10, data.name, { fontSize: '18px', fill: '#FFF', fontFamily: 'Courier' }).setOrigin(0, 0.5);
                 let lvlTxt = this.add.text(x - this.w*0.4, y + 15, `Level: ${currentLvl}/${data.max}`, { fontSize: '14px', fill: '#C5C6C7', fontFamily: 'Courier' }).setOrigin(0, 0.5);
                 
-                // Show current stat calculation
                 let statVal = data.base + (currentLvl * data.inc);
                 let statTxt = this.add.text(x, y, `Stat: ${statVal}`, { fontSize: '16px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0.5);
 
@@ -510,9 +565,9 @@
                         if(GLOBAL_STATE.coins >= cost) {
                             GLOBAL_STATE.coins -= cost;
                             GLOBAL_STATE.upgrades[key]++;
-                            this.scene.restart(); // Refresh shop UI
+                            this.scene.restart(); 
                         } else {
-                            this.cameras.main.shake(100, 0.01); // Not enough coins
+                            this.cameras.main.shake(100, 0.01); 
                             btnTxt.setFill('#FF003C');
                             this.time.delayedCall(300, () => btnTxt.setFill('#FFD700'));
                         }
@@ -526,7 +581,6 @@
             init() {
                 this.levelData = gameLevels[GLOBAL_STATE.levelIndex];
                 
-                // Calculate Stats
                 this.maxHp = GAME_CONFIG.upgrades.hull.base + (GLOBAL_STATE.upgrades.hull * GAME_CONFIG.upgrades.hull.inc);
                 this.currentHp = this.maxHp;
                 this.maxShield = GAME_CONFIG.upgrades.shield.base + (GLOBAL_STATE.upgrades.shield * GAME_CONFIG.upgrades.shield.inc);
@@ -534,51 +588,44 @@
                 this.damage = GAME_CONFIG.upgrades.damage.base + (GLOBAL_STATE.upgrades.damage * GAME_CONFIG.upgrades.damage.inc);
                 this.fireRate = GAME_CONFIG.upgrades.fireRate.base + (GLOBAL_STATE.upgrades.fireRate * GAME_CONFIG.upgrades.fireRate.inc);
 
-                this.timeRemaining = 30; // Increased to 30 seconds for interaction
+                this.timeRemaining = 30; 
                 this.isGameOver = false;
-                this.isAnswering = false; // Flags when multiple choice is open
+                this.isAnswering = false; 
                 this.nextFireTime = 0;
                 
-                // Grid for defense (0 to 10)
                 this.gridMin = 0; this.gridMax = 10; this.gridSize = 11;
             }
 
             create() {
                 this.w = this.cameras.main.width; this.h = this.cameras.main.height;
+                createSpaceBackground(this);
                 
-                // Draw Grid
                 this.calculateGridDimensions();
                 this.drawGrid();
 
-                // Base at mathematical center (5,5)
                 let centerPos = this.getScreenPos(5, 5);
                 this.base = this.physics.add.sprite(centerPos.x, centerPos.y, 'base').setImmovable(true);
+                // Slowly spin station
+                this.tweens.add({ targets: this.base, angle: 360, duration: 15000, repeat: -1 });
                 
-                // Groups
                 this.enemies = this.physics.add.group();
                 this.lasers = this.physics.add.group();
                 this.popups = this.physics.add.group();
 
-                // UI
                 this.timerTxt = this.add.text(this.w/2, this.h*0.05, `SURVIVE: ${this.timeRemaining}s`, { fontSize: '28px', fill: '#FF003C', fontFamily: 'Courier', fontStyle:'bold' }).setOrigin(0.5);
-                this.hpTxt = this.add.text(this.w*0.05, this.h*0.05, `HP: ${this.currentHp}`, { fontSize: '18px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0, 0.5);
-                if(this.maxShield > 0) this.shieldTxt = this.add.text(this.w*0.05, this.h*0.08, `SHLD: ${this.currentShield}`, { fontSize: '18px', fill: '#F2A900', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                this.hpTxt = this.add.text(this.w*0.05, this.h*0.05, `HULL: ${this.currentHp}`, { fontSize: '18px', fill: '#66FCF1', fontFamily: 'Courier' }).setOrigin(0, 0.5);
+                if(this.maxShield > 0) this.shieldTxt = this.add.text(this.w*0.05, this.h*0.08, `SHIELD: ${this.currentShield}`, { fontSize: '18px', fill: '#F2A900', fontFamily: 'Courier' }).setOrigin(0, 0.5);
 
-                // Timers
                 this.time.addEvent({ delay: 1000, callback: this.tickSecond, callbackScope: this, loop: true });
                 
-                // Spawn popups periodically based on level
                 let popupInterval = Math.max(3000, 8000 - (GLOBAL_STATE.levelIndex * 200));
                 this.time.addEvent({ delay: popupInterval, callback: this.spawnPopup, callbackScope: this, loop: true });
                 
-                // Spawn initial popup immediately
                 this.time.delayedCall(1000, this.spawnPopup, [], this);
 
-                // Constant trickle of enemies from the edges
                 let edgeSpawnInterval = Math.max(1500, 5000 - (GLOBAL_STATE.levelIndex * 150));
                 this.time.addEvent({ delay: edgeSpawnInterval, callback: this.spawnEdgeEnemy, callbackScope: this, loop: true });
 
-                // Collisions
                 this.physics.add.overlap(this.lasers, this.enemies, this.hitEnemy, null, this);
                 this.physics.add.overlap(this.base, this.enemies, this.hitBase, null, this);
                 
@@ -595,6 +642,10 @@
 
             drawGrid() {
                 let g = this.add.graphics();
+                // Radar backdrop for defense grid
+                g.fillStyle(0x0a111a, 0.6);
+                g.fillRect(this.gridX - 10, this.gridY - 10 * this.cellSize - 10, 10 * this.cellSize + 20, 10 * this.cellSize + 20);
+
                 for(let col = 0; col < this.gridSize; col++) {
                     let x = this.gridX + (col * this.cellSize);
                     g.lineStyle(col === 5 ? 3 : 1, col === 5 ? GAME_CONFIG.colors.axis : GAME_CONFIG.colors.grid);
@@ -615,8 +666,6 @@
 
             spawnEdgeEnemy() {
                 if(this.isGameOver || this.isAnswering) return;
-
-                // Spawn on a random edge (outside the screen bounds)
                 let x, y;
                 if(Math.random() > 0.5) { x = Math.random() > 0.5 ? -20 : this.w + 20; y = Math.random() * this.h; } 
                 else { x = Math.random() * this.w; y = Math.random() > 0.5 ? -20 : this.h + 20; }
@@ -634,7 +683,6 @@
                 
                 let cx = Phaser.Math.Between(0, 10);
                 let cy = Phaser.Math.Between(0, 10);
-                // Prevent spawning on base (5,5) or directly adjacent
                 while(Math.abs(cx - 5) <= 1 && Math.abs(cy - 5) <= 1) {
                     cx = Phaser.Math.Between(0, 10);
                     cy = Phaser.Math.Between(0, 10);
@@ -644,10 +692,10 @@
                 let popup = this.popups.create(pos.x, pos.y, 'popup').setInteractive();
                 popup.cx = cx; popup.cy = cy;
 
-                // Pulse effect to draw the player's eye
+                // Make the mothership spin slowly
+                this.tweens.add({ targets: popup, angle: 360, duration: 6000, repeat: -1 });
                 this.tweens.add({ targets: popup, scale: 1.2, duration: 500, yoyo: true, repeat: -1 });
 
-                // Spawns enemies while alive
                 let enemyInterval = Math.max(1000, 4000 - (GLOBAL_STATE.levelIndex * 150));
                 popup.spawnTimer = this.time.addEvent({
                     delay: enemyInterval,
@@ -674,20 +722,19 @@
                 if(this.isGameOver || this.isAnswering) return;
 
                 this.isAnswering = true;
-                this.physics.world.pause(); // Freeze enemies during the question
+                this.physics.world.pause(); 
 
                 let overlay = this.add.rectangle(this.w/2, this.h/2, this.w, this.h, 0x000000, 0.85).setInteractive();
                 this.uiContainer.add(overlay);
 
-                let title = this.add.text(this.w/2, this.h*0.2, "TARGET LOCKED!\nIDENTIFY COORDINATES TO DESTROY:", { fontSize: Math.min(this.w*0.05, 24) + 'px', fill: '#F2A900', fontFamily: 'Courier', fontStyle: 'bold', align: 'center' }).setOrigin(0.5);
+                let title = this.add.text(this.w/2, this.h*0.2, "MOTHERSHIP LOCKED!\nIDENTIFY COORDINATES TO FIRE ORBITAL STRIKE:", { fontSize: Math.min(this.w*0.05, 24) + 'px', fill: '#F2A900', fontFamily: 'Courier', fontStyle: 'bold', align: 'center' }).setOrigin(0.5);
                 this.uiContainer.add(title);
 
-                // Generate Options
                 let correct = {x: popup.cx, y: popup.cy};
-                let d1 = {x: popup.cy, y: popup.cx}; // Common math mistake (flipped coordinates)
+                let d1 = {x: popup.cy, y: popup.cx}; 
                 if(d1.x === correct.x && d1.y === correct.y) d1.x = (d1.x + 1) % 11; 
                 
-                let d2 = {x: Phaser.Math.Between(0, 10), y: Phaser.Math.Between(0, 10)}; // Random
+                let d2 = {x: Phaser.Math.Between(0, 10), y: Phaser.Math.Between(0, 10)}; 
                 while((d2.x === correct.x && d2.y === correct.y) || (d2.x === d1.x && d2.y === d1.y)) {
                     d2 = {x: Phaser.Math.Between(0, 10), y: Phaser.Math.Between(0, 10)};
                 }
@@ -717,15 +764,16 @@
 
                 if(isCorrect) {
                     if(popup.spawnTimer) popup.spawnTimer.remove();
-                    this.cameras.main.shake(300, 0.02);
-                    this.add.particles(0,0,'particle',{x:popup.x, y:popup.y, speed:200, tint:0xF2A900, lifespan:600, scale:{start:2,end:0}, quantity:30}).explode();
+                    this.cameras.main.shake(400, 0.03);
+                    
+                    // Huge orbital strike explosion
+                    this.add.particles(0,0,'particle',{x:popup.x, y:popup.y, speed:300, tint:[0xFFFFFF, 0x66FCF1, 0xF2A900], lifespan:800, scale:{start:3,end:0}, quantity:60}).explode();
                     popup.destroy();
-                    // Bonus: small heal for correctly identifying!
+                    
                     this.currentHp = Math.min(this.maxHp, this.currentHp + 10);
-                    this.hpTxt.setText(`HP: ${this.currentHp}`);
+                    this.hpTxt.setText(`HULL: ${this.currentHp}`);
                 } else {
                     this.cameras.main.shake(100, 0.01);
-                    // Spawn an immediate revenge enemy for getting it wrong
                     this.spawnEnemyFromPopup(popup); 
                 }
             }
@@ -733,7 +781,6 @@
             update(time, delta) {
                 if(this.isGameOver || this.isAnswering) return;
 
-                // Auto-Aim Logic against enemies
                 if (time > this.nextFireTime && this.enemies.getChildren().length > 0) {
                     let closest = null; let minDist = Infinity;
                     this.enemies.getChildren().forEach(e => {
@@ -743,14 +790,16 @@
                     });
 
                     if (closest) {
-                        let laser = this.lasers.create(this.base.x, this.base.y, 'laser');
+                        // Offset laser start point from the center slightly based on base rotation for realism
+                        let lx = this.base.x + Math.cos(this.base.rotation) * 15;
+                        let ly = this.base.y + Math.sin(this.base.rotation) * 15;
+                        let laser = this.lasers.create(lx, ly, 'laser');
                         this.physics.moveToObject(laser, closest, 800);
                         laser.rotation = Phaser.Math.Angle.Between(this.base.x, this.base.y, closest.x, closest.y);
                         this.nextFireTime = time + (1000 / this.fireRate);
                     }
                 }
 
-                // Cleanup offscreen lasers
                 this.lasers.getChildren().forEach(l => {
                     if(l.x < 0 || l.x > this.w || l.y < 0 || l.y > this.h) l.destroy();
                 });
@@ -794,8 +843,8 @@
                     this.currentHp -= dmg;
                 }
 
-                this.hpTxt.setText(`HP: ${Math.max(0, this.currentHp)}`);
-                if(this.shieldTxt) this.shieldTxt.setText(`SHLD: ${Math.max(0, this.currentShield)}`);
+                this.hpTxt.setText(`HULL: ${Math.max(0, this.currentHp)}`);
+                if(this.shieldTxt) this.shieldTxt.setText(`SHIELD: ${Math.max(0, this.currentShield)}`);
 
                 if(this.currentHp <= 0) this.endDefense(false);
             }
@@ -803,9 +852,9 @@
             endDefense(won) {
                 this.isGameOver = true;
                 this.enemies.getChildren().forEach(e => e.body.stop());
-                this.physics.world.pause(); // Freeze everything
+                this.physics.world.pause(); 
                 
-                let msg = won ? "DEFENSE SUCCESSFUL!" : "BASE DESTROYED!";
+                let msg = won ? "DEFENSE SUCCESSFUL!" : "STARBASE DESTROYED!";
                 let col = won ? '#66FCF1' : '#FF003C';
                 
                 this.add.rectangle(this.w/2, this.h/2, this.w, 100, 0x000000, 0.8).setDepth(100);
@@ -831,7 +880,7 @@
             type: Phaser.AUTO, parent: 'game-container',
             width: window.innerWidth, height: window.innerHeight,
             backgroundColor: GAME_CONFIG.colors.bg,
-            physics: { default: 'arcade', arcade: { gravity: { y: 0 } } }, // Added physics for defense!
+            physics: { default: 'arcade', arcade: { gravity: { y: 0 } } }, 
             scene: [BootScene, TitleScene, GameScene, ShopScene, DefenseScene],
             scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH }
         };
