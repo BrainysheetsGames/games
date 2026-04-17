@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magic Math Kingdom</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#06021a; display:flex; justify-content:center; align-items:center; height:100vh; overflow:hidden; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+<script>
+(function() {
+"use strict";
+const W=864, H=646;
+
+// ══════════════════════════════════════════════
+//  AUDIO
+// ══════════════════════════════════════════════
+let _ac=null;
+function ac(){
+  if(!_ac){try{_ac=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}}
+  if(_ac&&_ac.state==='suspended'){try{_ac.resume();}catch(e){}}
+  return _ac;
+}
+function tone(freq,type,dur,vol,del){
+  try{
+    const c=ac(); if(!c) return;
+    del=del||0; dur=dur||0.15; vol=vol||0.25; type=type||'sine';
+    const o=c.createOscillator(),g=c.createGain();
+    o.connect(g); g.connect(c.destination);
+    o.type=type;
+    o.frequency.setValueAtTime(freq,c.currentTime+del);
+    g.gain.setValueAtTime(0,c.currentTime+del);
+    g.gain.linearRampToValueAtTime(vol,c.currentTime+del+0.01);
+    g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+del+dur);
+    o.start(c.currentTime+del); o.stop(c.currentTime+del+dur+0.05);
+  }catch(e){}
+}
+const SFX={
+  click:  ()=>{tone(880,'sine',0.06,0.18);},
+  place:  ()=>{tone(550,'sine',0.08,0.22);tone(694,'sine',0.07,0.15,0.05);},
+  erase:  ()=>{tone(300,'sine',0.07,0.15);},
+  correct:()=>{[523,659,784,1047].forEach((f,i)=>tone(f,'sine',0.35,0.22,i*0.06));},
+  wrong:  ()=>{tone(220,'sawtooth',0.25,0.28);tone(180,'sawtooth',0.2,0.2,0.12);},
+  levelup:()=>{[523,587,659,698,784,880,988,1047].forEach((f,i)=>tone(f,'sine',0.18,0.26,i*0.07));},
+  whoosh: ()=>{tone(400,'sawtooth',0.1,0.18);tone(800,'sawtooth',0.07,0.1,0.06);},
+  tick:   ()=>{tone(880,'square',0.04,0.12);},
+  powerup:()=>{[440,550,660,880].forEach((f,i)=>tone(f,'triangle',0.2,0.3,i*0.05));},
+  combo:  ()=>{[700,900,1100].forEach((f,i)=>tone(f,'sine',0.14,0.28,i*0.04));},
+  hint:   ()=>{tone(440,'triangle',0.2,0.2);tone(554,'triangle',0.2,0.2,0.1);},
+  star:   ()=>{tone(1047,'sine',0.1,0.3);tone(1319,'sine',0.09,0.25,0.07);},
+  select: ()=>{tone(660,'sine',0.06,0.2);},
+  perfect:()=>{[784,988,1175,1568].forEach((f,i)=>tone(f,'sine',0.4,0.28,i*0.08));},
+};
+
+// ══════════════════════════════════════════════
+//  PUZZLE ENGINE
+// ══════════════════════════════════════════════
+const LO_SHU=[
+  [2,7,6,9,5,1,4,3,8],[2,9,4,7,5,3,6,1,8],
+  [4,9,2,3,5,7,8,1,6],[4,3,8,9,5,1,2,7,6],
+  [6,1,8,7,5,3,2,9,4],[6,7,2,1,5,9,8,3,4],
+  [8,1,6,3,5,7,4,9,2],[8,3,4,1,5,9,6,7,2],
+];
+
+// All valid 3×3 magic square configs: 9 consecutive integers starting at `min`, magic sum = 3*(min+4)
+// Easy:   small numbers, sums 12–18   (min 0–2)
+// Medium: mid numbers,  sums 21–27   (min 3–5)
+// Hard:   large numbers, sums 30–45  (min 6–11)
+const SQ_CFGS = {
+  easy:   [{min:0,sum:12},{min:1,sum:15},{min:2,sum:18}],
+  medium: [{min:3,sum:21},{min:4,sum:24},{min:5,sum:27}],
+  hard:   [{min:6,sum:30},{min:7,sum:33},{min:8,sum:36},{min:9,sum:39},{min:10,sum:42},{min:11,sum:45}],
+};
+
+// difficultyTier: 'easy'|'medium'|'hard'  (chosen on title screen)
+// inGameDifficulty: 1–5 (grows as player levels up within that tier)
+function makeSqPuzzle(diffTier, inGameDiff){
+  // Pick from the right tier; as inGameDiff grows, unlock more configs within tier
+  const pool = SQ_CFGS[diffTier] || SQ_CFGS.easy;
+  const maxIdx = Math.min(inGameDiff, pool.length);
+  const {min,sum} = pool[Math.floor(Math.random()*maxIdx)];
+  const pat = LO_SHU[Math.floor(Math.random()*LO_SHU.length)];
+  const grid = pat.map(v=>v-1+min);
+  const nums = Array.from({length:9},(_,i)=>i+min);
+  // Hide more cells at higher in-game difficulty
+  const hideCount = diffTier==='easy'  ? Math.min(2+inGameDiff,5) :
+                    diffTier==='medium' ? Math.min(3+inGameDiff,6) :
+                                          Math.min(4+inGameDiff,7);
+  const idx=[...Array(9).keys()].sort(()=>Math.random()-0.5);
+  const hidden=new Set(idx.slice(0,hideCount));
+  const puzzle=grid.map((v,i)=>hidden.has(i)?null:v);
+  return{type:'square',grid,puzzle,playerGrid:[...puzzle],magicSum:sum,nums,diffTier,inGameDiff};
+}
+
+function computeTriDB(){
+  const db={9:[],10:[],11:[],12:[]};
+  function chk(a,s){return a[0]+a[1]+a[3]===s&&a[0]+a[2]+a[5]===s&&a[3]+a[4]+a[5]===s;}
+  function perm(a,l,s){
+    if(l===a.length){if(chk(a,s))db[s].push([...a]);return;}
+    for(let i=l;i<a.length;i++){
+      [a[l],a[i]]=[a[i],a[l]];perm(a,l+1,s);[a[l],a[i]]=[a[i],a[l]];
+      if(db[s].length>80)return;
+    }
+  }
+  [9,10,11,12].forEach(s=>perm([1,2,3,4,5,6],0,s));
+  return db;
+}
+const TRI_DB=computeTriDB();
+
+function makeTriPuzzle(diffTier, inGameDiff){
+  const allSums=[9,10,11,12];
+  const maxIdx=Math.min(inGameDiff,allSums.length);
+  const sum=allSums[Math.floor(Math.random()*maxIdx)];
+  const triPool=TRI_DB[sum];
+  if(!triPool||!triPool.length)return makeSqPuzzle(diffTier,inGameDiff);
+  const sol=triPool[Math.floor(Math.random()*triPool.length)];
+  const hideCount = diffTier==='easy'  ? Math.min(1+inGameDiff,4) :
+                    diffTier==='medium' ? Math.min(2+inGameDiff,5) :
+                                          Math.min(3+inGameDiff,5);
+  const idx=[0,1,2,3,4,5].sort(()=>Math.random()-0.5);
+  const hidden=new Set(idx.slice(0,hideCount));
+  const puzzle=sol.map((v,i)=>hidden.has(i)?null:v);
+  return{type:'triangle',solution:sol,puzzle,playerGrid:[...puzzle],magicSum:sum,nums:[1,2,3,4,5,6],diffTier,inGameDiff};
+}
+
+// ══════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════
+function lighten(hex,amt){
+  return(Math.min(((hex>>16)&0xff)+amt,255)<<16)|(Math.min(((hex>>8)&0xff)+amt,255)<<8)|Math.min((hex&0xff)+amt,255);
+}
+function burst(scene,x,y,emojis,count,spread,speed,life){
+  count=count||8;speed=speed||250;life=life||900;emojis=emojis||['⭐'];
+  for(let i=0;i<count;i++){
+    const em=emojis[Math.floor(Math.random()*emojis.length)];
+    const t=scene.add.text(x,y,em,{fontSize:`${11+Math.random()*15}px`}).setOrigin(0.5).setDepth(300);
+    const ang=Math.random()*Math.PI*2, spd=speed*(0.5+Math.random()*0.8);
+    scene.tweens.add({targets:t,x:x+Math.cos(ang)*spd*0.55,y:y+Math.sin(ang)*spd*0.55-speed*0.12,
+      alpha:{from:1,to:0},scale:{from:1,to:0.1},duration:life,ease:'Quad.easeIn',onComplete:()=>t.destroy()});
+  }
+}
+function floatPts(scene,x,y,txt,col){
+  const t=scene.add.text(x,y,txt,{fontSize:'30px',fontFamily:'Georgia',fontStyle:'bold',
+    fill:col||'#FFD700',stroke:'#000033',strokeThickness:5}).setOrigin(0.5).setAlpha(0).setDepth(300);
+  scene.tweens.add({targets:t,y:y-70,alpha:{from:0,to:1},duration:350,ease:'Quad.easeOut',
+    onComplete:()=>scene.tweens.add({targets:t,alpha:0,y:y-120,duration:450,delay:320,onComplete:()=>t.destroy()})});
+}
+function mkBtn(scene,x,y,w,h,label,color,cb,fsize){
+  const g=scene.add.graphics();
+  const draw=(hov)=>{
+    g.clear();
+    const c=hov?lighten(color,50):color;
+    g.fillStyle(c,1); g.fillRoundedRect(x-w/2,y-h/2,w,h,12);
+    g.lineStyle(3,0xFFFFFF,0.22); g.strokeRoundedRect(x-w/2,y-h/2,w,h,12);
+    g.fillStyle(0xFFFFFF,0.13); g.fillRoundedRect(x-w/2+3,y-h/2+3,w-6,h*0.38,{tl:10,tr:10,bl:0,br:0});
+  };
+  draw(false);
+  const t=scene.add.text(x,y,label,{fontSize:(fsize||20)+'px',fontFamily:'Georgia',fontStyle:'bold',
+    fill:'#FFFFFF',stroke:'#000033',strokeThickness:3}).setOrigin(0.5);
+  g.setInteractive(new Phaser.Geom.Rectangle(x-w/2,y-h/2,w,h),Phaser.Geom.Rectangle.Contains);
+  g.on('pointerover',()=>{draw(true);scene.tweens.add({targets:[g,t],scaleX:1.04,scaleY:1.04,duration:80});SFX.click();});
+  g.on('pointerout', ()=>{draw(false);scene.tweens.add({targets:[g,t],scaleX:1,scaleY:1,duration:80});});
+  g.on('pointerdown',()=>{scene.tweens.add({targets:[g,t],scaleX:0.94,scaleY:0.94,duration:60,yoyo:true});cb();});
+  return{g,t};
+}
+
+// ══════════════════════════════════════════════
+//  LOAD PHASER
+// ══════════════════════════════════════════════
+function loadPhaser(cb){
+  if(window.Phaser){cb();return;}
+  const s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js';
+  s.onload=cb;
+  s.onerror=()=>{document.body.style.cssText='background:#06021a;color:#FFD700;display:flex;align-items:center;justify-content:center;height:100vh;font-size:22px;font-family:Georgia;text-align:center;padding:40px';
+    document.body.innerHTML='<div>⚠️ Magic Math Kingdom<br><br><span style="font-size:16px;color:#AABBFF">Please check your internet connection and refresh the page.</span></div>';};
+  document.head.appendChild(s);
+}
+loadPhaser(function(){
+
+// ══════════════════════════════════════════════
+//  TITLE SCENE
+// ══════════════════════════════════════════════
+class TitleScene extends Phaser.Scene{
+  constructor(){super('Title');}
+  create(){
+    this.makeBg();
+    this.makeWizard(118,318);
+    this.makeTitle();
+    this.makeModes();
+    this.sparkleLoop();
+    this.cameras.main.fadeIn(500,0,0,0);
+  }
+  makeBg(){
+    const g=this.add.graphics();
+    g.fillGradientStyle(0x06021a,0x06021a,0x140640,0x140640,1);
+    g.fillRect(0,0,W,H);
+    g.lineStyle(1,0x180A40,0.38);
+    for(let x=0;x<W;x+=60)g.lineBetween(x,0,x,H);
+    for(let y=0;y<H;y+=60)g.lineBetween(0,y,W,y);
+    for(let i=0;i<95;i++){
+      const sa=Math.random()*0.65+0.1;
+      const sg=this.add.graphics();
+      sg.fillStyle(0xFFFFFF,sa);
+      sg.fillCircle(Phaser.Math.Between(0,W),Phaser.Math.Between(0,H),Math.random()<0.25?2:1);
+      this.tweens.add({targets:sg,alpha:{from:sa,to:Math.random()*0.15+0.04},duration:Phaser.Math.Between(700,3500),yoyo:true,repeat:-1,delay:Phaser.Math.Between(0,3000)});
+    }
+    // Shooting star occasionally
+    this.time.addEvent({delay:4000,loop:true,callback:()=>{
+      if(Math.random()>0.5)return;
+      const sx=-20,sy=Phaser.Math.Between(30,200);
+      const st=this.add.text(sx,sy,'💫',{fontSize:'16px'});
+      this.tweens.add({targets:st,x:W+40,y:sy+80,alpha:{from:0.9,to:0},duration:1200,ease:'Quad.easeIn',onComplete:()=>st.destroy()});
+    }});
+    // Castle silhouette
+    const c=this.add.graphics();
+    c.fillStyle(0x050118,0.98);
+    [{x:55,w:36,h:74},{x:160,w:44,h:59},{x:340,w:52,h:88},{x:500,w:46,h:67},{x:680,w:50,h:82},{x:805,w:38,h:64}].forEach(({x,w,h})=>{
+      c.fillRect(x-w/2,H-h,w,h);
+      c.fillRect(x-w/2-7,H-h-17,w+14,19);
+      for(let i=0;i<3;i++)c.fillRect(x-w/2+2+i*(w/3),H-h-27,w/4-1,12);
+      // Window light
+      c.fillStyle(0xFFEE88,0.3); c.fillRect(x-4,H-h+12,8,10);
+      c.fillStyle(0x050118,0.98);
+    });
+    // Floating ghost numbers in bg
+    '12345678901'.split('').forEach(n=>{
+      const tx=this.add.text(Phaser.Math.Between(20,W-20),Phaser.Math.Between(165,H-90),n,{
+        fontSize:`${18+Math.random()*28}px`,fontFamily:'Georgia',fill:'#3344AA',alpha:0.13});
+      this.tweens.add({targets:tx,y:'-=55',alpha:{from:0.07,to:0.28},duration:2600+Math.random()*3200,yoyo:true,repeat:-1,delay:Math.random()*3000});
+    });
+  }
+  makeWizard(x,y){
+    const g=this.add.graphics();
+    // Shadow
+    g.fillStyle(0x000000,0.22); g.fillEllipse(x,y+158,88,17);
+    // Robe
+    g.fillStyle(0x380078); g.fillTriangle(x-52,y+167,x+52,y+167,x,y+18);
+    g.fillStyle(0x5200A8,0.55); g.fillTriangle(x,y+40,x+52,y+167,x+18,y+167);
+    // Body
+    g.fillStyle(0x4A0099); g.fillRoundedRect(x-27,y-22,54,54,10);
+    // Arms
+    g.fillStyle(0x4A0099); g.fillEllipse(x-44,y+8,22,52); g.fillEllipse(x+44,y+8,22,52);
+    // Hands
+    g.fillStyle(0xFFDEAD); g.fillCircle(x-52,y+36,10); g.fillCircle(x+52,y+36,10);
+    // Head
+    g.fillStyle(0xFFDEAD); g.fillCircle(x,y-36,30);
+    // Eyes
+    g.fillStyle(0x1A1A66); g.fillCircle(x-10,y-41,5); g.fillCircle(x+10,y-41,5);
+    g.fillStyle(0xFFFFFF); g.fillCircle(x-8,y-43,2); g.fillCircle(x+12,y-43,2);
+    // Pupils animated separately – done via glint star below
+    // Cheeks
+    g.fillStyle(0xFF9999,0.42); g.fillCircle(x-17,y-29,7); g.fillCircle(x+17,y-29,7);
+    // Smile
+    g.lineStyle(2,0x7B3410); g.beginPath(); g.arc(x,y-26,11,0.22,Math.PI-0.22); g.strokePath();
+    // Nose
+    g.fillStyle(0xFFBB88); g.fillEllipse(x,y-34,7,5);
+    // Beard
+    g.fillStyle(0xDDDDDD); g.fillRoundedRect(x-21,y-12,42,30,10);
+    g.fillStyle(0xEEEEEE); g.fillTriangle(x-13,y+17,x+13,y+17,x,y+52);
+    g.fillStyle(0xBBBBBB); g.fillEllipse(x-11,y-13,17,9); g.fillEllipse(x+11,y-13,17,9);
+    // Hat
+    g.fillStyle(0x380078); g.fillTriangle(x,y-98,x-38,y-68,x+38,y-68);
+    g.fillStyle(0x5200A8); g.fillRoundedRect(x-43,y-73,86,17,5);
+    g.lineStyle(2,0xAA44FF); g.strokeRoundedRect(x-43,y-73,86,17,5);
+    // Hat stars
+    this.add.text(x-16,y-82,'⭐',{fontSize:'10px'});
+    this.add.text(x+8,y-82,'⭐',{fontSize:'10px'});
+    // Wand
+    g.lineStyle(5,0x7B3410); g.lineBetween(x+52,y+24,x+84,y-22);
+    g.lineStyle(1,0xFFDD55); g.lineBetween(x+52,y+24,x+84,y-22);
+    const wStar=this.add.text(x+84,y-22,'✨',{fontSize:'20px'}).setOrigin(0.5);
+    this.tweens.add({targets:wStar,scaleX:1.35,scaleY:1.35,duration:650,yoyo:true,repeat:-1});
+    // Wizard bobs
+    this.wizG=g;
+    this.tweens.add({targets:g,y:{from:0,to:-8},duration:1900,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+    // Wand sparkle trail occasionally
+    this.time.addEvent({delay:1800,loop:true,callback:()=>{
+      const spark=this.add.text(x+84,y-22,'✨',{fontSize:`${8+Math.random()*12}px`}).setOrigin(0.5);
+      this.tweens.add({targets:spark,x:x+84+Phaser.Math.Between(-30,30),y:y-22+Phaser.Math.Between(-30,30),
+        alpha:{from:0.9,to:0},scale:{from:1,to:0.2},duration:600,onComplete:()=>spark.destroy()});
+    }});
+    // Speech bubble
+    const bub=this.add.container(x+86,y-116);
+    const bb=this.add.graphics();
+    bb.fillStyle(0xFFFFFF,0.94); bb.fillRoundedRect(-4,-18,175,42,9);
+    bb.fillStyle(0xEEEEFF,0.5); bb.fillRoundedRect(-4,-18,175,14,{tl:9,tr:9,bl:0,br:0});
+    bb.fillStyle(0xFFFFFF,0.94); bb.fillTriangle(-4,12,-19,20,-4,7);
+    const msgs=["Let's solve puzzles! 🔮","Math is MAGIC! ✨","You've got this! ⭐","Fill the squares! 🧙","Triangles too! 🔺","Every row sums up! 🧮","Keep the streak! 🔥"];
+    const bTxt=this.add.text(84,3,msgs[0],{fontSize:'13px',fontFamily:'Georgia',fill:'#220088',align:'center',wordWrap:{width:162}}).setOrigin(0.5);
+    bub.add([bb,bTxt]);
+    let mi=0;
+    this.time.addEvent({delay:2800,loop:true,callback:()=>{
+      mi=(mi+1)%msgs.length;
+      this.tweens.add({targets:bub,alpha:0,duration:180,onComplete:()=>{bTxt.setText(msgs[mi]);this.tweens.add({targets:bub,alpha:1,duration:180});}});
+    }});
+  }
+  makeTitle(){
+    const g=this.add.graphics();
+    g.fillStyle(0x2A0088,0.88); g.fillRoundedRect(W/2-305,10,610,126,18);
+    g.lineStyle(3,0xAA55FF,0.85); g.strokeRoundedRect(W/2-305,10,610,126,18);
+    g.fillStyle(0xFFFFFF,0.06); g.fillRoundedRect(W/2-305,10,610,30,{tl:18,tr:18,bl:0,br:0});
+    const t1=this.add.text(W/2,44,'✨ MAGIC MATH KINGDOM ✨',{
+      fontSize:'37px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#330088',strokeThickness:6}).setOrigin(0.5);
+    this.add.text(W/2,92,'The Quest for the Magic Numbers',{fontSize:'18px',fontFamily:'Georgia',fontStyle:'italic',fill:'#CCAAFF'}).setOrigin(0.5);
+    this.add.text(W/2,118,'Grades 1–5  ·  Magic Squares & Triangles',{fontSize:'12px',fontFamily:'Georgia',fill:'#8866AA'}).setOrigin(0.5);
+    this.tweens.add({targets:t1,scaleX:1.025,scaleY:1.025,duration:1500,yoyo:true,repeat:-1,ease:'Sine.easeInOut'});
+  }
+  makeModes(){
+    const px=490, py=148;
+
+    // Panel background
+    const g=this.add.graphics();
+    g.fillStyle(0x0E0035,0.96); g.fillRoundedRect(px-218,py,436,462,18);
+    g.lineStyle(3,0x7733DD,0.9); g.strokeRoundedRect(px-218,py,436,462,18);
+    g.lineStyle(1,0xBB88FF,0.32); g.strokeRoundedRect(px-213,py+5,426,452,16);
+
+    // Mode name + description
+    this.add.text(px,py+34,'🧮 Magic Number Quest',{
+      fontSize:'26px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#220066',strokeThickness:4
+    }).setOrigin(0.5);
+    this.add.text(px,py+66,'Fill missing numbers so every row,',{fontSize:'13px',fontFamily:'Georgia',fill:'#BBCCFF'}).setOrigin(0.5);
+    this.add.text(px,py+84,'column & diagonal hits the Magic Sum!',{fontSize:'13px',fontFamily:'Georgia',fill:'#BBCCFF'}).setOrigin(0.5);
+
+    // Difficulty cards
+    const diffs=[
+      {
+        key:'easy', icon:'⭐', label:'Easy',
+        sub:'Grades 1–3',
+        desc:'Sums: 12, 15, 18\nSmaller numbers\nMore cells shown',
+        color:0x1A6B2A, glow:0x44FF88, time:120,
+        badge:'BEGINNER',
+      },
+      {
+        key:'medium', icon:'⭐⭐', label:'Medium',
+        sub:'Grades 3–4',
+        desc:'Sums: 21, 24, 27\nBigger numbers\nFewer hints shown',
+        color:0x1A4A8A, glow:0x44AAFF, time:90,
+        badge:'EXPLORER',
+      },
+      {
+        key:'hard', icon:'⭐⭐⭐', label:'Hard',
+        sub:'Grades 4–5',
+        desc:'Sums: 30–45\nLargest numbers\nMost cells hidden',
+        color:0x7A1A1A, glow:0xFF5544, time:70,
+        badge:'CHAMPION',
+      },
+    ];
+
+    const cardY=py+106, cardH=200, cardW=128, cardGap=12;
+    const totalW=diffs.length*(cardW+cardGap)-cardGap;
+    const startX=px-totalW/2;
+
+    diffs.forEach((d,i)=>{
+      const cx=startX+i*(cardW+cardGap);
+      const cg=this.add.graphics();
+      const drawCard=(hov,sel)=>{
+        cg.clear();
+        cg.fillStyle(hov||sel?lighten(d.color,35):d.color,0.95);
+        cg.fillRoundedRect(cx,cardY,cardW,cardH,14);
+        cg.lineStyle(sel?4:2,sel?d.glow:(hov?lighten(d.glow,40):0x334466),1);
+        cg.strokeRoundedRect(cx,cardY,cardW,cardH,14);
+        cg.fillStyle(0xFFFFFF,hov?0.16:0.09);
+        cg.fillRoundedRect(cx,cardY,cardW,20,{tl:14,tr:14,bl:0,br:0});
+        if(sel){
+          cg.lineStyle(2,d.glow,0.4);
+          cg.strokeRoundedRect(cx+4,cardY+4,cardW-8,cardH-8,11);
+        }
+      };
+      drawCard(false,false);
+
+      const icon=this.add.text(cx+cardW/2,cardY+26,d.icon,{fontSize:'18px'}).setOrigin(0.5);
+      const lbl=this.add.text(cx+cardW/2,cardY+50,d.label,{fontSize:'18px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFFFFF',stroke:'#000044',strokeThickness:3}).setOrigin(0.5);
+      const sub=this.add.text(cx+cardW/2,cardY+70,d.sub,{fontSize:'11px',fontFamily:'Georgia',fill:'#AACCFF'}).setOrigin(0.5);
+      const desc=this.add.text(cx+cardW/2,cardY+108,d.desc,{fontSize:'10px',fontFamily:'Georgia',fill:'#CCDDFF',align:'center',lineSpacing:3,wordWrap:{width:cardW-12}}).setOrigin(0.5);
+      const timeT=this.add.text(cx+cardW/2,cardY+162,`⏰ ${d.time}s`,{fontSize:'12px',fontFamily:'Georgia',fill:'#FFDD88'}).setOrigin(0.5);
+      const bdg=this.add.text(cx+cardW/2,cardY+182,d.badge,{fontSize:'9px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFFFFF',backgroundColor:'#00000055',padding:{x:5,y:2}}).setOrigin(0.5);
+
+      const pb=parseInt(localStorage.getItem(`mmk_best_${d.key}`)||'0');
+      if(pb) this.add.text(cx+cardW/2,cardY+cardH+8,`Best: ${pb}`,{fontSize:'10px',fontFamily:'Georgia',fill:'#FFD700'}).setOrigin(0.5);
+
+      cg.setInteractive(new Phaser.Geom.Rectangle(cx,cardY,cardW,cardH),Phaser.Geom.Rectangle.Contains);
+      cg.on('pointerover',()=>{ drawCard(true,false); this.tweens.add({targets:[cg,icon,lbl,sub,desc,timeT,bdg],scaleX:1.04,scaleY:1.04,duration:80}); SFX.click(); });
+      cg.on('pointerout', ()=>{ drawCard(false,false); this.tweens.add({targets:[cg,icon,lbl,sub,desc,timeT,bdg],scaleX:1,scaleY:1,duration:80}); });
+      cg.on('pointerdown',()=>{
+        SFX.whoosh();
+        this.cameras.main.flash(280,255,255,255,false);
+        this.time.delayedCall(200,()=>this.cameras.main.fade(300,0,0,0,false,()=>{
+          this.scene.start('Game',{
+            diffTier:d.key, startTime:d.time,
+            difficulty:1, score:0, streak:0, level:1,
+            powerCharge:0, puzzleCount:0, totalCorrect:0
+          });
+        }));
+      });
+    });
+
+    // Feature pills row
+    const pills=['🔥 Streaks','💡 Hints','⚡ Power-Ups','↩ Undo','📊 Live Check'];
+    const pillY=py+326;
+    pills.forEach((p,i)=>{
+      const px2=(px-202)+(i%3)*140+(i%3===2?0:0), py2=pillY+Math.floor(i/3)*32;
+      const pg=this.add.graphics();
+      const pw2=i<3?130:195;
+      const px3=i<3?(px-180)+i*140:(px-(pills.slice(3).length*195+(pills.slice(3).length-1)*10)/2)+(i-3)*205;
+      pg.fillStyle(0x1A0055,0.75); pg.fillRoundedRect(px3,py2,pw2,24,7);
+      this.add.text(px3+pw2/2,py2+12,p,{fontSize:'11px',fontFamily:'Georgia',fill:'#CBBDFF'}).setOrigin(0.5);
+    });
+
+    // All-time best
+    const b=parseInt(localStorage.getItem('mmk_best')||'0');
+    this.add.text(px,py+430,b>0?`🏆 All-Time Best: ${b}`:'🏆 Play to set your first record!',{
+      fontSize:'14px',fontFamily:'Georgia',fill:'#FFD700'}).setOrigin(0.5);
+  }
+  sparkleLoop(){
+    const items=['✨','⭐','💫','🌟'];
+    this.time.addEvent({delay:370,loop:true,callback:()=>{
+      if(Math.random()>0.52)return;
+      const x=Phaser.Math.Between(215,W-15),y=Phaser.Math.Between(148,H-18);
+      const t=this.add.text(x,y,items[Math.floor(Math.random()*items.length)],{fontSize:`${10+Math.random()*13}px`,alpha:0});
+      this.tweens.add({targets:t,alpha:{from:0,to:0.9},y:y-36,duration:620,ease:'Quad.easeOut',
+        onComplete:()=>this.tweens.add({targets:t,alpha:0,duration:360,delay:260,onComplete:()=>t.destroy()})});
+    }});
+  }
+}
+
+// ══════════════════════════════════════════════
+//  GAME SCENE
+// ══════════════════════════════════════════════
+class GameScene extends Phaser.Scene{
+  constructor(){super('Game');}
+  init(data){
+    this.diffTier    =data.diffTier    ||'easy';
+    this.difficulty  =data.difficulty  ||1;
+    this.score       =data.score       ||0;
+    this.streak      =data.streak      ||0;
+    this.level       =data.level       ||1;
+    this.powerCharge =data.powerCharge ||0;
+    this.puzzleCount =data.puzzleCount ||0;
+    this.totalCorrect=data.totalCorrect||0;
+    this.startTime   =data.startTime   ||(this.diffTier==='hard'?70:this.diffTier==='medium'?90:120);
+    this.timeLeft    =this.startTime;
+    this.puzzle      =null;
+    this.selectedNum =null;
+    this.selectedCell=null;
+    this.hintUsed    =false;
+    this.cellObjs    =[];
+    this.bankObjs    =[];
+    this.timerActive =false;
+    this.tutOpen     =false;
+    this.pLayer      =null;
+    this.bLayer      =null;
+    this.mathChecks  =null;
+    this.triChecks   =null;
+    this.starPips    =[];
+    this.comboMulti  =1;
+    this.undoStack   =[];
+  }
+  create(){
+    this.makeBg();
+    this.makeHUD();
+    this.spawnPuzzle();
+    this.startTimer();
+    this.cameras.main.fadeIn(400,0,0,0);
+    if(!localStorage.getItem('mmk_tut')){
+      this.time.delayedCall(300,()=>this.showTutorial());
+    }
+  }
+
+  // ── Background ────────────────────────────────────────
+  makeBg(){
+    const g=this.add.graphics();
+    g.fillGradientStyle(0x05011a,0x05011a,0x0E0535,0x0E0535,1);
+    g.fillRect(0,0,W,H);
+    g.lineStyle(1,0x150840,0.44);
+    for(let x=0;x<W;x+=55)g.lineBetween(x,0,x,H);
+    for(let y=0;y<H;y+=55)g.lineBetween(0,y,W,y);
+    for(let i=0;i<55;i++){
+      const sg=this.add.graphics();
+      const sa=Math.random()*0.5+0.08;
+      sg.fillStyle(0xFFFFFF,sa);
+      sg.fillCircle(Phaser.Math.Between(0,W),Phaser.Math.Between(0,H),Math.random()<0.3?2:1);
+      this.tweens.add({targets:sg,alpha:{from:sa,to:Math.random()*0.18+0.04},duration:Phaser.Math.Between(900,4000),yoyo:true,repeat:-1,delay:Phaser.Math.Between(0,3000)});
+    }
+  }
+
+  // ── HUD ───────────────────────────────────────────────
+  makeHUD(){
+    const g=this.add.graphics();
+    g.fillStyle(0x08021c,0.97); g.fillRoundedRect(4,4,W-8,60,10);
+    g.lineStyle(2,0x4A1E99,0.7); g.strokeRoundedRect(4,4,W-8,60,10);
+    g.fillStyle(0xFFFFFF,0.04); g.fillRoundedRect(4,4,W-8,17,{tl:10,tr:10,bl:0,br:0});
+
+    // Score
+    this.add.text(14,8,'SCORE',{fontSize:'10px',fontFamily:'Georgia',fill:'#6A44BB'});
+    this.scoreTxt=this.add.text(14,21,`${this.score}`,{fontSize:'24px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#1A0044',strokeThickness:3});
+
+    // Level
+    this.add.text(130,8,'LEVEL',{fontSize:'10px',fontFamily:'Georgia',fill:'#6A44BB'});
+    this.levelTxt=this.add.text(130,21,`${this.level}`,{fontSize:'24px',fontFamily:'Georgia',fontStyle:'bold',fill:'#4ECDC4',stroke:'#001E1E',strokeThickness:3});
+
+    // Streak
+    this.add.text(205,8,'STREAK',{fontSize:'10px',fontFamily:'Georgia',fill:'#6A44BB'});
+    this.streakTxt=this.add.text(205,21,`${this.streak}×`,{fontSize:'24px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FF7B6B',stroke:'#1A0000',strokeThickness:3});
+
+    // Timer
+    this.add.text(310,8,'TIME',{fontSize:'10px',fontFamily:'Georgia',fill:'#6A44BB'});
+    this.timerTxt=this.add.text(310,21,`${this.timeLeft}`,{fontSize:'24px',fontFamily:'Georgia',fontStyle:'bold',fill:'#88FF88',stroke:'#001500',strokeThickness:3});
+
+    // Timer bar
+    this.timerBarBg=this.add.graphics();
+    this.timerBarFg=this.add.graphics();
+    this.timerBarBg.fillStyle(0x111133); this.timerBarBg.fillRoundedRect(305,52,90,5,2);
+
+    // Mode + difficulty badge
+    const tierCol={easy:0x1A6B2A,medium:0x1A4A8A,hard:0x7A1A1A};
+    const tierLbl={easy:'⭐ EASY',medium:'⭐⭐ MEDIUM',hard:'⭐⭐⭐ HARD'};
+    const mc=this.add.graphics();
+    mc.fillStyle(tierCol[this.diffTier]||0x1A4A8A,1); mc.fillRoundedRect(408,12,180,38,8);
+    mc.fillStyle(0xFFFFFF,0.12); mc.fillRoundedRect(408,12,180,12,{tl:8,tr:8,bl:0,br:0});
+    this.add.text(498,31,tierLbl[this.diffTier]||'⭐⭐ MEDIUM',{fontSize:'14px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFFFFF',stroke:'#000033',strokeThickness:2}).setOrigin(0.5);
+
+    // Power bar label + button
+    this.add.text(568,8,'⚡ POWER',{fontSize:'10px',fontFamily:'Georgia',fill:'#6A44BB'});
+    this.pwrBg=this.add.graphics(); this.pwrFg=this.add.graphics();
+    this.pwrBtn=this.add.text(840,32,'⚡',{fontSize:'22px',backgroundColor:'#1A0033',padding:{x:5,y:3}}).setOrigin(0.5).setInteractive();
+    this.pwrBtn.on('pointerdown',()=>this.usePower());
+    this.drawPowerBar();
+
+    // Combo label
+    this.comboTxt=this.add.text(W/2,47,'',{fontSize:'12px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FF6600'}).setOrigin(0.5).setDepth(5);
+
+    // Description bar — sits just below HUD
+    this.descTxt=this.add.text(W/2,72,'',{fontSize:'14px',fontFamily:'Georgia',fill:'#CBBDFF',backgroundColor:'#0E053A',padding:{x:10,y:4}}).setOrigin(0.5).setDepth(5);
+
+    // Bottom strip
+    const bsy=H-24;
+    this._addSmallBtn(28,bsy,'🏠',()=>{SFX.click();this.saveHS();this.cameras.main.fade(400,0,0,0,false,()=>this.scene.start('Title'));});
+    this._addSmallBtn(108,bsy,'💡 Hint',()=>this.useHint());
+    this._addSmallBtn(202,bsy,'↩ Undo',()=>this.doUndo());
+    this._addSmallBtn(288,bsy,'🗑️ Clear',()=>this.clearBoard());
+    this._addSmallBtn(376,bsy,'❓ Help',()=>this.showTutorial());
+
+    // Live equation strip
+    this.eqTxt=this.add.text(W/2,H-48,'',{fontSize:'15px',fontFamily:'Georgia',fill:'#AAFFAA',backgroundColor:'#001400',padding:{x:10,y:3}}).setOrigin(0.5).setDepth(5).setAlpha(0);
+  }
+
+  _addSmallBtn(x,y,label,cb){
+    const isIcon=label.length<=2;
+    const t=this.add.text(x,y,label,{
+      fontSize:isIcon?'20px':'14px',fontFamily:'Georgia',
+      fill:label.includes('Hint')?'#FFD700':label.includes('Undo')?'#AADDFF':label.includes('Clear')?'#FF9999':'#CCDDFF',
+      backgroundColor:'#080020',padding:{x:isIcon?7:8,y:4}
+    }).setOrigin(0,0.5).setInteractive().setDepth(10);
+    t.on('pointerover',()=>{t.setAlpha(0.75);});
+    t.on('pointerout', ()=>{t.setAlpha(1);});
+    t.on('pointerdown',()=>cb());
+    return t;
+  }
+
+  drawPowerBar(){
+    this.pwrBg.clear(); this.pwrFg.clear();
+    this.pwrBg.fillStyle(0x180030); this.pwrBg.fillRoundedRect(568,21,115,16,4);
+    const pct=this.powerCharge/5;
+    if(pct>0){
+      this.pwrFg.fillStyle(pct>=1?0xFFD700:0x8800EE);
+      this.pwrFg.fillRoundedRect(568,21,115*pct,16,4);
+    }
+    this.pwrBg.lineStyle(1,0x5500AA); this.pwrBg.strokeRoundedRect(568,21,115,16,4);
+    if(this.starPips){this.starPips.forEach(s=>{try{s.destroy();}catch(e){}});}
+    this.starPips=[];
+    for(let i=0;i<5;i++){
+      const s=this.add.text(572+i*22,29,i<this.powerCharge?'⭐':'☆',{fontSize:'10px'}).setOrigin(0.5);
+      this.starPips.push(s);
+    }
+    if(this.pwrBtn) this.pwrBtn.setAlpha(this.powerCharge>=5?1:0.42);
+  }
+
+  drawTimerBar(){
+    this.timerBarFg.clear();
+    const pct=Math.max(0,this.timeLeft/this.startTime);
+    const col=pct>0.4?0x44FF44:(pct>0.2?0xFFAA00:0xFF3333);
+    this.timerBarFg.fillStyle(col,0.85);
+    this.timerBarFg.fillRoundedRect(305,52,90*pct,5,2);
+  }
+
+  updateComboDisplay(){
+    if(this.streak>=5){
+      this.comboTxt.setText(`🔥 ${this.streak}× COMBO — ×${Math.floor(this.streak*0.5+1)} BONUS!`).setFill('#FF6600');
+    } else if(this.streak>=3){
+      this.comboTxt.setText(`🔥 ${this.streak}× streak! Bonus active!`).setFill('#FFAA00');
+    } else {
+      this.comboTxt.setText('');
+    }
+  }
+
+  // ── Puzzle Spawning ───────────────────────────────────
+  spawnPuzzle(){
+    this.puzzleCount++;
+    this.selectedNum=null; this.selectedCell=null;
+    this.hintUsed=false;
+    this.cellObjs=[]; this.bankObjs=[];
+    this.undoStack=[];
+    this.mathChecks=null; this.triChecks=null;
+
+    if(this.pLayer){this.pLayer.destroy(true);}
+    if(this.bLayer){this.bLayer.destroy(true);}
+    this.pLayer=this.add.container(0,0);
+    this.bLayer=this.add.container(0,0);
+
+    // Puzzle type — triangles unlock at level 4+
+    let pType='square';
+    if(this.level>=4&&this.puzzleCount%3===0)pType='triangle';
+    if(this.level>=7&&Math.random()<0.45)pType='triangle';
+
+    this.puzzle=pType==='square'
+      ?makeSqPuzzle(this.diffTier, Math.min(this.difficulty,3))
+      :makeTriPuzzle(this.diffTier, Math.min(this.difficulty,4));
+
+    if(pType==='square')this.drawSquare();
+    else this.drawTriangle();
+    this.drawBank();
+
+    this.pLayer.setAlpha(0);
+    this.tweens.add({targets:this.pLayer,alpha:1,duration:300,ease:'Quad.easeOut'});
+    this.bLayer.setAlpha(0);
+    this.tweens.add({targets:this.bLayer,alpha:1,duration:300,delay:80});
+
+    // Puzzle intro sound
+    SFX.select();
+  }
+
+  // ── Draw Magic Square ─────────────────────────────────
+  drawSquare(){
+    const P=this.puzzle;
+    // Layout constants — grid starts below desc bar
+    const CX=30, CY=92, CS=96, GAP=5;
+    const gridW=3*CS+2*GAP, gridH=3*CS+2*GAP;
+
+    this.descTxt.setText(`🔮 Magic Square  ·  Every row, column & diagonal = ${P.magicSum}`);
+
+    // Outer panel encompasses labels + grid + row/col indicators
+    const panX=CX-12, panY=CY-10;
+    const panW=gridW+90, panH=gridH+72;
+    const g=this.add.graphics();
+    g.fillStyle(0x0B052E,0.93); g.fillRoundedRect(panX,panY,panW,panH,16);
+    g.lineStyle(3,0x5020AA,0.8); g.strokeRoundedRect(panX,panY,panW,panH,16);
+    g.lineStyle(1,0x9066FF,0.3); g.strokeRoundedRect(panX+4,panY+4,panW-8,panH-8,14);
+    this.pLayer.add(g);
+
+    // "Magic Sum" and "Use:" labels inside panel at top
+    const midX=panX+panW/2;
+    const useL=this.add.text(midX,CY+4,`Use: ${P.nums.join(' · ')}`,{fontSize:'11px',fontFamily:'Georgia',fill:'#8899CC'}).setOrigin(0.5);
+    const sumL=this.add.text(midX,CY+18,`✨ Magic Sum = ${P.magicSum}`,{fontSize:'18px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#1A0066',strokeThickness:3}).setOrigin(0.5);
+    this.pLayer.add([useL,sumL]);
+
+    // Grid starts below those labels
+    const gridY=CY+38;
+
+    // Row sum indicators
+    for(let r=0;r<3;r++){
+      const t=this.add.text(CX+gridW+6,gridY+r*(CS+GAP)+CS/2,`=${P.magicSum}`,{fontSize:'12px',fontFamily:'Georgia',fill:'#604488'}).setOrigin(0,0.5);
+      this.pLayer.add(t);
+    }
+    // Col sum indicators
+    for(let c=0;c<3;c++){
+      const t=this.add.text(CX+c*(CS+GAP)+CS/2,gridY+gridH+5,`=${P.magicSum}`,{fontSize:'12px',fontFamily:'Georgia',fill:'#604488'}).setOrigin(0.5,0);
+      this.pLayer.add(t);
+    }
+    // Diagonal guides
+    const dg=this.add.graphics();
+    dg.lineStyle(1,0x2E1A55,0.45);
+    dg.lineBetween(CX+3,gridY+3,CX+gridW-3,gridY+gridH-3);
+    dg.lineBetween(CX+gridW-3,gridY+3,CX+3,gridY+gridH-3);
+    this.pLayer.add(dg);
+
+    // Cells
+    this.cellObjs=[];
+    for(let r=0;r<3;r++) for(let c=0;c<3;c++){
+      const idx=r*3+c;
+      const cx=CX+c*(CS+GAP), cy=gridY+r*(CS+GAP);
+      const val=P.puzzle[idx], fixed=val!==null;
+      const obj=this.makeSqCell(cx,cy,CS,idx,val,fixed);
+      this.cellObjs.push(obj);
+      this.pLayer.add([obj.bg,obj.txt]);
+    }
+    this.makeMathPanel(gridY,CS,GAP);
+  }
+
+  makeMathPanel(gridY,CS,GAP){
+    const CX=30, gridW=3*CS+2*GAP;
+    const px=CX+gridW+52, py=gridY-6, pw=198, ph=3*(CS+GAP)+12;
+    const g=this.add.graphics();
+    g.fillStyle(0x07031A,0.90); g.fillRoundedRect(px,py,pw,ph,12);
+    g.lineStyle(2,0x2E1A88,0.6); g.strokeRoundedRect(px,py,pw,ph,12);
+    this.pLayer.add(g);
+    const hdr=this.add.text(px+pw/2,py+12,'📊 Live Check',{fontSize:'13px',fontFamily:'Georgia',fontStyle:'bold',fill:'#AA88FF'}).setOrigin(0.5);
+    this.pLayer.add(hdr);
+    this.mathChecks=[];
+    const labels=['Row 1','Row 2','Row 3','Col 1','Col 2','Col 3','Diag ↘','Diag ↙'];
+    const rowH=Math.floor((ph-26)/8);
+    labels.forEach((lbl,i)=>{
+      const yt=py+25+i*rowH;
+      const bg2=this.add.graphics();
+      bg2.fillStyle(i%2===0?0x0C0525:0x080318,0.6); bg2.fillRoundedRect(px+3,yt,pw-6,rowH-1,3);
+      const lt=this.add.text(px+8,yt+rowH/2,lbl,{fontSize:'11px',fontFamily:'Georgia',fill:'#7766AA'}).setOrigin(0,0.5);
+      const vt=this.add.text(px+pw-38,yt+rowH/2,'—',{fontSize:'10px',fontFamily:'Georgia',fill:'#445566'}).setOrigin(0,0.5);
+      const ict=this.add.text(px+pw-8,yt+rowH/2,'',{fontSize:'13px',fontFamily:'Georgia',fontStyle:'bold',fill:'#55FF55'}).setOrigin(1,0.5);
+      this.pLayer.add([bg2,lt,vt,ict]);
+      this.mathChecks.push({vt,ict});
+    });
+  }
+
+  refreshMathPanel(){
+    if(!this.mathChecks||!this.puzzle||this.puzzle.type!=='square')return;
+    const P=this.puzzle,a=P.playerGrid,s=P.magicSum;
+    const g=(r,c)=>a[r*3+c];
+    const checks=[
+      [g(0,0),g(0,1),g(0,2)],[g(1,0),g(1,1),g(1,2)],[g(2,0),g(2,1),g(2,2)],
+      [g(0,0),g(1,0),g(2,0)],[g(0,1),g(1,1),g(2,1)],[g(0,2),g(1,2),g(2,2)],
+      [g(0,0),g(1,1),g(2,2)],[g(0,2),g(1,1),g(2,0)],
+    ];
+    checks.forEach((row,i)=>{
+      const mc=this.mathChecks[i];
+      if(!mc||!mc.vt||!mc.vt.active)return;
+      const{vt,ict}=mc;
+      const hasNull=row.some(v=>v==null);
+      const sum=hasNull?null:row.reduce((a,b)=>a+b,0);
+      if(hasNull){
+        const known=row.filter(v=>v!=null);
+        vt.setText(known.length?`${known.join('+')}+?`:'?').setFill('#445566');
+        ict.setText('');
+      }else{
+        const ok=sum===s;
+        vt.setText(`${row.join('+')}=${sum}`).setFill(ok?'#55FF55':'#FF6655');
+        ict.setText(ok?'✓':'✗').setFill(ok?'#44FF44':'#FF3333');
+        if(ok){this.tweens.add({targets:ict,scaleX:1.4,scaleY:1.4,duration:100,yoyo:true});}
+      }
+    });
+  }
+
+  // ── Draw Triangle ─────────────────────────────────────
+  drawTriangle(){
+    const P=this.puzzle;
+    const cx=290, cy=135, R=34;
+    this.descTxt.setText(`🔺 Magic Triangle  ·  Each side = ${P.magicSum}  ·  Use 1–6 once each`);
+    const pos=[
+      [cx,     cy],
+      [cx-88,  cy+108],
+      [cx+88,  cy+108],
+      [cx-172, cy+216],
+      [cx,     cy+216],
+      [cx+172, cy+216],
+    ];
+
+    const g=this.add.graphics();
+    g.fillStyle(0x0B052E,0.93); g.fillRoundedRect(cx-218,cy-40,436,306,16);
+    g.lineStyle(3,0xFF7020,0.7); g.strokeRoundedRect(cx-218,cy-40,436,306,16);
+    this.pLayer.add(g);
+
+    const sumL=this.add.text(cx,cy-20,`✨ Magic Sum = ${P.magicSum}  ·  Use: 1 · 2 · 3 · 4 · 5 · 6`,{
+      fontSize:'15px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#1A0033',strokeThickness:3}).setOrigin(0.5);
+    this.pLayer.add(sumL);
+
+    // Color-coded edges
+    const edgColors=[0xFF6633,0xFF6633,0x66AAFF,0x66AAFF,0x66FF88,0x66FF88];
+    const edgPairs=[[0,1],[1,3],[0,2],[2,5],[3,4],[4,5]];
+    edgPairs.forEach(([a,b],i)=>{
+      const edg=this.add.graphics();
+      edg.lineStyle(5,edgColors[i],0.65);
+      edg.lineBetween(pos[a][0],pos[a][1],pos[b][0],pos[b][1]);
+      this.pLayer.add(edg);
+    });
+
+    // Side sum labels
+    [{x:cx-150,y:cy+170,t:`= ${P.magicSum}`,c:'#FF8844'},
+     {x:cx+110,y:cy+170,t:`= ${P.magicSum}`,c:'#88AAFF'},
+     {x:cx,    y:cy+265,t:`= ${P.magicSum}`,c:'#88FF99'}].forEach(sl=>{
+      const t=this.add.text(sl.x,sl.y,sl.t,{fontSize:'13px',fontFamily:'Georgia',fill:sl.c,stroke:'#000033',strokeThickness:2}).setOrigin(0.5);
+      this.pLayer.add(t);
+    });
+
+    this.cellObjs=[];
+    pos.forEach((p,i)=>{
+      const val=P.puzzle[i],fixed=val!==null;
+      const obj=this.makeCircCell(p[0],p[1],R,i,val,fixed);
+      this.cellObjs.push(obj);
+      this.pLayer.add([obj.bg,obj.txt]);
+    });
+    this.makeTriPanel(cy);
+  }
+
+  makeTriPanel(cy){
+    const px=582, py=cy-30, pw=240, ph=282;
+    const g=this.add.graphics();
+    g.fillStyle(0x07031A,0.90); g.fillRoundedRect(px,py,pw,ph,12);
+    g.lineStyle(2,0x882020,0.55); g.strokeRoundedRect(px,py,pw,ph,12);
+    this.pLayer.add(g);
+    const thdr=this.add.text(px+pw/2,py+13,'📊 Live Check',{fontSize:'13px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FF9944'}).setOrigin(0.5);
+    this.pLayer.add(thdr);
+    this.triChecks=[];
+    [{lbl:'Left side ↙',nodes:[0,1,3],col:'#FF8844'},
+     {lbl:'Right side ↘',nodes:[0,2,5],col:'#88AAFF'},
+     {lbl:'Bottom →',nodes:[3,4,5],col:'#88FF99'}].forEach(({lbl,nodes,col},i)=>{
+      const yt=py+34+i*76;
+      const bg2=this.add.graphics();
+      bg2.fillStyle(i%2===0?0x0C0525:0x080318,0.6); bg2.fillRoundedRect(px+4,yt,pw-8,70,5);
+      const lt=this.add.text(px+10,yt+10,lbl,{fontSize:'12px',fontFamily:'Georgia',fill:col});
+      const vt=this.add.text(px+10,yt+30,'?+?+?',{fontSize:'13px',fontFamily:'Georgia',fill:'#445566'});
+      const ict=this.add.text(px+pw-10,yt+36,'',{fontSize:'18px',fontFamily:'Georgia',fontStyle:'bold',fill:'#55FF55'}).setOrigin(1,0.5);
+      this.pLayer.add([bg2,lt,vt,ict]);
+      this.triChecks.push({vt,ict,nodes});
+    });
+  }
+
+  refreshTriPanel(){
+    if(!this.triChecks||!this.puzzle||this.puzzle.type!=='triangle')return;
+    const P=this.puzzle,a=P.playerGrid,s=P.magicSum;
+    this.triChecks.forEach(({vt,ict,nodes})=>{
+      if(!vt||!vt.active)return;
+      const vals=nodes.map(n=>a[n]);
+      const hasNull=vals.some(v=>v==null);
+      const sum=hasNull?null:vals.reduce((x,y)=>x+y,0);
+      vt.setText(vals.map(v=>v!=null?v:'?').join('+')+(!hasNull&&sum!=null?`=${sum}`:'')).setFill(hasNull?'#445566':(sum===s?'#55FF55':'#FF6655'));
+      ict.setText(hasNull?'':(sum===s?'✓':'✗')).setFill(sum===s?'#44FF44':'#FF3333');
+      if(!hasNull&&sum===s)this.tweens.add({targets:ict,scaleX:1.4,scaleY:1.4,duration:100,yoyo:true});
+    });
+  }
+
+  // ── Cell Factories ────────────────────────────────────
+  makeSqCell(cx,cy,cs,idx,val,fixed){
+    const g=this.add.graphics();
+    const draw=(hov,sel)=>{
+      g.clear();
+      const fill=fixed?0x1B0A45:(sel?0x003388:(hov?0x1E3088:0x080D35));
+      const str=fixed?0x8866FF:(sel?0xFFFF00:(hov?0xAABBFF:0x2E3E80));
+      const sw=sel?3:2;
+      g.fillStyle(fill,0.97); g.fillRoundedRect(cx,cy,cs,cs,12);
+      g.lineStyle(sw,str,1); g.strokeRoundedRect(cx,cy,cs,cs,12);
+      if(fixed){g.fillStyle(0xFFFFFF,0.05);g.fillRoundedRect(cx+3,cy+3,cs-6,17,{tl:10,tr:10,bl:0,br:0});}
+      if(sel){g.fillStyle(0xFFFF00,0.06);g.fillRoundedRect(cx+4,cy+4,cs-8,cs-8,10);}
+    };
+    draw(false,false);
+    const fs=val!=null&&val>=10?'36px':'42px';
+    const txt=this.add.text(cx+cs/2,cy+cs/2,val!=null?`${val}`:'?',{
+      fontSize:fs,fontFamily:'Georgia',fontStyle:'bold',
+      fill:fixed?'#FFD700':'#5599FF',stroke:'#000033',strokeThickness:3}).setOrigin(0.5);
+    const obj={bg:g,txt,cx,cy,cs,idx,fixed,draw,_h:false,_s:false,shape:'square'};
+    if(!fixed){
+      g.setInteractive(new Phaser.Geom.Rectangle(cx,cy,cs,cs),Phaser.Geom.Rectangle.Contains);
+      g.on('pointerover',()=>{obj._h=true;draw(true,obj._s);});
+      g.on('pointerout', ()=>{obj._h=false;draw(false,obj._s);});
+      g.on('pointerdown',()=>this.onCell(idx));
+    }
+    return obj;
+  }
+
+  makeCircCell(x,y,r,idx,val,fixed){
+    const g=this.add.graphics();
+    const draw=(hov,sel)=>{
+      g.clear();
+      const fill=fixed?0x260055:(sel?0x003388:(hov?0x1E3088:0x080D35));
+      const str=fixed?0xFF8833:(sel?0xFFFF00:(hov?0xAABBFF:0x4455AA));
+      const sw=sel?3:2;
+      g.fillStyle(fill,0.97); g.fillCircle(x,y,r);
+      g.lineStyle(sw,str,1); g.strokeCircle(x,y,r);
+      if(sel){g.fillStyle(0xFFFF00,0.07);g.fillCircle(x,y,r-3);}
+    };
+    draw(false,false);
+    const txt=this.add.text(x,y,val!=null?`${val}`:'?',{
+      fontSize:'28px',fontFamily:'Georgia',fontStyle:'bold',
+      fill:fixed?'#FFD700':'#5599FF',stroke:'#000033',strokeThickness:3}).setOrigin(0.5);
+    const obj={bg:g,txt,x,y,r,idx,fixed,draw,_h:false,_s:false,shape:'circle'};
+    if(!fixed){
+      g.setInteractive(new Phaser.Geom.Circle(x,y,r),Phaser.Geom.Circle.Contains);
+      g.on('pointerover',()=>{obj._h=true;draw(true,obj._s);});
+      g.on('pointerout', ()=>{obj._h=false;draw(false,obj._s);});
+      g.on('pointerdown',()=>this.onCell(idx));
+    }
+    return obj;
+  }
+
+  // ── Number Bank ───────────────────────────────────────
+  drawBank(){
+    const P=this.puzzle;
+    const nums=P.nums;
+    // Size buttons to always fit within screen width
+    const maxW=W-24;
+    const gap=8;
+    const bH=50;
+    const bW=Math.min(58, Math.floor((maxW-(nums.length-1)*gap)/nums.length));
+    const totW=nums.length*(bW+gap)-gap;
+    const startX=(W-totW)/2, by=H-96;
+
+    const instr=this.add.text(W/2,by-18,
+      '① Pick a number  →  ② Tap a  ?  cell to place it',
+      {fontSize:'12px',fontFamily:'Georgia',fill:'#7788AA'}).setOrigin(0.5);
+    this.bLayer.add(instr);
+
+    const bbg=this.add.graphics();
+    bbg.fillStyle(0x080020,0.84); bbg.fillRoundedRect(startX-10,by-2,totW+20,bH+14,10);
+    bbg.lineStyle(2,0x2E1A99,0.5); bbg.strokeRoundedRect(startX-10,by-2,totW+20,bH+14,10);
+    this.bLayer.add(bbg);
+
+    this.bankObjs=[];
+    nums.forEach((n,i)=>{
+      const x=startX+i*(bW+gap),y=by+4;
+      const bg=this.add.graphics();
+      const drawB=(hov,sel,used)=>{
+        bg.clear();
+        const fill=used?0x0B0F2A:(sel?0xBB6600:(hov?0x2840BB:0x152088));
+        const str=used?0x1E2044:(sel?0xFFFF00:(hov?0x88AAFF:0x3E55CC));
+        bg.fillStyle(fill,used?0.38:0.95); bg.fillRoundedRect(x,y,bW,bH,10);
+        bg.lineStyle(sel?3:2,str,1); bg.strokeRoundedRect(x,y,bW,bH,10);
+        if(!used){bg.fillStyle(0xFFFFFF,hov?0.15:0.09);bg.fillRoundedRect(x+3,y+3,bW-6,bH*0.33,{tl:8,tr:8,bl:0,br:0});}
+      };
+      drawB(false,false,false);
+      const fsize=bW<44?'18px':'22px';
+      const t=this.add.text(x+bW/2,y+bH/2,`${n}`,{
+        fontSize:fsize,fontFamily:'Georgia',fontStyle:'bold',fill:'#FFFFFF',stroke:'#000033',strokeThickness:3}).setOrigin(0.5);
+      const obj={bg,txt:t,n,x,y,bW,bH,drawB,_s:false,_h:false,_u:false};
+      bg.setInteractive(new Phaser.Geom.Rectangle(x,y,bW,bH),Phaser.Geom.Rectangle.Contains);
+      bg.on('pointerover',()=>{obj._h=true;obj.drawB(true,obj._s,obj._u);});
+      bg.on('pointerout', ()=>{obj._h=false;obj.drawB(false,obj._s,obj._u);});
+      bg.on('pointerdown',()=>this.onNum(n));
+      this.bankObjs.push(obj);
+      this.bLayer.add([bg,t]);
+    });
+    this.refreshBank();
+  }
+
+  refreshBank(){
+    this.bankObjs.forEach(obj=>{
+      obj._u=this.numUsed(obj.n);
+      obj._s=(this.selectedNum===obj.n);
+      obj.drawB(obj._h,obj._s,obj._u);
+      obj.txt.setFill(obj._u?'#2A2A5A':'#FFFFFF');
+      obj.txt.setAlpha(obj._u?0.5:1);
+    });
+  }
+
+  numUsed(n){
+    const P=this.puzzle;
+    return P.playerGrid.some((v,i)=>v===n&&P.puzzle[i]===null);
+  }
+
+  // ── Interaction ───────────────────────────────────────
+  onNum(n){
+    SFX.click();
+    if(this.selectedNum===n){this.selectedNum=null;this.refreshBank();this.refreshCells();return;}
+    this.selectedNum=n;
+    this.refreshBank();
+    if(this.selectedCell!==null)this.placeNum();
+  }
+
+  onCell(idx){
+    const obj=this.cellObjs[idx];
+    if(obj.fixed)return;
+    SFX.click();
+    // If clicking a filled non-fixed cell with nothing selected: erase it
+    const P=this.puzzle;
+    if(this.selectedNum===null&&P.playerGrid[idx]!==null){
+      this.eraseCell(idx);
+      return;
+    }
+    if(this.selectedCell===idx){this.selectedCell=null;this.refreshCells();return;}
+    this.selectedCell=idx;
+    this.refreshCells();
+    if(this.selectedNum!==null)this.placeNum();
+  }
+
+  eraseCell(idx){
+    const P=this.puzzle;
+    if(P.puzzle[idx]!==null)return; // fixed cell
+    const prev=P.playerGrid[idx];
+    if(prev===null)return;
+    this.undoStack.push({idx,prev});
+    P.playerGrid[idx]=null;
+    this.updateCell(idx,null);
+    this.refreshBank();
+    this.refreshMathPanel();
+    this.refreshTriPanel();
+    SFX.erase();
+  }
+
+  placeNum(){
+    if(this.selectedNum===null||this.selectedCell===null)return;
+    const P=this.puzzle,idx=this.selectedCell,n=this.selectedNum;
+    const prevVal=P.playerGrid[idx];
+
+    // Remove n from other non-fixed cells
+    P.playerGrid.forEach((v,i)=>{if(v===n&&P.puzzle[i]===null&&i!==idx){P.playerGrid[i]=null;this.updateCell(i,null);}});
+
+    // Push to undo stack
+    this.undoStack.push({idx,prev:prevVal});
+    if(this.undoStack.length>20)this.undoStack.shift();
+
+    P.playerGrid[idx]=n;
+    this.updateCell(idx,n);
+    SFX.place();
+
+    const obj=this.cellObjs[idx];
+    this.tweens.add({targets:obj.txt,scaleX:1.45,scaleY:1.45,duration:90,yoyo:true,ease:'Back.easeOut'});
+
+    this.showLiveEq(idx);
+    this.selectedNum=null; this.selectedCell=null;
+    this.refreshBank(); this.refreshCells();
+    this.refreshMathPanel(); this.refreshTriPanel();
+
+    if(this.isPuzzleFull())this.time.delayedCall(80,()=>this.checkSolution());
+  }
+
+  doUndo(){
+    if(!this.undoStack.length){this.popMsg('Nothing to undo!','#FFAA44');return;}
+    SFX.erase();
+    const{idx,prev}=this.undoStack.pop();
+    const P=this.puzzle;
+    P.playerGrid[idx]=prev;
+    this.updateCell(idx,prev);
+    this.selectedNum=null; this.selectedCell=null;
+    this.refreshBank(); this.refreshCells();
+    this.refreshMathPanel(); this.refreshTriPanel();
+  }
+
+  updateCell(idx,val){
+    const obj=this.cellObjs[idx];
+    if(!obj||obj.fixed||!obj.txt||!obj.txt.active)return;
+    obj.txt.setText(val!=null?`${val}`:'?');
+    obj.txt.setFill(val!=null?'#88FF88':'#5599FF');
+    if(obj.shape==='square')obj.txt.setFontSize(val!=null&&val>=10?'36px':'42px');
+    obj.draw(false,false);
+    if(val!=null){
+      const g2=this.add.graphics().setDepth(150);
+      if(obj.shape==='square'){g2.lineStyle(4,0x44FF44,0.85);g2.strokeRoundedRect(obj.cx,obj.cy,obj.cs,obj.cs,12);}
+      else{g2.lineStyle(4,0x44FF44,0.85);g2.strokeCircle(obj.x,obj.y,obj.r+2);}
+      this.tweens.add({targets:g2,alpha:0,duration:420,onComplete:()=>g2.destroy()});
+    }
+  }
+
+  refreshCells(){
+    this.cellObjs.forEach((obj,idx)=>{
+      if(obj.fixed)return;
+      obj._s=(this.selectedCell===idx);
+      obj.draw(obj._h,obj._s);
+    });
+  }
+
+  showLiveEq(idx){
+    const P=this.puzzle;
+    if(P.type==='triangle'){this.eqTxt.setAlpha(0);return;}
+    const r=Math.floor(idx/3);
+    const row=P.playerGrid.slice(r*3,r*3+3);
+    const hasNull=row.some(v=>v==null);
+    const sum=hasNull?null:row.reduce((a,b)=>a+b,0);
+    const eq=`Row ${r+1}: ${row.map(v=>v!=null?v:'?').join(' + ')} = ${sum!=null?sum:'?'}  (need ${P.magicSum})`;
+    const col=sum===P.magicSum?'#66FF66':(sum!=null&&sum!==P.magicSum?'#FF7777':'#AAFFAA');
+    this.eqTxt.setText(eq).setFill(col).setAlpha(1);
+    this.tweens.killTweensOf(this.eqTxt);
+    this.tweens.add({targets:this.eqTxt,alpha:0,duration:400,delay:2300});
+  }
+
+  isPuzzleFull(){return this.puzzle.playerGrid.every(v=>v!=null);}
+
+  checkSolution(){
+    const P=this.puzzle;
+    const ok=P.type==='square'?this.chkSquare():this.chkTriangle();
+    if(ok)this.onCorrect();
+    else  this.onWrong();
+  }
+
+  chkSquare(){
+    const P=this.puzzle,a=P.playerGrid,s=P.magicSum;
+    const g=(r,c)=>a[r*3+c];
+    const sorted=[...a].sort((x,y)=>x-y);
+    if(JSON.stringify(sorted)!==JSON.stringify([...P.nums].sort((x,y)=>x-y)))return false;
+    for(let r=0;r<3;r++)if(g(r,0)+g(r,1)+g(r,2)!==s)return false;
+    for(let c=0;c<3;c++)if(g(0,c)+g(1,c)+g(2,c)!==s)return false;
+    return g(0,0)+g(1,1)+g(2,2)===s&&g(0,2)+g(1,1)+g(2,0)===s;
+  }
+
+  chkTriangle(){
+    const a=this.puzzle.playerGrid,s=this.puzzle.magicSum;
+    if(a[0]+a[1]+a[3]!==s||a[0]+a[2]+a[5]!==s||a[3]+a[4]+a[5]!==s)return false;
+    return JSON.stringify([...a].sort((x,y)=>x-y))===JSON.stringify([1,2,3,4,5,6]);
+  }
+
+  // ── Solve Outcomes ────────────────────────────────────
+  onCorrect(){
+    this.streak++; this.totalCorrect++;
+    const isPerfect=!this.hintUsed&&this.streak>=3;
+    const base=10+this.difficulty*8;
+    const streakBonus=this.streak>=3?Math.floor(this.streak*2.5):0;
+    const pts=Math.floor((base+streakBonus)*(this.hintUsed?0.5:1));
+    this.score+=pts;
+    this.powerCharge=Math.min(this.powerCharge+1,5);
+
+    this.scoreTxt.setText(`${this.score}`);
+    this.streakTxt.setText(`${this.streak}×`);
+    this.tweens.add({targets:this.scoreTxt,scaleX:1.5,scaleY:1.5,duration:140,yoyo:true,ease:'Back.easeOut'});
+    this.drawPowerBar();
+    this.updateComboDisplay();
+
+    // Level-up check
+    if(this.score>=this.level*150){
+      this.level++;this.difficulty=Math.min(this.difficulty+1,3);
+      this.levelTxt.setText(`${this.level}`);
+      this.time.delayedCall(800,()=>this.doLevelUp());
+    }
+
+    if(isPerfect)SFX.perfect();
+    else SFX.correct();
+    if(this.streak>=3)SFX.combo();
+    if(this.powerCharge>=5)SFX.star();
+
+    this.cameras.main.flash(240,0,180,80,false);
+    burst(this,W/2,300,['⭐','✨','💫','🌟'],18,130,285,920);
+    floatPts(this,W/2,250,`+${pts}${streakBonus>0?` 🔥×${this.streak}`:''}${isPerfect?' PERFECT!':''}`,
+      isPerfect?'#FF88FF':streakBonus>0?'#FFD700':'#88FF88');
+    this.saveHS();
+
+    // Flash all correct cells green
+    this.puzzle.playerGrid.forEach((v,i)=>{
+      const obj=this.cellObjs[i];
+      if(!obj||obj.fixed)return;
+      this.time.delayedCall(i*30,()=>{
+        const g2=this.add.graphics().setDepth(180);
+        if(obj.shape==='square'){g2.fillStyle(0x00FF44,0.2);g2.fillRoundedRect(obj.cx,obj.cy,obj.cs,obj.cs,12);}
+        else{g2.fillStyle(0x00FF44,0.2);g2.fillCircle(obj.x,obj.y,obj.r);}
+        this.tweens.add({targets:g2,alpha:0,duration:600,onComplete:()=>g2.destroy()});
+      });
+    });
+
+    const msg=this.streak>=5?`🔥 ${this.streak}× STREAK! INCREDIBLE!`:
+              this.streak>=3?`🔥 ${this.streak}× Streak! Amazing!`:'✅ Correct! Well done!';
+    this.showBanner(msg,'#88FF88','#002800',()=>this.time.delayedCall(380,()=>this.spawnPuzzle()));
+  }
+
+  onWrong(){
+    this.streak=0; this.streakTxt.setText('0×');
+    this.updateComboDisplay();
+    SFX.wrong();
+    this.cameras.main.shake(340,0.02);
+    this.cameras.main.flash(200,200,30,30,false);
+    this.highlightErrors();
+    const hint=this.getErrorHint();
+    this.showBanner(`❌ Not quite!  ${hint}`,'#FF9999','#280000',()=>{});
+    burst(this,W/2,300,['💥'],5,55,100,550);
+  }
+
+  getErrorHint(){
+    const P=this.puzzle;
+    if(P.type==='triangle'){
+      const a=P.playerGrid,s=P.magicSum;
+      if(a[0]+a[1]+a[3]!==s)return`Left: ${a[0]}+${a[1]}+${a[3]}=${a[0]+a[1]+a[3]} (need ${s})`;
+      if(a[0]+a[2]+a[5]!==s)return`Right: ${a[0]}+${a[2]}+${a[5]}=${a[0]+a[2]+a[5]} (need ${s})`;
+      return`Bottom: ${a[3]}+${a[4]}+${a[5]}=${a[3]+a[4]+a[5]} (need ${s})`;
+    }
+    const a=P.playerGrid,s=P.magicSum;
+    const g=(r,c)=>a[r*3+c];
+    for(let r=0;r<3;r++){const sm=g(r,0)+g(r,1)+g(r,2);if(sm!==s)return`Row ${r+1}: ${g(r,0)}+${g(r,1)}+${g(r,2)}=${sm} (need ${s})`;}
+    for(let c=0;c<3;c++){const sm=g(0,c)+g(1,c)+g(2,c);if(sm!==s)return`Col ${c+1} = ${sm} (need ${s})`;}
+    const d1=g(0,0)+g(1,1)+g(2,2);if(d1!==s)return`Diagonal ↘ = ${d1} (need ${s})`;
+    const cnt={};a.forEach(v=>{cnt[v]=(cnt[v]||0)+1;});
+    const dups=Object.keys(cnt).filter(k=>cnt[k]>1);
+    if(dups.length)return`Duplicate numbers: ${dups.join(', ')}!`;
+    return'Check rows, columns & diagonals!';
+  }
+
+  highlightErrors(){
+    const P=this.puzzle;
+    if(P.type!=='square')return;
+    const a=P.playerGrid,s=P.magicSum;
+    const g=(r,c)=>a[r*3+c];
+    const bad=new Set();
+    for(let r=0;r<3;r++)if(g(r,0)+g(r,1)+g(r,2)!==s)[0,1,2].forEach(c=>bad.add(r*3+c));
+    for(let c=0;c<3;c++)if(g(0,c)+g(1,c)+g(2,c)!==s)[0,1,2].forEach(r=>bad.add(r*3+c));
+    if(g(0,0)+g(1,1)+g(2,2)!==s)[0,4,8].forEach(i=>bad.add(i));
+    if(g(0,2)+g(1,1)+g(2,0)!==s)[2,4,6].forEach(i=>bad.add(i));
+    bad.forEach(idx=>{
+      const obj=this.cellObjs[idx];
+      if(!obj||obj.fixed)return;
+      const f=this.add.graphics().setDepth(100);
+      f.fillStyle(0xFF2200,0.38); f.fillRoundedRect(obj.cx,obj.cy,obj.cs,obj.cs,12);
+      this.tweens.add({targets:f,alpha:0,duration:1600,onComplete:()=>f.destroy()});
+    });
+  }
+
+  showBanner(msg,textCol,bgHex,cb){
+    const bgNum=parseInt((bgHex||'#003300').replace('#',''),16);
+    const ovl=this.add.graphics().setDepth(250);
+    ovl.fillStyle(bgNum,0.92); ovl.fillRect(0,64,W,42);
+    ovl.lineStyle(1,0xFFFFFF,0.08); ovl.lineBetween(0,64,W,64); ovl.lineBetween(0,106,W,106);
+    const t=this.add.text(W/2,85,msg,{
+      fontSize:'18px',fontFamily:'Georgia',fontStyle:'bold',
+      fill:textCol||'#88FF88',stroke:'#000033',strokeThickness:3,
+      wordWrap:{width:720},align:'center'
+    }).setOrigin(0.5).setDepth(251).setAlpha(0);
+    this.tweens.add({targets:t,alpha:1,duration:180,onComplete:()=>{
+      this.tweens.add({targets:[ovl,t],alpha:0,duration:380,delay:1500,onComplete:()=>{ovl.destroy();t.destroy();cb();}});
+    }});
+  }
+
+  doLevelUp(){
+    SFX.levelup();
+    this.cameras.main.flash(550,80,40,255,false);
+    const bonus=Math.round(this.startTime*0.2); // 20% of starting time
+    this.timeLeft=Math.min(this.timeLeft+bonus, this.startTime*1.5);
+    const ovl=this.add.graphics().setDepth(400);
+    ovl.fillStyle(0x0C0038,0.96); ovl.fillRoundedRect(W/2-260,H/2-118,520,236,22);
+    ovl.lineStyle(5,0xFFD700,1); ovl.strokeRoundedRect(W/2-260,H/2-118,520,236,22);
+    ovl.setScale(0); this.tweens.add({targets:ovl,scaleX:1,scaleY:1,duration:380,ease:'Back.easeOut'});
+    const t1=this.add.text(W/2,H/2-70,'🏰 LEVEL UP! 🏰',{fontSize:'44px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#220088',strokeThickness:6}).setOrigin(0.5).setDepth(401).setAlpha(0);
+    const t2=this.add.text(W/2,H/2-12,`Level ${this.level} — harder puzzles ahead!`,{fontSize:'22px',fontFamily:'Georgia',fill:'#CCAAFF'}).setOrigin(0.5).setDepth(401).setAlpha(0);
+    const t3=this.add.text(W/2,H/2+30,`+${Math.round(this.startTime*0.2)} seconds bonus! ⏰`,{fontSize:'17px',fontFamily:'Georgia',fill:'#88FF88'}).setOrigin(0.5).setDepth(401).setAlpha(0);
+    this.tweens.add({targets:[t1,t2,t3],alpha:1,duration:280,delay:180,onComplete:()=>{
+      this.tweens.add({targets:[ovl,t1,t2,t3],alpha:0,duration:480,delay:2100,onComplete:()=>{ovl.destroy();t1.destroy();t2.destroy();t3.destroy();}});
+    }});
+    for(let i=0;i<16;i++)this.time.delayedCall(i*65,()=>burst(this,Phaser.Math.Between(60,W-60),Phaser.Math.Between(120,H-100),['⭐','✨','🌟'],1,14,55));
+  }
+
+  // ── Controls ──────────────────────────────────────────
+  useHint(){
+    if(this.hintUsed){this.popMsg('Only 1 hint per puzzle!','#FFAA44');return;}
+    const P=this.puzzle;
+    const empty=P.puzzle.map((v,i)=>v===null&&P.playerGrid[i]===null?i:-1).filter(i=>i>=0);
+    if(!empty.length){this.popMsg('All cells filled!','#FFAA44');return;}
+    this.hintUsed=true; SFX.hint();
+    const idx=empty[Math.floor(Math.random()*empty.length)];
+    const correct=P.type==='square'?P.grid[idx]:P.solution[idx];
+    this.undoStack.push({idx,prev:null});
+    P.playerGrid[idx]=correct;
+    this.updateCell(idx,correct);
+    this.refreshBank(); this.refreshMathPanel(); this.refreshTriPanel();
+    const obj=this.cellObjs[idx];
+    const hx=obj.cx!=null?obj.cx+obj.cs/2:obj.x;
+    const hy=obj.cy!=null?obj.cy+obj.cs/2:obj.y;
+    burst(this,hx,hy,['💡','✨'],7,35,75,560);
+    this.popMsg('💡 Hint used — half points this puzzle','#FFAAFF');
+    if(this.isPuzzleFull())this.time.delayedCall(80,()=>this.checkSolution());
+  }
+
+  usePower(){
+    if(this.powerCharge<5){this.popMsg(`Need 5 ⭐  (${this.powerCharge}/5)`,'#FFAA44');return;}
+    this.powerCharge=0; this.drawPowerBar();
+    const bonus=Math.round(this.startTime*0.33); // ~33% of start time
+    this.timeLeft=Math.min(this.timeLeft+bonus, this.startTime*1.5);
+    SFX.powerup();
+    this.cameras.main.flash(380,80,180,255,false);
+    burst(this,W/2,H/2,['⚡','⭐','✨'],22,220,420,1100);
+    this.popMsg(`⚡ POWER SURGE! +${bonus} seconds!`,'#FFD700',2300);
+  }
+
+  clearBoard(){
+    SFX.click();
+    const P=this.puzzle;
+    P.puzzle.forEach((v,i)=>{if(v===null){P.playerGrid[i]=null;this.updateCell(i,null);}});
+    this.selectedNum=null;this.selectedCell=null;this.undoStack=[];
+    this.refreshBank();this.refreshCells();
+    this.refreshMathPanel();this.refreshTriPanel();
+  }
+
+  popMsg(text,col,dur){
+    const t=this.add.text(W/2,H/2-12,text,{
+      fontSize:'18px',fontFamily:'Georgia',fill:col||'#FFFFFF',
+      backgroundColor:'#08001E',padding:{x:14,y:7},stroke:'#000033',strokeThickness:2
+    }).setOrigin(0.5).setAlpha(0).setDepth(400);
+    this.tweens.add({targets:t,alpha:1,duration:170,onComplete:()=>{
+      this.tweens.add({targets:t,alpha:0,duration:360,delay:dur||1500,onComplete:()=>t.destroy()});
+    }});
+  }
+
+  // ── Timer ─────────────────────────────────────────────
+  startTimer(){
+    this.timerActive=true;
+    this.timerEvt=this.time.addEvent({delay:1000,loop:true,callback:()=>{
+      if(!this.timerActive||this.tutOpen)return;
+      this.timeLeft--;
+      this.timerTxt.setText(`${this.timeLeft}`);
+      this.drawTimerBar();
+      if(this.timeLeft<=10){
+        this.timerTxt.setFill('#FF4444'); SFX.tick();
+        this.cameras.main.shake(50,0.004);
+        // red pulse on timer
+        this.tweens.add({targets:this.timerTxt,scaleX:1.2,scaleY:1.2,duration:80,yoyo:true});
+      }else if(this.timeLeft<=20){
+        this.timerTxt.setFill('#FFAA00');
+      }else{
+        this.timerTxt.setFill('#88FF88');
+      }
+      if(this.timeLeft<=0)this.doGameOver();
+    }});
+  }
+
+  doGameOver(){
+    this.timerActive=false; this.timerEvt.remove();
+    this.saveHS();
+    SFX.wrong();
+    tone(150,'sawtooth',1.5,0.3);
+
+    // Submit score to leaderboard — hard mode only
+    if(this.diffTier==='hard'){
+      const finalScore=Math.floor(this.score);
+      setTimeout(function(){
+        try{
+          if(window.ReactNativeWebView){
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type:'GAME_OVER',
+              score:finalScore,
+              gameId:'MAGIC-MATH-KINGDOM'
+            }));
+          }
+        }catch(err){
+          console.log('postMessage error:',err);
+        }
+      },3000);
+    }
+
+    this.cameras.main.fade(700,0,0,0,false,()=>{
+      this.scene.start('GameOver',{score:this.score,level:this.level,streak:this.streak,
+        puzzleCount:this.puzzleCount,diffTier:this.diffTier,startTime:this.startTime,totalCorrect:this.totalCorrect});
+    });
+  }
+
+  saveHS(){
+    const k='mmk_best',v=parseInt(localStorage.getItem(k)||'0');
+    if(this.score>v)localStorage.setItem(k,`${this.score}`);
+    const k2=`mmk_best_${this.diffTier}`,v2=parseInt(localStorage.getItem(k2)||'0');
+    if(this.score>v2)localStorage.setItem(k2,`${this.score}`);
+  }
+
+  // ── Tutorial ──────────────────────────────────────────
+  showTutorial(){
+    localStorage.setItem('mmk_tut','1');
+    this.tutOpen=true; this.timerActive=false;
+    const all=[];
+    const add=(o)=>{all.push(o);return o;};
+    const ovl=this.add.graphics();
+    ovl.fillStyle(0x000000,0.88); ovl.fillRect(0,0,W,H);
+    ovl.setDepth(500); add(ovl);
+    const box=add(this.add.graphics().setDepth(501));
+    box.fillStyle(0x0A002E,0.99); box.fillRoundedRect(W/2-315,H/2-268,630,536,22);
+    box.lineStyle(4,0x9966FF,1); box.strokeRoundedRect(W/2-315,H/2-268,630,536,22);
+    box.lineStyle(1,0xCC99FF,0.3); box.strokeRoundedRect(W/2-310,H/2-263,620,526,20);
+    add(this.add.text(W/2,H/2-242,'🧙 How to Play Magic Math Kingdom',{fontSize:'26px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700'}).setOrigin(0.5).setDepth(502));
+    const steps=[
+      ['🔮 Magic Squares','Fill a 3×3 grid so every row, column and\nboth diagonals all add to the Magic Sum.'],
+      ['🔺 Magic Triangles','Place numbers 1–6 (each used once).\nEvery side of 3 circles adds to the Magic Sum.'],
+      ['🎯 How to play','① Tap a number in the bank below.\n② Tap an empty  ?  cell to place it.'],
+      ['↩  Undo / 🗑️ Clear','Tap a filled cell to erase it, or use Undo\nto step back one move at a time.'],
+      ['📊 Live Checker','Watch the right panel update in real time.\nGreen ✓ = correct sum!  Red ✗ = wrong sum.'],
+      ['💡 Hints  ·  ⚡ Power','Hint reveals one cell (half points).\nSolve 5 puzzles in a row → ⚡ Power = +30s!'],
+      ['🔥 Streaks & Combos','String correct answers for a STREAK!\n3+ streak earns bonus points every solve!'],
+    ];
+    steps.forEach(([title,body],i)=>{
+      add(this.add.text(W/2-295,H/2-195+i*62,title,{fontSize:'14px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFCC44'}).setDepth(502));
+      add(this.add.text(W/2-295,H/2-175+i*62,body,{fontSize:'13px',fontFamily:'Georgia',fill:'#CCDAFF',lineSpacing:3}).setDepth(502));
+    });
+    const close=()=>{
+      all.forEach(o=>{try{o.destroy();}catch(e){}});
+      this.tutOpen=false; this.timerActive=true;
+    };
+    const btn=mkBtn(this,W/2,H/2+236,235,50,'✅ Let\'s Play!',0x440099,close,22);
+    btn.g.setDepth(503); btn.t.setDepth(503);
+    all.push(btn.g,btn.t);
+    btn.g.off('pointerdown');
+    btn.g.on('pointerdown',()=>{SFX.click();this.tweens.add({targets:[btn.g,btn.t],scaleX:0.94,scaleY:0.94,duration:55,yoyo:true,onComplete:close});});
+  }
+
+  update(){
+    if(this.pwrBtn&&this.powerCharge>=5){
+      this.pwrBtn.setAlpha(0.5+Math.sin(this.time.now*0.007)*0.5);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════
+//  GAME OVER SCENE
+// ══════════════════════════════════════════════
+class GameOverScene extends Phaser.Scene{
+  constructor(){super('GameOver');}
+  init(data){
+    this.finalScore  =data.score        ||0;
+    this.level       =data.level        ||1;
+    this.streak      =data.streak       ||0;
+    this.puzzleCount =data.puzzleCount  ||0;
+    this.diffTier    =data.diffTier     ||'easy';
+    this.startTime   =data.startTime    ||90;
+    this.totalCorrect=data.totalCorrect ||0;
+  }
+  create(){
+    this.cameras.main.setBackgroundColor('#05011a');
+    this.cameras.main.fadeIn(500,0,0,0);
+    // Stars
+    for(let i=0;i<85;i++){
+      const sa=Math.random()*0.55+0.1;
+      const sg=this.add.graphics();
+      sg.fillStyle(0xFFFFFF,sa);
+      sg.fillCircle(Phaser.Math.Between(0,W),Phaser.Math.Between(0,H),Math.random()<0.28?2:1);
+      this.tweens.add({targets:sg,alpha:{from:sa,to:Math.random()*0.12+0.04},duration:Phaser.Math.Between(600,2800),yoyo:true,repeat:-1,delay:Math.random()*2000});
+    }
+
+    const prevBest=parseInt(localStorage.getItem('mmk_best')||'0');
+    const isNew=this.finalScore>0&&this.finalScore>=prevBest;
+    if(isNew)localStorage.setItem('mmk_best',`${this.finalScore}`);
+
+    const card=this.add.graphics();
+    card.fillStyle(0x09002A,0.97); card.fillRoundedRect(W/2-328,26,656,592,24);
+    card.lineStyle(4,isNew?0xFFD700:0x7733DD,1); card.strokeRoundedRect(W/2-328,26,656,592,24);
+    card.lineStyle(2,isNew?0xFFEE88:0xAA88EE,0.32); card.strokeRoundedRect(W/2-323,31,646,582,22);
+    // inner shine
+    card.fillStyle(0xFFFFFF,0.03); card.fillRoundedRect(W/2-323,31,646,28,{tl:22,tr:22,bl:0,br:0});
+
+    this.add.text(W/2,66,isNew?'🏆 NEW HIGH SCORE! 🏆':'⏰ Time\'s Up!',{
+      fontSize:'32px',fontFamily:'Georgia',fontStyle:'bold',
+      fill:isNew?'#FFD700':'#AA88FF',stroke:'#000033',strokeThickness:5}).setOrigin(0.5);
+
+    const scoreObj=this.add.text(W/2,165,`${this.finalScore}`,{
+      fontSize:'86px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700',stroke:'#180055',strokeThickness:7
+    }).setOrigin(0.5).setAlpha(0).setScale(0.5);
+    this.tweens.add({targets:scoreObj,alpha:1,scaleX:1,scaleY:1,duration:580,ease:'Back.easeOut'});
+    this.add.text(W/2,227,'POINTS',{fontSize:'15px',fontFamily:'Georgia',fill:'#9977BB',letterSpacing:8}).setOrigin(0.5);
+
+    // Animated star fill
+    const stars=Math.min(5,Math.max(1,Math.floor(this.finalScore/60)+1));
+    const starRow=this.add.text(W/2,262,'☆  ☆  ☆  ☆  ☆',{fontSize:'28px'}).setOrigin(0.5).setAlpha(0);
+    this.tweens.add({targets:starRow,alpha:1,duration:350,delay:350,onComplete:()=>{
+      for(let i=0;i<stars;i++){
+        this.time.delayedCall(i*120,()=>{
+          SFX.star();
+          const txt='⭐  '.repeat(i+1)+'☆  '.repeat(Math.max(0,5-i-1)).trim();
+          starRow.setText(txt);
+          this.tweens.add({targets:starRow,scaleX:1.15,scaleY:1.15,duration:80,yoyo:true});
+        });
+      }
+    }});
+
+    // Accuracy %
+    const acc=this.puzzleCount>1?Math.round((this.totalCorrect/(this.puzzleCount-1))*100):0;
+    this.add.text(W/2,297,`🎯 Accuracy: ${acc}%`,{fontSize:'15px',fontFamily:'Georgia',fill:'#AABBFF'}).setOrigin(0.5);
+
+    const tierName={easy:'⭐ Easy',medium:'⭐⭐ Medium',hard:'⭐⭐⭐ Hard'}[this.diffTier]||'Easy';
+    const rows=[
+      ['🏰 Level Reached',  `${this.level}`],
+      ['🔥 Best Streak',    `${this.streak}×`],
+      ['🔮 Puzzles Solved', `${Math.max(0,this.puzzleCount-1)}`],
+      ['🎯 Accuracy',       `${acc}%`],
+      ['⭐ Difficulty',      tierName],
+      ['🏆 All-Time Best',  `${localStorage.getItem('mmk_best')||0}`],
+    ];
+    const sx=W/2-270,sy=310;
+    rows.forEach(([lbl,val],i)=>{
+      const yy=sy+i*42;
+      const rg=this.add.graphics();
+      rg.fillStyle(i%2===0?0x0E002C:0x07001C,0.78); rg.fillRoundedRect(sx-10,yy-6,540,38,8);
+      this.add.text(sx,yy+12,lbl,{fontSize:'16px',fontFamily:'Georgia',fill:'#AABBFF'});
+      this.add.text(sx+520,yy+12,val,{fontSize:'16px',fontFamily:'Georgia',fontStyle:'bold',fill:'#FFD700'}).setOrigin(1,0);
+    });
+
+    // Achievements — shown as animated badges
+    const achs=[];
+    if(this.finalScore>=300)achs.push({icon:'🧙',name:'Math Wizard'});
+    if(this.streak>=5)      achs.push({icon:'🔥',name:'On Fire!'});
+    if(this.puzzleCount>=10)achs.push({icon:'🔮',name:'Puzzle Master'});
+    if(this.level>=5)       achs.push({icon:'🏰',name:'Castle Lord'});
+    if(acc>=80)             achs.push({icon:'🎯',name:'Sharpshooter'});
+    if(isNew)               achs.push({icon:'🏆',name:'New Record!'});
+    if(achs.length){
+      const achY=558;
+      this.add.text(W/2,achY-16,'🏅 Achievements Earned:',{fontSize:'12px',fontFamily:'Georgia',fill:'#8877BB'}).setOrigin(0.5);
+      const achStr=achs.map(a=>`${a.icon} ${a.name}`).join('   ');
+      const achTxt=this.add.text(W/2,achY+2,achStr,{fontSize:'13px',fontFamily:'Georgia',fill:'#FFD700',align:'center',wordWrap:{width:600}}).setOrigin(0.5).setAlpha(0);
+      this.tweens.add({targets:achTxt,alpha:1,duration:400,delay:1200});
+    }
+
+    // Buttons
+    mkBtn(this,W/2-108,H-38,208,50,'🔄 Play Again',0x1133A0,()=>{
+      SFX.click();this.cameras.main.fade(380,0,0,0,false,()=>this.scene.start('Game',{
+        diffTier:this.diffTier,startTime:this.startTime,
+        difficulty:1,score:0,streak:0,level:1,powerCharge:0,puzzleCount:0,totalCorrect:0
+      }));
+    });
+    mkBtn(this,W/2+116,H-38,186,50,'🏠 Menu',0x440E99,()=>{
+      SFX.click();this.cameras.main.fade(380,0,0,0,false,()=>this.scene.start('Title'));
+    });
+
+    if(isNew){
+      SFX.levelup();
+      for(let i=0;i<30;i++){
+        this.time.delayedCall(i*85,()=>{
+          const confetti=this.add.text(Phaser.Math.Between(40,W-40),-22,
+            ['⭐','✨','🌟','💫','🎉','🏆'][Math.floor(Math.random()*6)],{fontSize:`${13+Math.random()*18}px`});
+          this.tweens.add({targets:confetti,y:H+55,duration:2300+Math.random()*2200,onComplete:()=>confetti.destroy()});
+        });
+      }
+    }else{
+      SFX.wrong();tone(210,'triangle',1.0,0.11);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════
+//  BOOT + LAUNCH
+// ══════════════════════════════════════════════
+class BootScene extends Phaser.Scene{
+  constructor(){super('Boot');}
+  create(){this.scene.start('Title');}
+}
+
+new Phaser.Game({
+  type:Phaser.AUTO,
+  width:W,height:H,
+  backgroundColor:'#05011a',
+  scene:[BootScene,TitleScene,GameScene,GameOverScene],
+  scale:{mode:Phaser.Scale.FIT,autoCenter:Phaser.Scale.CENTER_BOTH},
+  render:{antialias:true},
+  audio:{disableWebAudio:false}
+});
+
+}); // end loadPhaser
+})();
+</script>
+</body>
+</html>
