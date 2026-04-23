@@ -420,13 +420,60 @@
   let state = 'title';
   let score = 0, health = 3, level = 1, combo = 0, streak = 0;
   let frameCount = 0, rafId = null;
+  let gameStartTime = 0; // timestamp when game started
   let asteroids = [], particles = [], lasers = [], stars = [], floatPops = [];
-  let spawnRate = 110, fallSpeed = 0.8;
   let highScore = parseInt(localStorage.getItem('astroTenHi') || '0');
   let shieldActive = false, slowActive = false, slowTimer = 0;
   let warningAsteroids = new Set();
   const STREAK_MAX = 5;
   const TARGET = 10;
+
+  // ---- DIFFICULTY CURVE ----
+  // Peak difficulty around 7 minutes (420 seconds).
+  // At t=0: very easy start. Curve uses smoothstep so ramp is gentle early,
+  // steeper in the middle, and levels off near peak.
+  const PEAK_TIME_SEC = 420; // 7 minutes
+
+  // Returns 0 -> 1 progress using smoothstep, capped at 1 after peak time.
+  function difficultyProgress() {
+    if (state !== 'playing') return 0;
+    const elapsedSec = (performance.now() - gameStartTime) / 1000;
+    let t = Math.min(1, elapsedSec / PEAK_TIME_SEC);
+    // smoothstep: 3t^2 - 2t^3 gives a nice S-curve
+    return t * t * (3 - 2 * t);
+  }
+
+  // Tuning: easy-start and peak values
+  // Fall speed: starts slow, ramps to challenging
+  const FALL_SPEED_START = 0.35;
+  const FALL_SPEED_PEAK  = 2.0;
+
+  // Spawn interval in frames (at ~60fps). Larger = slower spawning.
+  const SPAWN_RATE_START = 180; // ~3 seconds between spawns
+  const SPAWN_RATE_PEAK  = 42;  // ~0.7 seconds
+
+  // Max asteroids on screen at once (gentle cap to keep early game calm)
+  const MAX_ASTEROIDS_START = 2;
+  const MAX_ASTEROIDS_PEAK  = 8;
+
+  function currentFallSpeed() {
+    const p = difficultyProgress();
+    return FALL_SPEED_START + (FALL_SPEED_PEAK - FALL_SPEED_START) * p;
+  }
+  function currentSpawnRate() {
+    const p = difficultyProgress();
+    return SPAWN_RATE_START + (SPAWN_RATE_PEAK - SPAWN_RATE_START) * p;
+  }
+  function currentMaxAsteroids() {
+    const p = difficultyProgress();
+    return Math.floor(MAX_ASTEROIDS_START + (MAX_ASTEROIDS_PEAK - MAX_ASTEROIDS_START) * p);
+  }
+
+  // Visible "Level" still exists as a nice indicator tied to elapsed time.
+  // 10 levels across the 7-minute ramp.
+  function currentLevel() {
+    return Math.min(10, 1 + Math.floor(difficultyProgress() * 10));
+  }
 
   // Canvas size
   let CW = 800, CH = 600;
@@ -509,8 +556,8 @@
     state = 'playing';
     score = 0; health = 3; level = 1; combo = 0; streak = 0;
     frameCount = 0;
+    gameStartTime = performance.now();
     asteroids = []; particles = []; lasers = []; floatPops = [];
-    spawnRate = 110; fallSpeed = 0.8;
     shieldActive = false; slowActive = false; slowTimer = 0;
     warningAsteroids.clear();
     screen.classList.add('hidden');
@@ -535,19 +582,45 @@
     sHi.style.display = 'block';
     sHi.textContent = `Best: ${highScore}  •  Level reached: ${level}`;
     startBtn.textContent = 'Play Again';
+
+    // Report score to React Native WebView host (if present).
+    // Capture score now before anything changes.
+    var finalScore = Math.floor(score);
+    setTimeout(function() {
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'GAME_OVER',
+            score: finalScore,
+            gameId: 'astro-ten'
+          }));
+        }
+      } catch(err) {
+        console.log('postMessage error:', err);
+      }
+    }, 3000);
   }
 
   function spawnAsteroid() {
+    // Respect the current max-asteroid cap
+    if (asteroids.length >= currentMaxAsteroids()) return;
+
     const radius = Math.round(CW * 0.053);
     const num = Math.floor(Math.random() * 9) + 1;
     const x = radius + Math.random() * (CW - radius*2);
-    const isPower = Math.random() < 0.08; // gold power-up asteroid
-    const isSpeed = Math.random() < 0.06; // fast red asteroid
+
+    // Power-ups & special asteroids only appear after player has been playing a bit
+    const p = difficultyProgress();
+    const isPower = p > 0.15 && Math.random() < 0.08; // gold bonus
+    const isSpeed = p > 0.35 && Math.random() < (0.03 + 0.05 * p); // fast red (scales in)
+
     asteroids.push({
       x, y: -radius - 5,
       r: radius,
       num,
       isPower, isSpeed,
+      // per-asteroid speed multiplier: speed asteroids fall faster, some drift slower
+      spdMul: isSpeed ? 1.6 : (0.85 + Math.random() * 0.3),
       wobble: Math.random() * Math.PI * 2,
       wobbleSpd: (Math.random() - 0.5) * 0.02,
       color: isPower ? '#ffd700' : isSpeed ? '#ff4444' : numColors[num-1],
@@ -587,8 +660,8 @@
       // Float pop
       addPop(`+${pts}`, a.x, a.y, pts > 15 ? 'big' : '');
 
-      // Difficulty ramp
-      if(score % 100 === 0 && score > 0) levelUp();
+      // Level display (informational only — difficulty is time-driven)
+      level = currentLevel();
 
       updateHUD();
     } else {
@@ -603,12 +676,16 @@
     }
   }
 
-  function levelUp() {
-    level++;
-    fallSpeed += 0.18;
-    spawnRate = Math.max(38, spawnRate - 8);
-    showBanner(`Level ${level}!`);
-    levelEl.textContent = `Level ${level}`;
+  // Kept for the "Level N!" banner when the player crosses a new level threshold
+  let lastBannerLevel = 1;
+  function checkLevelBanner() {
+    const lvl = currentLevel();
+    if (lvl > lastBannerLevel) {
+      lastBannerLevel = lvl;
+      level = lvl;
+      showBanner(`Level ${lvl}!`);
+      levelEl.textContent = `Level ${lvl}`;
+    }
   }
 
   function explode(x, y, color, count) {
@@ -834,18 +911,22 @@
 
     drawStars();
 
-    // Spawn
-    if(frameCount % Math.round(spawnRate) === 0) spawnAsteroid();
+    // Spawn based on current (time-driven) spawn rate
+    const spawnEvery = Math.round(currentSpawnRate());
+    if(frameCount % spawnEvery === 0) spawnAsteroid();
+
+    // Update level banner when we cross a new level
+    checkLevelBanner();
 
     // Lasers
     lasers = lasers.filter(l => l.life-- > 0);
     lasers.forEach(drawLaser);
 
-    // Asteroids
-    const spd = slowActive ? fallSpeed * 0.4 : fallSpeed;
+    // Asteroids — each falls at global speed * its own multiplier
+    const baseSpd = slowActive ? currentFallSpeed() * 0.4 : currentFallSpeed();
     for(let i=asteroids.length-1; i>=0; i--) {
       const a = asteroids[i];
-      a.y += spd;
+      a.y += baseSpd * a.spdMul;
 
       // Hit ground
       if(a.y + a.r >= CH - 28) {
