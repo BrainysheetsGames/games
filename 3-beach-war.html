@@ -59,7 +59,6 @@ const LV = [
 ];
 
 // ─── Unit defs ───
-// BIGGER: increased h (height) values for all units so stick figures render larger
 function uDef(type, isE) {
   const base = {
     sword:  { nm:'Noodle Warrior', cost:80,  hp:50,  dmg:10, spd:2.0, rng:26,  as:800,  h:52, pop:1 },
@@ -103,7 +102,6 @@ function buildNP() {
   const bottomMargin = 12 * S;
   const availH = H - mathPanelBottom - backBtnHeight - bottomMargin - gap * (rows - 1);
 
-  // BIGGER: bumped minimum key sizes
   const kwByWidth  = Math.floor((availW - gap * (cols - 1)) / cols);
   const khByHeight = Math.floor(availH / rows);
 
@@ -277,45 +275,36 @@ function drawBG() {
   }
 }
 
-// ─── Draw: Sandcastle (Statue) ─── BIGGER: scaled up all measurements by ~1.5x
+// ─── Draw: Sandcastle (Statue) ───
 function drawStatue(st, isE) {
   let sx = st.x - camX, sy = st.y, s = S;
   if (sx < -90*s || sx > W + 90*s) return;
-  // Base - wider and taller
   X.fillStyle = '#DEB966'; X.fillRect(sx - 40 * s, sy - 75 * s, 80 * s, 75 * s);
-  // Towers - bigger
   X.fillStyle = '#D4A843';
   X.fillRect(sx - 34 * s, sy - 98 * s, 24 * s, 30 * s);
   X.fillRect(sx + 10 * s, sy - 98 * s, 24 * s, 30 * s);
-  // Tower tops (crenellations)
   X.fillStyle = '#C89B3C';
   for (let i = 0; i < 3; i++) {
     X.fillRect(sx - 34 * s + i * 9 * s, sy - 105 * s, 6 * s, 8 * s);
     X.fillRect(sx + 10 * s + i * 9 * s, sy - 105 * s, 6 * s, 8 * s);
   }
-  // Middle tower - bigger
   X.fillStyle = '#DEB966';
   X.fillRect(sx - 12 * s, sy - 108 * s, 24 * s, 38 * s);
-  // Middle tower crenellations
   X.fillStyle = '#C89B3C';
   for (let i = 0; i < 3; i++) {
     X.fillRect(sx - 12 * s + i * 9 * s, sy - 116 * s, 6 * s, 8 * s);
   }
-  // Flag on top
   X.strokeStyle = '#8B6914'; X.lineWidth = 2 * s;
   X.beginPath(); X.moveTo(sx, sy - 108 * s); X.lineTo(sx, sy - 130 * s); X.stroke();
   X.fillStyle = isE ? '#FF6B6B' : '#4FC3F7';
   X.beginPath();
   X.moveTo(sx, sy - 130 * s); X.lineTo(sx + 18 * s, sy - 122 * s); X.lineTo(sx, sy - 114 * s); X.fill();
-  // Door - bigger
   X.fillStyle = '#8B6914';
   X.beginPath(); X.arc(sx, sy - 15 * s, 9 * s, Math.PI, 0, true);
   X.lineTo(sx + 9 * s, sy); X.lineTo(sx - 9 * s, sy); X.fill();
-  // Windows
   X.fillStyle = '#8B6914';
   X.beginPath(); X.arc(sx - 22 * s, sy - 50 * s, 4 * s, 0, Math.PI * 2); X.fill();
   X.beginPath(); X.arc(sx + 22 * s, sy - 50 * s, 4 * s, 0, Math.PI * 2); X.fill();
-  // HP bar - wider to match
   let bw = 75 * s, bh = 7 * s, bx2 = sx - bw / 2, by2 = sy - 142 * s;
   X.fillStyle = '#222'; X.fillRect(bx2, by2, bw, bh);
   let pct = st.hp / st.mhp;
@@ -325,7 +314,7 @@ function drawStatue(st, isE) {
   X.fillText(Math.ceil(st.hp) + '/' + st.mhp, sx, by2 - 3 * s);
 }
 
-// ─── Draw: Stick Figure (Beach themed) ─── BIGGER: scaled limb lengths and line widths
+// ─── Draw: Stick Figure ───
 function drawStick(u) {
   let sx = u.x - camX, sy = u.y, s = S;
   if (sx < -60 * s || sx > W + 60 * s) return;
@@ -338,11 +327,8 @@ function drawStick(u) {
   if (u.st === 'dying') { X.globalAlpha = Math.max(0, 1 - u.dTimer / 400); X.rotate(u.dTimer * .003 * flip); }
   let wb = u.st === 'walk' ? Math.sin(u.anim * .008) * .15 : 0;
   let atk = u.st === 'attack' ? Math.sin(u.anim * .015) : 0;
-  // BIGGER: thicker lines
   X.lineWidth = 3.5 * s; X.lineCap = 'round'; X.strokeStyle = bc;
-  // Body
   X.beginPath(); X.moveTo(0, -h + hr * 2); X.lineTo(0, -h + hr * 2 + bl); X.stroke();
-  // Legs
   X.beginPath(); X.moveTo(0, -h + hr * 2 + bl);
   X.lineTo((-ll * .5 + Math.sin(wb * 5) * ll * .4) * flip, 0); X.stroke();
   X.beginPath(); X.moveTo(0, -h + hr * 2 + bl);
@@ -353,7 +339,6 @@ function drawStick(u) {
     let swing = atk * .7;
     X.save(); X.translate(0, ay); X.rotate(swing * flip + .3 * flip);
     X.beginPath(); X.moveTo(0, 0); X.lineTo(ll * .7 * flip, -ll * .2); X.stroke();
-    // Pool noodle - thicker
     X.strokeStyle = u.isE ? '#FF6B6B' : '#00E5FF'; X.lineWidth = 6.5 * s; X.lineCap = 'round';
     X.beginPath(); X.moveTo(ll * .5 * flip, -ll * .1); X.lineTo(ll * 1.4 * flip, -ll * .8); X.stroke();
     X.strokeStyle = u.isE ? '#FF9E9E' : '#80F0FF'; X.lineWidth = 2.5 * s;
@@ -366,7 +351,6 @@ function drawStick(u) {
     let throwAnim = atk * .8;
     X.save(); X.translate(0, ay); X.rotate(throwAnim * flip - .2 * flip);
     X.beginPath(); X.moveTo(0, 0); X.lineTo(ll * .7 * flip, -ll * .3); X.stroke();
-    // Water balloon - bigger
     X.fillStyle = u.isE ? '#FF6B6B' : '#4FC3F7';
     X.beginPath(); X.ellipse(ll * .8 * flip, -ll * .35, 6.5 * s, 8 * s, 0, 0, Math.PI * 2); X.fill();
     X.fillStyle = u.isE ? '#C0392B' : '#0288D1';
@@ -383,7 +367,6 @@ function drawStick(u) {
     let swing = atk * .6;
     X.save(); X.translate(0, ay); X.rotate(swing * flip + .35 * flip);
     X.beginPath(); X.moveTo(0, 0); X.lineTo(ll * .6 * flip, -ll * .15); X.stroke();
-    // Pool noodle - thicker
     X.strokeStyle = u.isE ? '#FF9E9E' : '#76FF03'; X.lineWidth = 6 * s; X.lineCap = 'round';
     X.beginPath(); X.moveTo(ll * .5 * flip, -ll * .1); X.lineTo(ll * 1.4 * flip, -ll * .85); X.stroke();
     X.strokeStyle = u.isE ? '#FFD0D0' : '#B2FF59'; X.lineWidth = 2 * s;
@@ -391,7 +374,6 @@ function drawStick(u) {
     X.restore();
     X.strokeStyle = bc; X.lineWidth = 3.5 * s;
     X.beginPath(); X.moveTo(0, ay); X.lineTo(-ll * .45 * flip, ay + ll * .15); X.stroke();
-    // Surfboard shield - bigger
     X.save();
     X.translate(-ll * .55 * flip, ay + ll * .08);
     X.rotate(0.15 * flip);
@@ -403,17 +385,14 @@ function drawStick(u) {
     X.fillStyle = u.isE ? '#C0392B' : '#0288D1';
     X.beginPath(); X.moveTo(-2 * s, 13 * s); X.lineTo(0, 17 * s); X.lineTo(2 * s, 13 * s); X.fill();
     X.restore();
-    // Sun visor / beach hat - bigger
     X.fillStyle = u.isE ? '#FF6B6B' : '#FFF176';
     X.beginPath(); X.arc(0, -h + hr - 1.5 * s, hr + 3.5 * s, -Math.PI, -0.2, false); X.fill();
     X.fillStyle = u.isE ? '#C0392B' : '#F9A825';
     X.fillRect(-hr * 1.4, -h + hr - 2 * s, hr * 2.8, 2 * s);
   }
 
-  // Head - bigger (hr is already 7*s)
   X.fillStyle = bc;
   X.beginPath(); X.arc(0, -h + hr, hr, 0, Math.PI * 2); X.fill();
-  // HP bar - wider
   if (u.hp < u.mhp && u.st !== 'dying') {
     let bw2 = 28 * s, bh2 = 3.5 * s, by3 = -h - 9 * s;
     X.fillStyle = '#333'; X.fillRect(-bw2 / 2, by3, bw2, bh2);
@@ -424,7 +403,7 @@ function drawStick(u) {
   X.restore();
 }
 
-// ─── Draw: Projectiles (Water Balloons) ─── BIGGER
+// ─── Draw: Projectiles ───
 function drawProjs() {
   for (let p of projs) {
     let px = p.x - camX;
@@ -439,10 +418,36 @@ function drawProjs() {
   }
 }
 
-// ─── Draw: HUD ─── BIGGER: taller bar, larger fonts, bigger buttons
+// ─── HUD layout helper ───
+// Returns the bottom panel layout so click() and drawHUD() stay in sync
+function hudLayout() {
+  let s = S, p = 10 * s;
+
+  // ── Math button (top-right, much larger) ──
+  let mbw = 200 * s, mbh = 80 * s, mbx = W - mbw - p, mby = 6 * s;
+
+  // ── Bottom panel: unit buttons + command buttons, all below GY ──
+  // Unit buy buttons
+  let uTypes = ['sword','archer','knight'];
+  let ubw = touch ? 96 * s : 108 * s, ubh = touch ? 62 * s : 66 * s, ug = 10 * s;
+  let utw = uTypes.length * (ubw + ug) - ug;
+  let usx = (W - utw) / 2, usy = GY + 7 * s;
+
+  // Command buttons — placed to the right of the unit buttons
+  let cbw = 88 * s, cbh = touch ? 62 * s : 66 * s, cg = 6 * s;
+  // Start command strip to the right of unit buttons, with a small margin
+  let csx = usx + utw + 14 * s;
+  let csy = usy;
+
+  return { mbw, mbh, mbx, mby, uTypes, ubw, ubh, ug, usx, usy, cbw, cbh, cg, csx, csy };
+}
+
+// ─── Draw: HUD ───
 function drawHUD() {
   let s = S, p = 10 * s;
-  // BIGGER: HUD bar taller
+  let L = hudLayout();
+
+  // Top bar
   X.fillStyle = 'rgba(0,0,0,.72)'; X.fillRect(0, 0, W, 58 * s);
   X.fillStyle = '#FFD700'; X.font = `bold ${20*s}px Bungee,sans-serif`; X.textAlign = 'left';
   X.fillText('🐚 ' + gold, p, 38 * s);
@@ -452,46 +457,36 @@ function drawHUD() {
   X.fillText(LV[lvl].d, W / 2, 42 * s);
   let pop = pU.filter(u => u.st !== 'dying').reduce((sum, u) => sum + u.def.pop, 0);
   X.fillStyle = '#CCC'; X.font = `bold ${13*s}px Nunito,sans-serif`; X.textAlign = 'right';
-  X.fillText('Squad: ' + pop + '/16', W - 125 * s, 22 * s);
+  X.fillText('Squad: ' + pop + '/16', W - p, 22 * s);
   if (streak >= 2) {
-    X.fillStyle = '#F39C12'; X.fillText('🔥' + streak, W - 125 * s, 44 * s);
+    X.fillStyle = '#F39C12'; X.fillText('🔥' + streak, W - p, 44 * s);
   }
-  // BIGGER: Math button
-  let mbw = 110 * s, mbh = 42 * s, mbx = W - mbw - p, mby = 58 * s + 7 * s;
-  X.shadowColor = '#FFD700'; X.shadowBlur = 10 + Math.sin(frame * .06) * 6;
-  X.fillStyle = '#27AE60'; rr(mbx, mby, mbw, mbh, 8 * s); X.fill();
+
+  // ── Math button: large, top-right ──
+  let { mbw, mbh, mbx, mby } = L;
+  X.shadowColor = '#FFD700'; X.shadowBlur = 14 + Math.sin(frame * .06) * 7;
+  X.fillStyle = '#27AE60'; rr(mbx, mby, mbw, mbh, 12 * s); X.fill();
   X.shadowBlur = 0;
-  X.fillStyle = '#FFF'; X.font = `bold ${16*s}px Bungee,sans-serif`; X.textAlign = 'center';
-  X.fillText('📐 MATH', mbx + mbw / 2, mby + 28 * s);
-  // BIGGER: Command buttons
-  let cmds = [['attack','🌊 Charge','#E74C3C'],['defend','🏖️ Hold','#F39C12'],['garrison','🏰 Fort','#3498DB']];
-  let cbw = 96 * s, cbh = 36 * s, cg = 6 * s, csx = p, csy = GY - cbh - 10 * s;
-  cmds.forEach(([id, label, col], i) => {
-    let cx2 = csx + i * (cbw + cg);
-    X.fillStyle = cmd === id ? col : 'rgba(0,0,0,.55)';
-    rr(cx2, csy, cbw, cbh, 6 * s); X.fill();
-    X.strokeStyle = col; X.lineWidth = cmd === id ? 2.5 * s : 1.2 * s;
-    rr(cx2, csy, cbw, cbh, 6 * s); X.stroke();
-    X.fillStyle = '#FFF'; X.font = `bold ${13*s}px Nunito,sans-serif`; X.textAlign = 'center';
-    X.fillText(label, cx2 + cbw / 2, csy + 24 * s);
-  });
-  // BIGGER: Unit buttons
-  let uTypes = [
+  // Icon row
+  X.font = `${28*s}px sans-serif`; X.textAlign = 'center';
+  X.fillText('📐', mbx + mbw / 2, mby + 36 * s);
+  X.fillStyle = '#FFF'; X.font = `bold ${20*s}px Bungee,sans-serif`;
+  X.fillText('MATH', mbx + mbw / 2, mby + 65 * s);
+
+  // ── Unit buy buttons ──
+  let { uTypes, ubw, ubh, ug, usx, usy } = L;
+  let uDefs = [
     { t:'sword',  ic:'🏊', cost:80,  un:true },
     { t:'archer', ic:'🎈', cost:150, un:true },
     { t:'knight', ic:'🏄', cost:250, un:lvl>=3 },
   ];
-  let ubw = touch ? 96 * s : 108 * s, ubh = touch ? 62 * s : 66 * s, ug = 10 * s;
-  let utw = uTypes.length * (ubw + ug) - ug;
-  let usx = (W - utw) / 2, usy = GY + 7 * s;
-  uTypes.forEach((ut, i) => {
+  uDefs.forEach((ut, i) => {
     let bx = usx + i * (ubw + ug), by = usy;
     let canBuy = gold >= ut.cost && pop + uDef(ut.t, false).pop <= 16 && ut.un;
     X.fillStyle = !ut.un ? 'rgba(40,40,40,.8)' : canBuy ? 'rgba(41,128,185,.88)' : 'rgba(60,60,60,.8)';
     rr(bx, by, ubw, ubh, 7 * s); X.fill();
     X.strokeStyle = canBuy ? '#3498DB' : '#555'; X.lineWidth = 1.8 * s;
     rr(bx, by, ubw, ubh, 7 * s); X.stroke();
-    // BIGGER: emoji icon
     X.font = `${22*s}px sans-serif`; X.textAlign = 'center';
     X.fillText(ut.un ? ut.ic : '🔒', bx + ubw / 2, by + 28 * s);
     X.fillStyle = canBuy ? '#FFD700' : '#777'; X.font = `bold ${13*s}px Nunito,sans-serif`;
@@ -500,6 +495,19 @@ function drawHUD() {
       X.fillStyle = '#888'; X.font = `${10*s}px Nunito,sans-serif`;
       X.fillText('[' + (i + 1) + ']', bx + ubw / 2, by + ubh + 13 * s);
     }
+  });
+
+  // ── Command buttons: right of unit buttons, same row ──
+  let { cbw, cbh, cg, csx, csy } = L;
+  let cmds = [['attack','🌊 Charge','#E74C3C'],['defend','🏖️ Hold','#F39C12'],['garrison','🏰 Fort','#3498DB']];
+  cmds.forEach(([id, label, col], i) => {
+    let cx2 = csx + i * (cbw + cg);
+    X.fillStyle = cmd === id ? col : 'rgba(0,0,0,.55)';
+    rr(cx2, csy, cbw, cbh, 6 * s); X.fill();
+    X.strokeStyle = col; X.lineWidth = cmd === id ? 2.5 * s : 1.2 * s;
+    rr(cx2, csy, cbw, cbh, 6 * s); X.stroke();
+    X.fillStyle = '#FFF'; X.font = `bold ${12*s}px Nunito,sans-serif`; X.textAlign = 'center';
+    X.fillText(label, cx2 + cbw / 2, csy + cbh / 2 + 5 * s);
   });
 }
 
@@ -588,14 +596,12 @@ function drawMenu() {
   X.fillStyle = '#1a1a2e'; X.font = `bold ${15*s}px Nunito,sans-serif`;
   X.fillText('Build Your Beach Squad With Brain Power!', cx, H * .2 + 78 * s);
   X.font = `${36*s}px sans-serif`; X.fillText('🏖️', cx, H * .2 + 112 * s);
-  // BIGGER: play button
   let bw = 260 * s, bh = 60 * s, bx = cx - bw / 2, by = H * .53;
   let pu = Math.sin(frame * .06) * .08 + 1;
   X.save(); X.translate(cx, by + bh / 2); X.scale(pu, pu); X.translate(-cx, -(by + bh / 2));
   X.fillStyle = '#FF6B35'; rr(bx, by, bw, bh, 12 * s); X.fill();
   X.fillStyle = '#FFF'; X.font = `bold ${24*s}px Bungee,sans-serif`; X.fillText('▶ PLAY', cx, by + 40 * s);
   X.restore();
-  // BIGGER: how to play button
   let hy = by + bh + 18 * s;
   X.fillStyle = 'rgba(0,0,0,.15)'; rr(bx, hy, bw, bh * .78, 9 * s); X.fill();
   X.strokeStyle = 'rgba(0,0,0,.25)'; X.lineWidth = 1.5 * s; rr(bx, hy, bw, bh * .78, 9 * s); X.stroke();
@@ -614,7 +620,6 @@ function drawMode() {
   X.fillText('Choose how you earn gold!', cx, 80 * s);
   let modes = [['addition','➕ Addition','#2ECC71'],['subtraction','➖ Subtraction','#3498DB'],
     ['multiplication','✖️ Multiplication','#E67E22'],['division','➗ Division','#9B59B6']];
-  // BIGGER: mode buttons
   let bw = 280 * s, bh = 64 * s, gap = 16 * s, th = 4 * (bh + gap) - gap, sy = (H - th) / 2 + 10 * s;
   modes.forEach(([id, label, col], i) => {
     let bx = cx - bw / 2, by = sy + i * (bh + gap);
@@ -644,7 +649,6 @@ function drawHow() {
     X.fillStyle = '#87CEEB'; X.font = `bold ${12*s}px Nunito,sans-serif`;
     X.fillText('Keys: 1-3 Buy  |  A/D/G Commands  |  M Math  |  ←→ Scroll', cx, 85 * s + lines.length * 32 * s + 18 * s);
   }
-  // BIGGER: back button
   let bbw = 160 * s, bbh = 48 * s, bx = cx - bbw / 2, by = H - bbh - 28 * s;
   X.fillStyle = '#3498DB'; rr(bx, by, bbw, bbh, 9 * s); X.fill();
   X.fillStyle = '#FFF'; X.font = `bold ${17*s}px Bungee,sans-serif`; X.fillText('⬅ BACK', cx, by + 31 * s);
@@ -670,7 +674,6 @@ function drawLvlWin() {
   X.fillText('+' + LV[lvl].rw + ' Upgrade Points Earned!', cx, H * .22 + 75 * s);
   X.fillStyle = '#CCC'; X.font = `${12*s}px Nunito,sans-serif`;
   X.fillText('Questions: ' + totalQ + '  |  Best Streak: ' + best + '🔥', cx, H * .22 + 105 * s);
-  // BIGGER: continue button
   let bw = 220 * s, bh = 56 * s, bx = cx - bw / 2, by = H * .58;
   X.fillStyle = '#2ECC71'; rr(bx, by, bw, bh, 11 * s); X.fill();
   X.fillStyle = '#FFF'; X.font = `bold ${18*s}px Bungee,sans-serif`;
@@ -691,7 +694,6 @@ function drawUps() {
     ['kHp','🏄 Surfer Health',4],     ['kDmg','🏄 Surfer Damage',4],
     ['stHp','🏰 Sandcastle Health',4],['stInc','🏰 Auto Income',3],
   ];
-  // BIGGER: upgrade rows taller
   let bw = 300 * s, bh = 36 * s, gap = 6 * s, sy = 80 * s;
   list.forEach(([k, nm, mx], i) => {
     let bx = cx - bw / 2, by = sy + i * (bh + gap);
@@ -708,7 +710,6 @@ function drawUps() {
     let pips = ''; for (let j = 0; j < mx; j++) pips += j < cur ? '●' : '○';
     X.fillText(pips, bx + bw - 10 * s, by + 24 * s);
   });
-  // BIGGER: next level button
   let cbw = 200 * s, cbh = 52 * s, cbx = cx - cbw / 2, cby = H - cbh - 28 * s;
   X.fillStyle = '#E67E22'; rr(cbx, cby, cbw, cbh, 11 * s); X.fill();
   X.fillStyle = '#FFF'; X.font = `bold ${18*s}px Bungee,sans-serif`; X.textAlign = 'center';
@@ -725,7 +726,6 @@ function drawOver() {
   X.fillText('Your sandcastle was destroyed!', cx, H * .28 + 40 * s);
   X.fillStyle = '#CCC'; X.font = `${13*s}px Nunito,sans-serif`;
   X.fillText('Tip: Open MATH to earn more gold for your beach squad!', cx, H * .28 + 75 * s);
-  // BIGGER: game over buttons
   let bw = 200 * s, bh = 54 * s, bx = cx - bw / 2;
   let by1 = H * .52;
   X.fillStyle = '#E67E22'; rr(bx, by1, bw, bh, 11 * s); X.fill();
@@ -754,7 +754,6 @@ function drawVic() {
   X.fillStyle = '#FFD700'; X.font = `bold ${13*s}px Nunito,sans-serif`;
   let acc = totalQ > 0 ? Math.round(totalOK / totalQ * 100) : 0;
   X.fillText('Questions: ' + totalQ + '  |  Accuracy: ' + acc + '%  |  Best Streak: ' + best + '🔥', cx, H * .24 + 85 * s);
-  // BIGGER: play again button
   let bw = 220 * s, bh = 56 * s, bx = cx - bw / 2, by = H * .55;
   X.fillStyle = '#2ECC71'; rr(bx, by, bw, bh, 11 * s); X.fill();
   X.fillStyle = '#FFF'; X.font = `bold ${18*s}px Bungee,sans-serif`;
@@ -929,24 +928,22 @@ function click(x, y) {
     return;
   }
   if (state === 'play') {
-    let p = 10 * s;
-    let mbw = 110 * s, mbh = 42 * s, mbx = W - mbw - p, mby = 58 * s + 7 * s;
-    if (x >= mbx && x <= mbx + mbw && y >= mby && y <= mby + mbh) {
+    let L = hudLayout();
+    // Math button
+    if (x >= L.mbx && x <= L.mbx + L.mbw && y >= L.mby && y <= L.mby + L.mbh) {
       state = 'math'; mQ = genQ(); mIn = ''; mCC = 0; mGold = 0; mFB = null; return;
     }
+    // Command buttons
     let cmds2 = ['attack','defend','garrison'];
-    let cbw = 96 * s, cbh2 = 36 * s, cg = 6 * s, csx = p, csy = GY - cbh2 - 10 * s;
     for (let i = 0; i < 3; i++) {
-      let cx2 = csx + i * (cbw + cg);
-      if (x >= cx2 && x <= cx2 + cbw && y >= csy && y <= csy + cbh2) { cmd = cmds2[i]; return; }
+      let cx2 = L.csx + i * (L.cbw + L.cg);
+      if (x >= cx2 && x <= cx2 + L.cbw && y >= L.csy && y <= L.csy + L.cbh) { cmd = cmds2[i]; return; }
     }
+    // Unit buy buttons
     let uTypes = ['sword','archer','knight'];
-    let ubw = touch ? 96 * s : 108 * s, ubh = touch ? 62 * s : 66 * s, ug = 10 * s;
-    let utw = uTypes.length * (ubw + ug) - ug;
-    let usx = (W - utw) / 2, usy = GY + 7 * s;
     for (let i = 0; i < uTypes.length; i++) {
-      let bx2 = usx + i * (ubw + ug);
-      if (x >= bx2 && x <= bx2 + ubw && y >= usy && y <= usy + ubh) { buyUnit(uTypes[i]); return; }
+      let bx2 = L.usx + i * (L.ubw + L.ug);
+      if (x >= bx2 && x <= bx2 + L.ubw && y >= L.usy && y <= L.usy + L.ubh) { buyUnit(uTypes[i]); return; }
     }
     return;
   }
