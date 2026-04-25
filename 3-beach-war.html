@@ -423,19 +423,18 @@ function drawProjs() {
 function hudLayout() {
   let s = S, p = 10 * s;
 
-  // ── Math button (top-right, much larger) ──
-  let mbw = 200 * s, mbh = 80 * s, mbx = W - mbw - p, mby = 6 * s;
+  // ── Math button — top-right, just below the black bar (58*s tall) ──
+  let mbw = 200 * s, mbh = 80 * s, mbx = W - mbw - p, mby = 60 * s;
 
   // ── Bottom panel: unit buttons + command buttons, all below GY ──
-  // Unit buy buttons
+  // Unit buy buttons — centred
   let uTypes = ['sword','archer','knight'];
   let ubw = touch ? 96 * s : 108 * s, ubh = touch ? 62 * s : 66 * s, ug = 10 * s;
   let utw = uTypes.length * (ubw + ug) - ug;
   let usx = (W - utw) / 2, usy = GY + 7 * s;
 
-  // Command buttons — placed to the right of the unit buttons
+  // Command buttons — to the right of unit buttons
   let cbw = 88 * s, cbh = touch ? 62 * s : 66 * s, cg = 6 * s;
-  // Start command strip to the right of unit buttons, with a small margin
   let csx = usx + utw + 14 * s;
   let csy = usy;
 
@@ -456,10 +455,12 @@ function drawHUD() {
   X.fillStyle = '#BBB'; X.font = `${11*s}px Nunito,sans-serif`;
   X.fillText(LV[lvl].d, W / 2, 42 * s);
   let pop = pU.filter(u => u.st !== 'dying').reduce((sum, u) => sum + u.def.pop, 0);
+  // Offset left so squad text sits clear of the math button below
+  let squadRight = W - 215 * s;
   X.fillStyle = '#CCC'; X.font = `bold ${13*s}px Nunito,sans-serif`; X.textAlign = 'right';
-  X.fillText('Squad: ' + pop + '/16', W - p, 22 * s);
+  X.fillText('Squad: ' + pop + '/16', squadRight, 22 * s);
   if (streak >= 2) {
-    X.fillStyle = '#F39C12'; X.fillText('🔥' + streak, W - p, 44 * s);
+    X.fillStyle = '#F39C12'; X.fillText('🔥' + streak, squadRight, 44 * s);
   }
 
   // ── Math button: large, top-right ──
