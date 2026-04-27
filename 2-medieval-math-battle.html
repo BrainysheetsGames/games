@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Battle Scholars</title>
+<title>Medieval Math Battle</title>
 <link href="https://fonts.googleapis.com/css2?family=MedievalSharp&family=Cinzel:wght@400;700;900&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -534,6 +534,9 @@ const ctx = canvas.getContext('2d');
 canvas.style.position = 'fixed';
 canvas.style.inset = '0';
 
+// Declared up here so resizeCanvas() can reference it before the drawing section runs
+let terrainCache = null;
+
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -841,7 +844,6 @@ function updateHUD() {
 // ════════════════════════════════════════════════
 //  BATTLEFIELD TERRAIN — pre-rendered grass
 // ════════════════════════════════════════════════
-let terrainCache = null; // canvas-sized off-screen canvas
 
 function buildTerrain() {
   const W = canvas.width, H = canvas.height;
