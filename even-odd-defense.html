@@ -1169,25 +1169,16 @@
             ctx.stroke();
         }
 
-        // Enemies — different shapes for different types
+        // Enemies — all regular enemies look IDENTICAL (same shape & color)
+        // so the player has to actually solve each problem. Only bosses differ.
         if (gameState === 'playing') {
             enemies.forEach(e => {
                 const wobbleScale = 1 + Math.sin(e.wobble) * 0.05;
                 const r = e.radius * wobbleScale;
 
-                // Boss color overrides everything
-                let fillColor;
                 if (e.isBoss) {
-                    fillColor = '#c0392b';
-                } else if (currentMapIndex >= 2) {
-                    fillColor = e.isTarget ? '#8e44ad' : '#16a085';
-                } else {
-                    fillColor = e.isTarget ? '#e67e22' : '#2ecc71';
-                }
-                ctx.fillStyle = fillColor;
-
-                if (e.isBoss) {
-                    // Spiky star shape for bosses
+                    // Bosses are visually distinct (different threat tier, not a math hint)
+                    ctx.fillStyle = '#c0392b';
                     const spikes = 8;
                     ctx.beginPath();
                     for (let s = 0; s < spikes * 2; s++) {
@@ -1203,8 +1194,10 @@
                     ctx.strokeStyle = 'black';
                     ctx.lineWidth = 3;
                     ctx.stroke();
-                } else if (e.isTarget) {
-                    // Hexagon for targets
+                } else {
+                    // ALL regular enemies (target AND decoy) look identical:
+                    // same color, same hexagon shape. The player MUST solve the math.
+                    ctx.fillStyle = '#8e44ad';
                     ctx.beginPath();
                     for (let s = 0; s < 6; s++) {
                         const ang = (s / 6) * Math.PI * 2 + e.wobble * 0.2;
@@ -1218,10 +1211,6 @@
                     ctx.strokeStyle = 'black';
                     ctx.lineWidth = 2;
                     ctx.stroke();
-                } else {
-                    // Circle for decoys
-                    ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.fill();
-                    ctx.strokeStyle = 'black'; ctx.lineWidth = 2; ctx.stroke();
                 }
 
                 // Enemy HP bar (only if damaged)
