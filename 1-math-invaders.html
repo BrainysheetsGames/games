@@ -48,8 +48,9 @@ canvas{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
 #touchControls{display:none;width:100%;max-width:520px;padding:6px 14px 8px;justify-content:space-between;align-items:center;gap:10px;flex-shrink:0}
 .tBtn{background:#001a00;border:2px solid var(--green);border-radius:8px;color:var(--green);font-family:'Press Start 2P',monospace;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent;flex-shrink:0}
 .tBtn.pressed{background:#003300;box-shadow:0 0 20px #00ff8855}
+#arrowBtns{display:flex;gap:8px;flex-shrink:0}
 #tLeft,#tRight{width:70px;height:54px;font-size:20px}
-#tFire{flex:1;height:54px;font-size:8px;border-color:#0ff;color:#0ff}
+#tFire{width:140px;height:54px;font-size:8px;border-color:#0ff;color:#0ff}
 #tFire.pressed{background:#001a1a}
 #mathScreen{background:radial-gradient(ellipse at 50% 40%,#001a2a 0%,var(--dark) 80%);justify-content:flex-start;padding-top:16px;gap:0}
 #mathHeader{text-align:center;margin-bottom:12px}
@@ -152,9 +153,11 @@ canvas{display:block;max-width:100%;max-height:100%;width:auto;height:auto}
   </div>
   <div id="canvasWrap"><canvas id="gc" width="520" height="440"></canvas></div>
   <div id="touchControls">
-    <button class="tBtn" id="tLeft">◀</button>
+    <div id="arrowBtns">
+      <button class="tBtn" id="tLeft">◀</button>
+      <button class="tBtn" id="tRight">▶</button>
+    </div>
     <button class="tBtn" id="tFire">🔥 FIRE</button>
-    <button class="tBtn" id="tRight">▶</button>
   </div>
 </div>
 
@@ -538,7 +541,6 @@ function updateHud(){
 
 function waveComplete(){
   gameRunning=false;
-  // reset all per-wave upgrades (timewarp is stored in pendingTimewarp flag)
   const keepTimewarp=au.timewarp&&!pendingTimewarp;
   au={};
   if(keepTimewarp)pendingTimewarp=true;
