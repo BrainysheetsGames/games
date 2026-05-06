@@ -281,20 +281,42 @@ const keys={};
 
 const stars=Array.from({length:100},()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.4+.2,sp:Math.random()*.5+.1,b:Math.random()}));
 
-// Armor helpers
+// ─── DIFFICULTY TUNING ───────────────────────────────────────────────────────
+// Alien speed: was 0.5 + wave*0.18  →  gentler ramp, higher cap
+//   wave 1: 0.55   wave 10: 1.15   wave 20: 1.65   wave 30: 2.15
+function alienSpeed(w){ return Math.min(0.5 + w * 0.065, 3.2); }
+
+// Fire rate (frames between alien shots): was max(80-wave*6, 22)
+//   Old wave 10 floor hit at ~wave 10. New floor is 36, hit around wave 20.
+//   wave 1: 90   wave 10: 60   wave 20: 36   wave 30+: 36
+function alienFireRate(w){ return Math.max(90 - w * 3, 36); }
+
+// Hit damage to player: was 20 + wave*2
+//   New: 15 + wave*1  → wave 10=25, wave 20=35, wave 30=45
+//   With 100 base HP that's 4 hits at wave 10, 2-3 at wave 20 — survivable
+function hitDamage(w){ return 15 + w * 1; }
+
+// Armor thresholds pushed back: was 5/8/11 → now 8/14/20
 function getArmorLevel(w){
-  if(w>=11)return 3;
-  if(w>=8)return 2;
-  if(w>=5)return 1;
+  if(w>=20)return 3;
+  if(w>=14)return 2;
+  if(w>=8) return 1;
   return 0;
 }
+
+// Alien HP per armor level (unchanged — armor is the real difficulty spike)
 function getAlienMaxHp(type,armorLevel){
   if(armorLevel===0)return 1;
   if(armorLevel===1)return type==='boss'?3:2;
   if(armorLevel===2)return type==='boss'?4:type==='mid'?3:2;
-  // armorLevel 3
   return type==='boss'?5:type==='mid'?4:3;
 }
+
+// Grid size: rows cap at 5 (wave 12+), cols cap at 10 (wave 10+)
+// Slightly less dense than before to compensate for armor on each alien
+function alienRows(w){ return Math.min(2+Math.floor(w/4), 5); }
+function alienCols(w){ return Math.min(6+Math.floor(w/3), 10); }
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Input
 if('ontouchstart' in window||navigator.maxTouchPoints>0) document.getElementById('touchControls').style.display='flex';
@@ -463,9 +485,9 @@ function announceWave(cb){
   document.getElementById('waveStory').textContent=WAVE_STORIES[Math.min(wave-1,WAVE_STORIES.length-1)];
   const al=getArmorLevel(wave);
   const notice=document.getElementById('waveArmorNotice');
-  if(al===1&&getArmorLevel(wave-1)<1)notice.textContent='⚠ Aliens now have ARMOR — 2 hits to kill!';
-  else if(al===2&&getArmorLevel(wave-1)<2)notice.textContent='🔴 Heavy armor activated! Bosses take 4 hits!';
-  else if(al===3&&getArmorLevel(wave-1)<3)notice.textContent='💀 MAX ARMOR engaged! Bosses take 5 hits!';
+  if(al===1&&getArmorLevel(wave-1)<1)     notice.textContent='⚠ Aliens now have ARMOR — 2 hits to kill!';
+  else if(al===2&&getArmorLevel(wave-1)<2) notice.textContent='🔴 Heavy armor activated! Bosses take 4 hits!';
+  else if(al===3&&getArmorLevel(wave-1)<3) notice.textContent='💀 MAX ARMOR engaged! Bosses take 5 hits!';
   else notice.textContent='';
   document.getElementById('waveAnnounce').classList.remove('hidden');
   setTimeout(()=>{document.getElementById('waveAnnounce').classList.add('hidden');cb();},2200);
@@ -478,7 +500,7 @@ function startWave(){
 function spawnAliens(){
   aliens=[];
   const armorLevel=getArmorLevel(wave);
-  const rows=Math.min(3+Math.floor(wave/3),5),cols=Math.min(7+Math.floor(wave/2),11);
+  const rows=alienRows(wave), cols=alienCols(wave);
   for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
     const type=r===0?'boss':r===1?'mid':'basic';
     const maxHpA=getAlienMaxHp(type,armorLevel);
@@ -498,13 +520,13 @@ function update(){
   if(!alive.length){waveComplete();return;}
 
   const warpFactor=au.timewarp?.5:1;
-  const baseSpd=(0.5+wave*0.18)*warpFactor;
+  const baseSpd=alienSpeed(wave)*warpFactor;
   let edge=false;
   alive.forEach(a=>{a.x+=a.dir*baseSpd;if(a.x>W-20||a.x<20)edge=true;});
   if(edge)alive.forEach(a=>{a.dir*=-1;a.y+=14;});
 
-  const fireRate=Math.max(80-wave*6,22);
-  if(frameCount%fireRate===0){const s=alive[Math.floor(Math.random()*alive.length)];alienBullets.push({x:s.x,y:s.y+14,vy:3+wave*.25});}
+  const fireRate=alienFireRate(wave);
+  if(frameCount%fireRate===0){const s=alive[Math.floor(Math.random()*alive.length)];alienBullets.push({x:s.x,y:s.y+14,vy:3+wave*.15});}
 
   bullets=bullets.filter(b=>{b.x+=b.vx||0;b.y+=b.vy;return b.y>-10;});
   alienBullets=alienBullets.filter(b=>{b.y+=b.vy;return b.y<H+10;});
@@ -522,7 +544,6 @@ function update(){
           score+=a.type==='boss'?30:a.type==='mid'?20:10;
           explode(a.x,a.y,a.type==='boss'?'#ff4488':a.type==='mid'?'#44ffaa':'#6688ff');
         } else {
-          // Bullet absorbed by armor
           if(!bl.laser)hit=true;
           explode(a.x,a.y,ARMOR_COLORS[a.armorLevel]||'#ffffff',4);
         }
@@ -563,7 +584,7 @@ function fireBullet(){
 
 function takeHit(){
   if(au.shield){au.shield=false;explode(player.x,player.y,'#00aaff',16);updateBadges();return;}
-  hp-=20+wave*2;hp=Math.max(0,hp);updateHpBar();
+  hp-=hitDamage(wave);hp=Math.max(0,hp);updateHpBar();
   if(hp<=0)endGame();
 }
 
@@ -606,7 +627,6 @@ function endGame(){
     document.getElementById('goCoins').textContent=totalCoinsEarned;
     showScreen('gameOverScreen');
 
-    // Leaderboard postMessage — same pattern as Rounding Rocket
     setTimeout(()=>{
       try {
         if(window.ReactNativeWebView){
@@ -616,9 +636,7 @@ function endGame(){
             gameId:'math-invaders'
           }));
         }
-      } catch(err){
-        console.log('postMessage error:',err);
-      }
+      } catch(err){ console.log('postMessage error:',err); }
     },3000);
   },900);
 }
@@ -640,14 +658,12 @@ function drawAlien(a){
   if(a.flashTimer>0){ctx.globalAlpha=.5+.5*Math.sin(a.flashTimer*.8);a.flashTimer--;}
   const baseColor=a.type==='boss'?'#ff4488':a.type==='mid'?'#44ffaa':'#6688ff';
   const armorColor=ARMOR_COLORS[a.armorLevel];
-  // Blend toward armor color when damaged
   const displayColor=(a.hp<a.maxHp&&armorColor)?armorColor:baseColor;
   ctx.shadowBlur=8;ctx.shadowColor=displayColor;ctx.fillStyle=displayColor;
   ctx.fillRect(-12,-10,24,16);ctx.fillRect(-16,-6,6,10);ctx.fillRect(10,-6,6,10);
   ctx.fillRect(-8,-16,6,8);ctx.fillRect(2,-16,6,8);
   ctx.fillStyle='#000';ctx.fillRect(-8,-6,5,6);ctx.fillRect(3,-6,5,6);
   if(a.type==='boss'){ctx.fillStyle='#ff0';ctx.fillRect(-4,-8,8,4);}
-  // HP pips above armored aliens
   if(a.maxHp>1){
     const pipW=5,pipGap=3,totalW=a.maxHp*(pipW+pipGap)-pipGap;
     const sx=-totalW/2;
