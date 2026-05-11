@@ -275,7 +275,6 @@ const keys={};
 
 const stars=Array.from({length:100},()=>({x:Math.random()*W,y:Math.random()*H,s:Math.random()*1.4+.2,sp:Math.random()*.5+.1,b:Math.random()}));
 
-// Input
 if('ontouchstart' in window||navigator.maxTouchPoints>0) document.getElementById('touchControls').style.display='flex';
 document.addEventListener('keydown',e=>{keys[e.code]=true;if(e.code==='Space')e.preventDefault();});
 document.addEventListener('keyup',e=>{keys[e.code]=false;});
@@ -290,7 +289,6 @@ function bindBtn(id,code){
 }
 bindBtn('tLeft','ArrowLeft');bindBtn('tRight','ArrowRight');bindBtn('tFire','Space');
 
-// Screens
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function showTitle(){gameRunning=false;showScreen('titleScreen');}
 function selectMode(mode,btn){
@@ -301,15 +299,14 @@ function selectMode(mode,btn){
   document.getElementById('hudMode').textContent={addition:'➕',subtraction:'➖',multiplication:'✖️',division:'➗'}[mode];
 }
 
-// Math engine
 let currentQ=null,mathCoinsRound=0,streak=0,mathTimer=60,mathInterval=null,choiceAnswers=[];
 
 function genQuestion(){
   let a,b,answer,text;
   if(gameMode==='addition'){a=Math.floor(Math.random()*12)+1;b=Math.floor(Math.random()*12)+1;answer=a+b;text=`${a} + ${b} = ?`;}
-  else if(gameMode==='subtraction'){a=Math.floor(Math.random()*12)+1;b=Math.floor(Math.random()*a)+1;answer=a-b;text=`${a} − ${b} = ?`;}
-  else if(gameMode==='multiplication'){a=Math.floor(Math.random()*12)+1;b=Math.floor(Math.random()*12)+1;answer=a*b;text=`${a} × ${b} = ?`;}
-  else{b=Math.floor(Math.random()*11)+1;a=b*(Math.floor(Math.random()*12)+1);answer=a/b;text=`${a} ÷ ${b} = ?`;}
+  else if(gameMode==='subtraction'){a=Math.floor(Math.random()*12)+1;b=Math.floor(Math.random()*a)+1;answer=a-b;text=`${a} - ${b} = ?`;}
+  else if(gameMode==='multiplication'){a=Math.floor(Math.random()*12)+1;b=Math.floor(Math.random()*12)+1;answer=a*b;text=`${a} x ${b} = ?`;}
+  else{b=Math.floor(Math.random()*11)+1;a=b*(Math.floor(Math.random()*12)+1);answer=a/b;text=`${a} / ${b} = ?`;}
   const wrongs=new Set();
   while(wrongs.size<3){const w=answer+Math.floor(Math.random()*8)-4;if(w!==answer&&w>=0)wrongs.add(w);}
   choiceAnswers=[answer,...wrongs];
@@ -331,12 +328,12 @@ function checkAnswer(idx){
     const earned=streak>=7?5:streak>=5?4:streak>=3?3:2;
     mathCoinsRound+=earned;coins+=earned;totalCoinsEarned+=earned;
     document.getElementById('mathFeedback').style.color='#00ff88';
-    document.getElementById('mathFeedback').textContent=streak>=7?`🔥 UNSTOPPABLE! +${earned}`:streak>=5?`⚡ ON FIRE x${streak}! +${earned}`:streak>=3?`✓ Streak x${streak}! +${earned}`:`✓ Correct! +${earned}`;
-    document.getElementById('mathCoinsEarned').textContent=`🪙 +${mathCoinsRound}`;
-    document.getElementById('mathStreak').textContent=`🔥 Streak: ${streak}`;
-    if(streak===3)showStreakMsg('⚡ 3 IN A ROW! BONUS COINS!');
-    if(streak===5)showStreakMsg('🔥 5 IN A ROW! MEGA BONUS!');
-    if(streak===7)showStreakMsg('💥 UNSTOPPABLE! MAX BONUS!');
+    document.getElementById('mathFeedback').textContent=streak>=7?`UNSTOPPABLE! +${earned}`:streak>=5?`ON FIRE x${streak}! +${earned}`:streak>=3?`Streak x${streak}! +${earned}`:`Correct! +${earned}`;
+    document.getElementById('mathCoinsEarned').textContent=`+${mathCoinsRound}`;
+    document.getElementById('mathStreak').textContent=`Streak: ${streak}`;
+    if(streak===3)showStreakMsg('3 IN A ROW! BONUS COINS!');
+    if(streak===5)showStreakMsg('5 IN A ROW! MEGA BONUS!');
+    if(streak===7)showStreakMsg('UNSTOPPABLE! MAX BONUS!');
     renderShopCoins();coinPop(`+${earned}`);
     setTimeout(()=>genQuestion(),550);
   } else {
@@ -344,8 +341,8 @@ function checkAnswer(idx){
     for(let i=0;i<4;i++)if(choiceAnswers[i]===currentQ.answer)document.getElementById('c'+i).classList.add('correct');
     streak=0;
     document.getElementById('mathFeedback').style.color='#ff3355';
-    document.getElementById('mathFeedback').textContent='✗ Not quite — keep going!';
-    document.getElementById('mathStreak').textContent='🔥 Streak: 0';
+    document.getElementById('mathFeedback').textContent='Not quite - keep going!';
+    document.getElementById('mathStreak').textContent='Streak: 0';
     setTimeout(()=>genQuestion(),900);
   }
 }
@@ -355,8 +352,8 @@ function coinPop(text){const el=document.createElement('div');el.className='coin
 
 function startMathBreak(){
   mathCoinsRound=0;streak=0;mathTimer=60;
-  document.getElementById('mathCoinsEarned').textContent='🪙 +0';
-  document.getElementById('mathStreak').textContent='🔥 Streak: 0';
+  document.getElementById('mathCoinsEarned').textContent='+0';
+  document.getElementById('mathStreak').textContent='Streak: 0';
   document.getElementById('timerInner').style.width='100%';
   document.getElementById('timerText').textContent='60s';
   showScreen('mathScreen');genQuestion();
@@ -369,8 +366,7 @@ function startMathBreak(){
   },1000);
 }
 
-// Shop
-function renderShopCoins(){document.getElementById('shopCoins').textContent=`🪙 ${coins} coins`;}
+function renderShopCoins(){document.getElementById('shopCoins').textContent=`${coins} coins`;}
 function renderShop(){
   renderShopCoins();
   document.getElementById('shopWaveInfo').textContent=`Preparing for Wave ${wave}`;
@@ -379,9 +375,9 @@ function renderShop(){
     const costEl=el.querySelector('.sCost');
     const unlocked=wave>=UNLOCK_WAVE[key],canAfford=coins>=UPGRADE_COSTS[key];
     el.classList.remove('locked','cant-afford');
-    if(!unlocked){el.classList.add('locked');costEl.textContent=`🔒 Wave ${UNLOCK_WAVE[key]}`;costEl.className='sCost sLock';}
-    else if(!canAfford){el.classList.add('cant-afford');costEl.textContent=`🪙 ${UPGRADE_COSTS[key]}`;costEl.className='sCost';}
-    else{costEl.textContent=`🪙 ${UPGRADE_COSTS[key]}`;costEl.className='sCost';}
+    if(!unlocked){el.classList.add('locked');costEl.textContent=`Wave ${UNLOCK_WAVE[key]}`;costEl.className='sCost sLock';}
+    else if(!canAfford){el.classList.add('cant-afford');costEl.textContent=`${UPGRADE_COSTS[key]}`;costEl.className='sCost';}
+    else{costEl.textContent=`${UPGRADE_COSTS[key]}`;costEl.className='sCost';}
   });
 }
 function showShop(){if(mathInterval){clearInterval(mathInterval);mathInterval=null;}renderShop();showScreen('shopScreen');}
@@ -417,18 +413,17 @@ function dropBomb(){
 
 function updateBadges(){
   const b=document.getElementById('badges');b.innerHTML='';
-  if(au.rapidfire)b.innerHTML+='<span class="badge b-rf">⚡RF</span>';
-  if(au.shield)b.innerHTML+='<span class="badge b-sh">🛡SH</span>';
-  if(au.wideshot)b.innerHTML+='<span class="badge b-ws">↔WS</span>';
-  if(au.speed)b.innerHTML+='<span class="badge b-sp">💨SP</span>';
-  if(pendingTimewarp)b.innerHTML+='<span class="badge b-tw">⏳TW</span>';
-  if(au.timewarp)b.innerHTML+='<span class="badge b-tw">⏳SLOW</span>';
-  if(au.clone)b.innerHTML+='<span class="badge b-cl">👥CL</span>';
-  if(au.laser)b.innerHTML+='<span class="badge b-lz">🔫LZ</span>';
-  if(au.magnetShots>0)b.innerHTML+=`<span class="badge b-mg">🧲${au.magnetShots}</span>`;
+  if(au.rapidfire)b.innerHTML+='<span class="badge b-rf">RF</span>';
+  if(au.shield)b.innerHTML+='<span class="badge b-sh">SH</span>';
+  if(au.wideshot)b.innerHTML+='<span class="badge b-ws">WS</span>';
+  if(au.speed)b.innerHTML+='<span class="badge b-sp">SP</span>';
+  if(pendingTimewarp)b.innerHTML+='<span class="badge b-tw">TW</span>';
+  if(au.timewarp)b.innerHTML+='<span class="badge b-tw">SLOW</span>';
+  if(au.clone)b.innerHTML+='<span class="badge b-cl">CL</span>';
+  if(au.laser)b.innerHTML+='<span class="badge b-lz">LZ</span>';
+  if(au.magnetShots>0)b.innerHTML+=`<span class="badge b-mg">${au.magnetShots}</span>`;
 }
 
-// Game
 function initGame(){
   score=0;coins=0;totalCoinsEarned=0;wave=1;hp=100;maxHp=100;au={};pendingTimewarp=false;
   showScreen('gameScreen');announceWave(()=>startWave());
@@ -534,8 +529,8 @@ function explode(x,y,color,n=12){
 
 function updateHpBar(){document.getElementById('hpInner').style.width=Math.max(0,hp/maxHp*100)+'%';}
 function updateHud(){
-  document.getElementById('hudScore').textContent='⭐ '+score;
-  document.getElementById('hudCoins').textContent='🪙 '+coins;
+  document.getElementById('hudScore').textContent='Score: '+score;
+  document.getElementById('hudCoins').textContent='Coins: '+coins;
   document.getElementById('hudWave').textContent='WAVE '+wave;
 }
 
@@ -555,6 +550,9 @@ function endGame(){
   if(mathInterval){clearInterval(mathInterval);mathInterval=null;}
   if(wave>bestWave){bestWave=wave;localStorage.setItem('miBest',bestWave);}
   explode(player.x,player.y,'#00aaff',24);
+
+  var finalScore=Math.floor(score);
+
   setTimeout(()=>{
     document.getElementById('goScore').textContent=score;
     document.getElementById('goWave').textContent=wave;
@@ -562,9 +560,20 @@ function endGame(){
     document.getElementById('goCoins').textContent=totalCoinsEarned;
     showScreen('gameOverScreen');
   },900);
+
+  setTimeout(function(){
+    try{
+      if(window.ReactNativeWebView){
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type:'GAME_OVER',
+          score:finalScore,
+          gameId:'1-math-invaders'
+        }));
+      }
+    }catch(err){console.log('postMessage error:',err);}
+  },3000);
 }
 
-// Draw
 function drawShip(x,y,alpha,tint){
   ctx.save();ctx.translate(x,y);ctx.globalAlpha=alpha;
   ctx.shadowBlur=14;ctx.shadowColor=tint;ctx.fillStyle=tint;
