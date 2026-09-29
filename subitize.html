@@ -107,6 +107,10 @@ const Sfx = {
   go() { this.tone(1320, 0.3, 'triangle', 0.16); this.tone(660, 0.3, 'triangle', 0.12); },
   start() { [0, 7, 12].forEach((s, i) => this.tone(440 * Math.pow(2, s / 12), 0.2, 'triangle', 0.15, i * 0.08)); },
   whoosh() { this.noise(0.35, 0.07, 0, 1400); },
+  blink() { this.tone(1400, 0.2, 'sine', 0.07, 0, 450); },
+  reveal() { this.tone(600, 0.16, 'sine', 0.07, 0, 1300); },
+  bond() { [0, 5, 9, 12].forEach((s, i) => this.tone(698 * Math.pow(2, s / 12), 0.26, 'sine', 0.12, i * 0.07)); },
+  regroup() { for (let i = 0; i < 4; i++) this.tone(500 + i * 90, 0.09, 'triangle', 0.06, i * 0.05); },
   star(i) { const f = 784 * Math.pow(2, (i * 4) / 12); this.tone(f, 0.45, 'triangle', 0.17); this.tone(f * 2, 0.3, 'sine', 0.06, 0.05); },
   fanfare() {
     const n = [0, 4, 7, 12, 7, 12, 16];
@@ -117,6 +121,7 @@ const Sfx = {
 
 // ---------- Helpers ----------
 const rnd = (a, b) => Phaser.Math.Between(a, b);
+const bestKey = (mode, flash) => flash ? mode + '_flash' : mode;
 const range = n => [...Array(n).keys()];
 const fmt = n => Math.round(n).toLocaleString('en-US');
 function shuffle(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
@@ -135,8 +140,8 @@ function drawBackdrop(scene) {
   g.fillGradientStyle(C.skyTop, C.skyTop, C.skyBot, C.skyBot, 1);
   g.fillRect(0, 0, W, H);
   // moon
-  scene.add.image(780, 70, 'glow').setTint(0xFFF1C9).setScale(2.6).setAlpha(0.3).setBlendMode('ADD');
-  scene.add.circle(780, 70, 24, 0xFFF4D6, 0.95);
+  scene.add.image(662, 66, 'glow').setTint(0xFFF1C9).setScale(2.6).setAlpha(0.3).setBlendMode('ADD');
+  scene.add.circle(662, 66, 24, 0xFFF4D6, 0.95);
   // stars
   for (let i = 0; i < 46; i++) {
     const s = scene.add.circle(rnd(0, W), rnd(0, 380), Math.random() < 0.8 ? 1.2 : 2, 0xFFFFFF, 0.6);
@@ -205,7 +210,7 @@ function makeFly(scene, x, y, d) {
   const core = scene.add.image(0, 0, 'dot').setTint(C.flyCore).setScale(d / 64);
   const hi = scene.add.image(-d * 0.16, -d * 0.18, 'dot').setTint(0xFFFFFF).setScale(d * 0.26 / 64).setAlpha(0.8);
   c.add([halo, core, hi]);
-  c.halo = halo; c.d = d;
+  c.halo = halo; c.core = core; c.d = d;
   scene.tweens.add({
     targets: halo, alpha: { from: 0.35, to: 0.75 }, scale: { from: d * 1.6 / 64, to: d * 2.1 / 64 },
     duration: rnd(700, 1100), yoyo: true, repeat: -1, ease: 'Sine.inOut', delay: rnd(0, 600)
@@ -318,6 +323,8 @@ class ModeScene extends Phaser.Scene {
     const head = txt(this, W / 2, 72, 'Pick a level', 52, '#FFE680', { stroke: '#2A2466', strokeThickness: 10 }).setOrigin(0.5).setAlpha(0).setScale(0.7);
     this.tweens.add({ targets: head, alpha: 1, scale: 1, duration: 450, ease: 'Back.out' });
 
+    this.flash = Store.get('flash', false);
+    this.cards = [];
     const info = [
       { key: 'easy', desc: 'One ten frame.\nNumbers 1 to 10.' },
       { key: 'medium', desc: 'No frame, just\npatterns. 1 to 9.' },
@@ -346,39 +353,62 @@ class ModeScene extends Phaser.Scene {
         frameCells(0, -36, 24).slice(0, 4).forEach(p => c.add(makeFly(this, p.x, p.y, 14)));
       }
       c.add(txt(this, 0, 2, m.desc, 20, '#FFF6DA', { fontStyle: '600', align: 'center', lineSpacing: -2 }).setOrigin(0.5, 0));
-      const best = Store.get('best_' + m.key, 0), stars = Store.get('stars_' + m.key, 0);
-      c.add(txt(this, 0, 72, best ? 'Best: ' + fmt(best) : 'Not played yet', 17, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5));
-      const sg = this.add.graphics(); c.add(sg);
-      for (let s = 0; s < 3; s++) {
-        sg.fillStyle(s < stars ? C.fly : 0x3A4690, 1);
-        sg.fillPoints(starPts(11, 5).map(p => ({ x: p.x + (s - 1) * 28, y: p.y + 100 })), true);
-      }
+      const bestText = txt(this, 0, 72, '', 17, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5);
+      const sg = this.add.graphics();
+      c.add([bestText, sg]);
+      this.cards.push({ key: m.key, bestText, sg });
       c.add(makeButton(this, 0, 140, 170, 48, 'Play', { fill: cfg.color, size: 26, onClick: () => this.go(m.key) }));
       this.tweens.add({ targets: c, y, alpha: 1, duration: 600, delay: 150 + i * 120, ease: 'Back.out' });
     });
+    this.refreshCards();
+
+    const flashBtn = makeButton(this, W / 2, 610, 250, 44, '', { size: 21, onClick: () => {
+      this.flash = !this.flash; Store.set('flash', this.flash);
+      if (this.flash) Sfx.blink();
+      styleFlash(); this.refreshCards();
+    } });
+    const styleFlash = () => {
+      flashBtn.redraw(this.flash ? C.pink : 0x33428C);
+      flashBtn.label.setText('Flash mode: ' + (this.flash ? 'On' : 'Off')).setColor(this.flash ? '#2A1A4A' : '#FFF6DA');
+    };
+    styleFlash();
+    flashBtn.setAlpha(0);
+    this.tweens.add({ targets: flashBtn, alpha: 1, duration: 400, delay: 600 });
 
     makeButton(this, 80, 610, 120, 40, 'Back', { fill: 0x33428C, textColor: '#FFF6DA', size: 20, onClick: () => {
       this.cameras.main.fadeOut(300); this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Title'));
     } });
     addMuteToggle(this, 790, 610);
   }
+  refreshCards() {
+    this.cards.forEach(({ key, bestText, sg }) => {
+      const k = bestKey(key, this.flash);
+      const best = Store.get('best_' + k, 0), stars = Store.get('stars_' + k, 0);
+      bestText.setText(best ? 'Best: ' + fmt(best) : 'Not played yet');
+      sg.clear();
+      for (let s = 0; s < 3; s++) {
+        sg.fillStyle(s < stars ? C.fly : 0x3A4690, 1);
+        sg.fillPoints(starPts(11, 5).map(p => ({ x: p.x + (s - 1) * 28, y: p.y + 100 })), true);
+      }
+    });
+  }
   go(key) {
     Sfx.start();
     this.cameras.main.fadeOut(350);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { mode: key }));
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { mode: key, flash: this.flash }));
   }
 }
 
 // ================================================================
 class GameScene extends Phaser.Scene {
   constructor() { super('Game'); }
-  init(d) { this.mode = d.mode || 'easy'; this.cfg = MODES[this.mode]; }
+  init(d) { this.mode = d.mode || 'easy'; this.cfg = MODES[this.mode]; this.flash = !!d.flash; }
   create() {
     this.cameras.main.fadeIn(400);
     Object.assign(this, {
       q: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, allTimes: [], fastest: null,
       glow: 0, glowActive: 0, glowUses: 0, lightnings: 0, accepting: false, started: false, over: false,
-      prevN: -1, flies: [], results: []
+      prevN: -1, flies: [], results: [], hidden: false, hideTimer: null, bondsAsked: 0, bondsRight: 0
     });
     this.bd = drawBackdrop(this);
     this.glowTint = this.add.rectangle(W / 2, H / 2, W, H, 0xFFC940, 0).setDepth(1);
@@ -410,9 +440,12 @@ class GameScene extends Phaser.Scene {
     } }).setDepth(40);
     addMuteToggle(this, 790, 618);
 
-    const go = () => this.countdown();
-    if (!Store.get('tut_' + this.mode, false)) this.time.delayedCall(450, () => this.showTutorial(go));
-    else this.time.delayedCall(500, go);
+    this.qMark = txt(this, 432, this.boardY, '?', 110, '#FFE680', { stroke: '#2A2466', strokeThickness: 10 }).setOrigin(0.5).setDepth(9).setAlpha(0);
+    const steps = [];
+    if (!Store.get('tut_' + this.mode, false)) steps.push(done => this.showTutorial(done));
+    if (this.flash && !Store.get('tut_flash', false)) steps.push(done => this.showFlashTip(done));
+    const run = i => i < steps.length ? steps[i](() => run(i + 1)) : this.countdown();
+    this.time.delayedCall(steps.length ? 450 : 500, () => run(0));
   }
 
   // ---------- Build ----------
@@ -436,6 +469,10 @@ class GameScene extends Phaser.Scene {
     const g = this.add.graphics().setDepth(20);
     g.fillStyle(this.cfg.color, 1); g.fillRoundedRect(20, 14, 110, 38, 19);
     txt(this, 75, 32, this.cfg.name, 21, '#1E2A66').setOrigin(0.5).setDepth(21);
+    if (this.flash) {
+      g.fillStyle(C.pink, 1); g.fillRoundedRect(138, 14, 84, 38, 19);
+      txt(this, 180, 32, 'Flash', 20, '#2A1A4A').setOrigin(0.5).setDepth(21);
+    }
     this.dots = range(TOTAL).map(i => this.add.circle(432 - 152 + i * 16, 22, 5, 0xFFFFFF, 0.2).setDepth(20));
     this.qText = txt(this, 432, 34, 'Get ready', 16, '#FFF6DA', { fontStyle: '600' }).setOrigin(0.5, 0).setAlpha(0.8).setDepth(20);
     this.scoreText = txt(this, 844, 8, '0', 38, '#FFE680', { stroke: '#1A1F4A', strokeThickness: 6 }).setOrigin(1, 0).setDepth(20);
@@ -519,6 +556,28 @@ class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: o, alpha: 1, scale: 1, duration: 380, ease: 'Back.out' });
   }
 
+  showFlashTip(done) {
+    const o = this.add.container(W / 2, H / 2).setDepth(100).setAlpha(0).setScale(0.9);
+    const dim = this.add.rectangle(0, 0, W * 1.2, H * 1.2, 0x070A20, 0.72).setInteractive();
+    const p = this.add.graphics();
+    p.fillStyle(C.panel, 1); p.fillRoundedRect(-280, -200, 560, 400, 28);
+    p.lineStyle(4, C.pink, 1); p.strokeRoundedRect(-280, -200, 560, 400, 28);
+    o.add([dim, p, txt(this, 0, -162, 'Flash mode', 38, '#FF9FC4').setOrigin(0.5)]);
+    const ill = this.add.graphics(); o.add(ill);
+    drawFrame(ill, 0, -78, 36);
+    const flies = this.add.container(0, 0); o.add(flies);
+    frameCells(0, -78, 36).slice(0, 8).forEach(c => flies.add(makeFly(this, c.x, c.y, 22)));
+    this.tweens.add({ targets: flies, alpha: 0, duration: 200, delay: 900, hold: 700, yoyo: true, repeat: -1, repeatDelay: 900, ease: 'Quad.in' });
+    o.add(txt(this, 0, -12, 'The fireflies blink out fast! Look at the whole picture at once and find the groups, like a full row of 5. Try not to count one by one.', 20, '#FFF6DA', { fontStyle: '600', align: 'center', wordWrap: { width: 480 }, lineSpacing: 2 }).setOrigin(0.5, 0));
+    const btn = makeButton(this, 0, 150, 200, 56, 'Got it', { fill: C.pink, textColor: '#2A1A4A', size: 28, onClick: () => {
+      Store.set('tut_flash', true);
+      btn.disableInteractive();
+      this.tweens.add({ targets: o, alpha: 0, scale: 0.92, duration: 280, ease: 'Cubic.in', onComplete: () => { this.tweens.killTweensOf(flies); o.destroy(true); done(); } });
+    } });
+    o.add(btn);
+    this.tweens.add({ targets: o, alpha: 1, scale: 1, duration: 380, ease: 'Back.out' });
+  }
+
   // ---------- Flow ----------
   countdown() {
     const seq = ['3', '2', '1', 'Go!'];
@@ -542,7 +601,9 @@ class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: dot, scale: 1.5, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
 
     const n = this.pickN(); this.prevN = n; this.currentN = n;
-    const { pts, d } = this.layout(n);
+    const { pts, d, split } = this.layout(n);
+    this.currentSplit = split || null;
+    this.hidden = false;
     this.flies = pts.map((p, i) => {
       const f = makeFly(this, p.x, p.y, d).setDepth(10).setScale(0);
       this.tweens.add({ targets: f, scale: 1, duration: 260, delay: i * 22, ease: 'Back.out' });
@@ -553,7 +614,23 @@ class GameScene extends Phaser.Scene {
     this.time.delayedCall((n - 1) * 22 + 170, () => {
       if (this.over) return;
       this.accepting = true; this.qStart = this.time.now;
+      if (this.flash) {
+        const q = this.q;
+        this.hideTimer = this.time.delayedCall(this.flashMs(), () => {
+          this.hideTimer = null;
+          if (!this.accepting || this.q !== q || this.over) return;
+          this.hidden = true;
+          Sfx.blink();
+          this.flies.forEach(f => this.tweens.add({ targets: f, alpha: 0, duration: 180, ease: 'Quad.in' }));
+          this.qMark.setScale(0.6);
+          this.tweens.add({ targets: this.qMark, alpha: 0.45, scale: 1, duration: 260, ease: 'Back.out' });
+        });
+      }
     });
+  }
+  flashMs() {
+    const base = { easy: 1500, medium: 1500, hard: 2200 }[this.mode], min = { easy: 900, medium: 900, hard: 1300 }[this.mode];
+    return Math.max(min, base - (this.q - 1) * 30);
   }
 
   pickN() {
@@ -571,7 +648,7 @@ class GameScene extends Phaser.Scene {
     const q = this.q, r = Math.random();
     if (this.mode === 'easy') {
       const idx = (q <= 7 || (q <= 14 && r < 0.5)) ? range(n) : shuffle(range(10)).slice(0, n).sort((a, b) => a - b);
-      return { pts: idx.map(i => this.cells[i]), d: this.flyD };
+      return { pts: idx.map(i => this.cells[i]), d: this.flyD, split: this.splitFrom(idx.map(i => i < 5)) };
     }
     if (this.mode === 'hard') {
       let idx;
@@ -580,7 +657,8 @@ class GameScene extends Phaser.Scene {
         if (n < 2) idx = [0];
         else { const a = rnd(Math.max(1, n - 10), Math.min(10, n - 1)); idx = [...range(a), ...range(n - a).map(i => i + 10)]; }
       } else idx = shuffle(range(20)).slice(0, n).sort((a, b) => a - b);
-      return { pts: idx.map(i => this.cells[i]), d: this.flyD };
+      const split = this.splitFrom(idx.map(i => i < 10)) || this.splitFrom(idx.map(i => i % 10 < 5));
+      return { pts: idx.map(i => this.cells[i]), d: this.flyD, split };
     }
     // medium
     const cx = 432, cy = 205;
@@ -590,7 +668,7 @@ class GameScene extends Phaser.Scene {
     else kind = r < 0.55 ? 'scatter' : r < 0.8 ? 'group' : 'ring';
     if (kind === 'group' && n < 2) kind = 'dice';
     if (kind === 'ring' && n < 3) kind = 'dice';
-    let pts = [], d = 40;
+    let pts = [], d = 40, split = null;
     if (kind === 'scatter') {
       for (let t = 0; t < 600 && pts.length < n; t++) {
         const p = { x: rnd(cx - 200, cx + 200), y: rnd(cy - 95, cy + 95) };
@@ -603,11 +681,16 @@ class GameScene extends Phaser.Scene {
       const a = rnd(Math.max(1, n - 6), Math.min(6, n - 1)), b = n - a, s = 46; d = 36;
       pts = [...readingOrder(DICE[a].map(([u, v]) => ({ x: cx - 115 + u * s, y: cy + v * s }))),
              ...readingOrder(DICE[b].map(([u, v]) => ({ x: cx + 115 + u * s, y: cy + v * s })))];
+      split = this.splitFrom(pts.map((p, i) => i < a));
     } else if (kind === 'ring') {
       const rad = Math.min(105, 34 + n * 9), off = Math.random() * Math.PI * 2;
       pts = range(n).map(i => ({ x: cx + Math.cos(off + i * Math.PI * 2 / n) * rad, y: cy + Math.sin(off + i * Math.PI * 2 / n) * rad }));
     }
-    return { pts, d };
+    return { pts, d, split };
+  }
+  splitFrom(inA) {
+    const a = inA.filter(Boolean).length, b = inA.length - a;
+    return a > 0 && b > 0 ? { a, b, inA } : null;
   }
 
   windowSec() { return this.cfg.window - (this.q - 1) * 0.08; }
@@ -622,6 +705,15 @@ class GameScene extends Phaser.Scene {
     const dot = this.dots[this.q - 1];
     this.tweens.killTweensOf(dot); dot.setScale(1);
     this.tweens.add({ targets: this.prompt, alpha: 0, duration: 200 });
+    if (this.hideTimer) { this.hideTimer.remove(false); this.hideTimer = null; }
+    this.revealDelay = 0;
+    if (this.hidden) {
+      this.hidden = false; this.revealDelay = 240;
+      Sfx.reveal();
+      this.flies.forEach(f => { this.tweens.killTweensOf(f); f.setScale(1); this.tweens.add({ targets: f, alpha: 1, duration: 200, ease: 'Quad.out' }); });
+      this.tweens.killTweensOf(this.qMark);
+      this.tweens.add({ targets: this.qMark, alpha: 0, duration: 160 });
+    }
     if (v === this.currentN) this.onCorrect(t, btn); else this.onWrong(t, btn);
   }
 
@@ -651,15 +743,133 @@ class GameScene extends Phaser.Scene {
     }
     this.updateStreak();
 
+    if (this.glowActive === 0 && t <= this.cfg.fast) this.addGlow();
+    const askBond = this.currentN >= 4 && this.q % 3 === 2;
+    if (askBond) {
+      this.time.delayedCall(this.revealDelay + 450, () => this.askBond(() => this.afterAnswer(0)));
+      return;
+    }
+    this.fliesToScore(this.revealDelay);
+    this.afterAnswer(this.currentN * 18 + 700 + this.revealDelay);
+  }
+
+  fliesToScore(delay = 0) {
     this.flies.forEach((f, i) => {
       this.tweens.killTweensOf(f.halo);
-      this.tweens.add({ targets: f, x: 800, y: 30, scale: 0.25, alpha: 0.3, duration: 420, delay: i * 18, ease: 'Cubic.in',
+      this.tweens.add({ targets: f, x: 800, y: 30, scale: 0.25, alpha: 0.3, duration: 420, delay: delay + i * 18, ease: 'Cubic.in',
         onComplete: () => { this.puff.explode(2, 800, 30); killFly(this, f); } });
     });
-    this.time.delayedCall(430, () => this.tweens.add({ targets: this.scoreText, scale: 1.18, duration: 110, yoyo: true }));
+    this.time.delayedCall(delay + 430, () => this.tweens.add({ targets: this.scoreText, scale: 1.18, duration: 110, yoyo: true }));
     this.flies = [];
-    if (this.glowActive === 0 && t <= this.cfg.fast) this.addGlow();
-    this.afterAnswer(this.currentN * 18 + 700);
+  }
+
+  // ---------- "How did you see it?" number bonds ----------
+  askBond(done) {
+    if (this.over) return;
+    const n = this.currentN, st = this.currentSplit;
+    this.bondsAsked++;
+    const key = (a, b) => Math.min(a, b) + '-' + Math.max(a, b);
+    const used = new Set(), valid = [];
+    if (st) { valid.push([st.a, st.b]); used.add(key(st.a, st.b)); }
+    for (let g = 0; valid.length < 2 && g < 60; g++) {
+      const a = rnd(1, n - 1), b = n - a;
+      if (!used.has(key(a, b))) { used.add(key(a, b)); valid.push(a >= b ? [a, b] : [b, a]); }
+    }
+    let bad = null;
+    for (let g = 0; !bad && g < 60; g++) {
+      const a = rnd(1, n - 1), b = n - a + (Math.random() < 0.5 ? 1 : -1);
+      if (b >= 1) bad = [a, b];
+    }
+    if (!bad) bad = [n - 1, 2];
+    const opts = shuffle([...valid.map(v => ({ v, ok: true })), { v: bad, ok: false }]);
+
+    this.tweens.add({ targets: [...this.buttons, this.speedG, this.speedLabel], alpha: 0.12, duration: 220 });
+    const panel = this.add.container(432, 530).setDepth(70).setAlpha(0);
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.3); g.fillRoundedRect(-330, -86, 660, 184, 26);
+    g.fillStyle(C.panel, 0.98); g.fillRoundedRect(-330, -92, 660, 184, 26);
+    g.lineStyle(3, C.mint, 1); g.strokeRoundedRect(-330, -92, 660, 184, 26);
+    panel.add([g,
+      txt(this, 0, -62, `How did you see ${n}?`, 30, '#FFE680').setOrigin(0.5),
+      txt(this, 0, -28, `Pick two parts that make ${n}.`, 19, '#FFF6DA', { fontStyle: '600' }).setOrigin(0.5)]);
+    let chosen = false;
+    const btns = opts.map((o, i) => {
+      const b = makeButton(this, (i - 1) * 205, 40, 185, 64, `${o.v[0]} and ${o.v[1]}`, { fill: C.cream, size: 28, onClick: () => pick(i) });
+      panel.add(b);
+      return b;
+    });
+    this.tweens.add({ targets: panel, alpha: 1, y: 500, duration: 380, ease: 'Back.out' });
+    Sfx.reveal();
+
+    const pick = i => {
+      if (chosen) return; chosen = true;
+      btns.forEach(b => b.disableInteractive());
+      const o = opts[i], b = btns[i];
+      let show = o.v;
+      if (o.ok) {
+        this.bondsRight++;
+        b.redraw(C.mint); Sfx.bond();
+        this.burst.explode(16, 432 + b.x, 500 + b.y);
+        const bonus = 40 * (this.glowActive > 0 ? 2 : 1);
+        this.score += bonus; this.animateScore();
+        this.floatText(432 + b.x, 392, '+' + bonus, '#FFE680', 32);
+      } else {
+        b.redraw(C.pink); Sfx.wrong();
+        const bx = b.x;
+        this.tweens.add({ targets: b, x: bx + 8, duration: 50, yoyo: true, repeat: 3, onComplete: () => { b.x = bx; } });
+        this.floatText(432 + b.x, 392, `Those make ${o.v[0] + o.v[1]}`, '#FF9FC4', 24);
+        const vi = opts.findIndex(x => x.ok && st && key(x.v[0], x.v[1]) === key(st.a, st.b));
+        const good = vi >= 0 ? vi : opts.findIndex(x => x.ok);
+        btns[good].redraw(C.mint);
+        this.tweens.add({ targets: btns[good], scale: 1.1, duration: 240, yoyo: true, repeat: 1 });
+        show = opts[good].v;
+      }
+      this.time.delayedCall(o.ok ? 250 : 700, () => this.showBond(show[0], show[1]));
+      this.time.delayedCall(o.ok ? 2300 : 2800, () => {
+        this.tweens.add({ targets: panel, alpha: 0, y: 530, duration: 260, ease: 'Cubic.in', onComplete: () => panel.destroy(true) });
+        this.tweens.add({ targets: [...this.buttons, this.speedG, this.speedLabel], alpha: 1, duration: 300 });
+        this.tweens.add({ targets: this.board, alpha: 1, duration: 300 });
+        if (this.bondLabel) { const l = this.bondLabel; this.bondLabel = null; this.tweens.add({ targets: l, alpha: 0, duration: 250, onComplete: () => l.destroy(true) }); }
+        this.fliesToScore(0);
+        this.time.delayedCall(this.currentN * 18 + 600, done);
+      });
+    };
+  }
+
+  showBond(a, b) {
+    const n = a + b, st = this.currentSplit, flies = this.flies;
+    let inA;
+    const inPlace = st && ((st.a === a && st.b === b) || (st.a === b && st.b === a));
+    Sfx.regroup();
+    if (inPlace) {
+      inA = st.a === a ? st.inA : st.inA.map(x => !x);
+    } else {
+      inA = flies.map((f, i) => i < a);
+      this.tweens.add({ targets: this.board, alpha: 0.25, duration: 300 });
+      const sp = Math.min(this.flyD * 1.35, 54), cy = this.boardY;
+      const place = (group, cx) => {
+        const cnt = group.length, cols = Math.min(5, cnt), rows = Math.ceil(cnt / cols);
+        group.forEach((f, i) => this.tweens.add({ targets: f,
+          x: cx + ((i % cols) - (cols - 1) / 2) * sp, y: cy + (Math.floor(i / cols) - (rows - 1) / 2) * sp,
+          duration: 480, delay: i * 15, ease: 'Cubic.inOut' }));
+      };
+      place(flies.filter((f, i) => inA[i]), 432 - 130);
+      place(flies.filter((f, i) => !inA[i]), 432 + 130);
+    }
+    flies.forEach((f, i) => {
+      if (!inA[i]) { f.halo.setTint(C.mint); f.core.setTint(0xB8F5DC); }
+      this.tweens.add({ targets: f, scale: 1.2, duration: 140, yoyo: true, delay: 300 + (inA[i] ? 0 : 200) });
+    });
+    // "5 and 2 make 7" with colored parts
+    const parts = [[String(a), '#FFE680'], [' and ', '#FFF6DA'], [String(b), '#9FF5D0'], [` make ${n}`, '#FFF6DA']];
+    const label = this.add.container(432, 376).setDepth(65).setAlpha(0);
+    const ts = parts.map(([str, col]) => txt(this, 0, 0, str, 34, col, { stroke: '#1A1F4A', strokeThickness: 7 }).setOrigin(0, 0.5));
+    const total = ts.reduce((w, t) => w + t.width - 6, 0);
+    let x = -total / 2;
+    ts.forEach(t => { t.x = x; x += t.width - 6; label.add(t); });
+    label.setScale(0.6);
+    this.tweens.add({ targets: label, alpha: 1, scale: 1, duration: 320, delay: 350, ease: 'Back.out' });
+    this.bondLabel = label;
   }
 
   onWrong(t, btn) {
@@ -801,7 +1011,8 @@ class GameScene extends Phaser.Scene {
     const stats = {
       mode: this.mode, score: this.score, correct: this.correct, total: TOTAL,
       avg: times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0,
-      bestStreak: this.bestStreak, fastest: this.fastest, glowUses: this.glowUses, lightnings: this.lightnings
+      bestStreak: this.bestStreak, fastest: this.fastest, glowUses: this.glowUses, lightnings: this.lightnings,
+      flash: this.flash, bondsAsked: this.bondsAsked, bondsRight: this.bondsRight
     };
     this.time.delayedCall(700, () => {
       this.cameras.main.fadeOut(450);
@@ -820,9 +1031,10 @@ class EndScene extends Phaser.Scene {
     drawBackdrop(this);
     const acc = s.correct / s.total;
     const stars = acc >= 0.9 ? 3 : acc >= 0.7 ? 2 : 1;
-    const prevBest = Store.get('best_' + s.mode, 0), isRecord = s.score > prevBest;
-    if (isRecord) Store.set('best_' + s.mode, s.score);
-    if (stars > Store.get('stars_' + s.mode, 0)) Store.set('stars_' + s.mode, stars);
+    const bk = bestKey(s.mode, s.flash);
+    const prevBest = Store.get('best_' + bk, 0), isRecord = s.score > prevBest;
+    if (isRecord) Store.set('best_' + bk, s.score);
+    if (stars > Store.get('stars_' + bk, 0)) Store.set('stars_' + bk, stars);
 
     // rising fireflies celebration
     const cel = this.add.particles(0, 0, 'glow', {
@@ -840,7 +1052,7 @@ class EndScene extends Phaser.Scene {
       .setOrigin(0.5).setScale(0).setShadow(0, 0, '#FFB800', 24, false, true);
     this.tweens.add({ targets: head, scale: 1, duration: 600, ease: 'Back.out', delay: 200,
       onComplete: () => this.tweens.add({ targets: head, y: 70, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.inOut' }) });
-    const sub = txt(this, W / 2, 128, `${cfg.name} level complete`, 20, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5).setAlpha(0);
+    const sub = txt(this, W / 2, 128, `${cfg.name} level complete${s.flash ? ' in flash mode' : ''}`, 20, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5).setAlpha(0);
     this.tweens.add({ targets: sub, alpha: 1, duration: 500, delay: 500 });
     this.time.delayedCall(450, () => { Sfx.fanfare(); cam.flash(250, 255, 235, 170); });
 
@@ -871,12 +1083,13 @@ class EndScene extends Phaser.Scene {
       ['Average speed', s.avg.toFixed(1) + ' sec'],
       ['Best streak', String(s.bestStreak)],
       ['Fastest answer', s.fastest !== null ? s.fastest.toFixed(2) + ' sec' : 'None'],
+      ['Number bonds', s.bondsAsked ? `${s.bondsRight} of ${s.bondsAsked}` : 'None'],
       ['Glow jars used', String(s.glowUses)]
     ];
     rows.forEach((r, i) => {
-      const y = 272 + i * 37;
-      const l = txt(this, W / 2 - 220, y, r[0], 22, '#FFF6DA', { fontStyle: '600' }).setOrigin(0, 0.5).setAlpha(0);
-      const v = txt(this, W / 2 + 220, y, i === 0 ? '0' : r[1], i === 0 ? 28 : 22, i === 0 ? '#FFE680' : '#FFF6DA').setOrigin(1, 0.5).setAlpha(0);
+      const y = 266 + i * 33;
+      const l = txt(this, W / 2 - 220, y, r[0], 21, '#FFF6DA', { fontStyle: '600' }).setOrigin(0, 0.5).setAlpha(0);
+      const v = txt(this, W / 2 + 220, y, i === 0 ? '0' : r[1], i === 0 ? 27 : 21, i === 0 ? '#FFE680' : '#FFF6DA').setOrigin(1, 0.5).setAlpha(0);
       [l, v].forEach(o => { o.x -= 20; this.tweens.add({ targets: o, alpha: 1, x: o.x + 20, duration: 350, delay: 600 + i * 90, ease: 'Cubic.out' }); });
       if (i === 0) {
         const o = { v: 0 };
@@ -896,7 +1109,7 @@ class EndScene extends Phaser.Scene {
       });
     }
 
-    const again = makeButton(this, W / 2 - 115, 562, 210, 62, 'Play again', { fill: C.fly, size: 28, onClick: () => this.leave('Game', { mode: s.mode }) });
+    const again = makeButton(this, W / 2 - 115, 562, 210, 62, 'Play again', { fill: C.fly, size: 28, onClick: () => this.leave('Game', { mode: s.mode, flash: s.flash }) });
     const pick = makeButton(this, W / 2 + 115, 562, 210, 62, 'Pick level', { fill: C.cream, size: 28, onClick: () => this.leave('Mode') });
     [again, pick].forEach((b, i) => { b.setAlpha(0); b.y += 30; this.tweens.add({ targets: b, alpha: 1, y: 562, duration: 450, delay: 1500 + i * 100, ease: 'Back.out' }); });
     addMuteToggle(this, 790, 618);
