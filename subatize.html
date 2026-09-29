@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Firefly Flash</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #0c1030; overflow: hidden; }
+  #game { width: 100%; height: 100%; }
+  canvas { display: block; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+</head>
+<body>
+<div id="game"></div>
+<script>
+// ================================================================
+//  FIREFLY FLASH — a subitizing game
+// ================================================================
+const W = 864, H = 646, TOTAL = 20;
+const FONT = '"Baloo 2", "Trebuchet MS", sans-serif';
+const C = {
+  skyTop: 0x121840, skyBot: 0x2C3C80, fly: 0xFFD84D, flyCore: 0xFFE680,
+  cream: 0xFFF6DA, pink: 0xFF7AA8, mint: 0x6FE3B0, wood: 0x8A5A32,
+  panel: 0x1E2A66, deep: 0x0B1030
+};
+const MODES = {
+  easy:   { name: 'Easy',   color: C.mint, buttons: 10, window: 6, fast: 3 },
+  medium: { name: 'Medium', color: C.fly,  buttons: 9,  window: 6, fast: 3 },
+  hard:   { name: 'Hard',   color: C.pink, buttons: 20, window: 8, fast: 4.5 }
+};
+const DICE = {
+  1: [[0,0]],
+  2: [[-1,-1],[1,1]],
+  3: [[-1,-1],[0,0],[1,1]],
+  4: [[-1,-1],[1,-1],[-1,1],[1,1]],
+  5: [[-1,-1],[1,-1],[0,0],[-1,1],[1,1]],
+  6: [[-1,-1],[1,-1],[-1,0],[1,0],[-1,1],[1,1]],
+  7: [[-1,-1],[1,-1],[-1,0],[0,0],[1,0],[-1,1],[1,1]],
+  8: [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]],
+  9: [[-1,-1],[0,-1],[1,-1],[-1,0],[0,0],[1,0],[-1,1],[0,1],[1,1]]
+};
+
+// ---------- Storage ----------
+const Store = {
+  get(k, d) { try { const v = localStorage.getItem('fflash_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('fflash_' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+// ---------- Audio (Web Audio synth) ----------
+const Sfx = {
+  ctx: null, master: null, muted: Store.get('muted', false),
+  init() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = this.muted ? 0 : 0.5;
+    this.master.connect(this.ctx.destination);
+  },
+  setMuted(m) { this.muted = m; Store.set('muted', m); if (this.master) this.master.gain.value = m ? 0 : 0.5; },
+  tone(freq, dur, type = 'sine', vol = 0.2, when = 0, slideTo = null) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + when;
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.05);
+  },
+  noise(dur, vol, when = 0, freq = 1200) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + when, len = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const s = this.ctx.createBufferSource(); s.buffer = buf;
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq;
+    const g = this.ctx.createGain(); g.gain.value = vol;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  },
+  hover() { this.tone(900, 0.04, 'sine', 0.05); },
+  click() { this.tone(660, 0.07, 'triangle', 0.16); },
+  pop() { this.tone(1000 + Math.random() * 600, 0.08, 'sine', 0.05); },
+  correct(streak) {
+    const base = 523.25 * Math.pow(2, Math.min(streak - 1, 12) / 12);
+    [0, 4, 7, 12].forEach((s, i) => this.tone(base * Math.pow(2, s / 12), 0.22, 'triangle', 0.16, i * 0.055));
+  },
+  fast() { for (let i = 0; i < 5; i++) this.tone(1800 + i * 260, 0.08, 'sine', 0.06, 0.2 + i * 0.035); },
+  wrong() { this.tone(200, 0.3, 'triangle', 0.25, 0, 120); this.tone(190, 0.32, 'sine', 0.14, 0.06, 105); },
+  count(i) { this.tone(392 * Math.pow(2, (i % 14) / 12), 0.14, 'sine', 0.16); },
+  glowStep(l) { this.tone(600 + l * 120, 0.15, 'sine', 0.12); this.tone(1200 + l * 240, 0.1, 'sine', 0.05, 0.04); },
+  glowReady() { [0, 4, 7, 11, 14].forEach((s, i) => this.tone(659 * Math.pow(2, s / 12), 0.3, 'sine', 0.11, i * 0.07)); },
+  glowActivate() {
+    this.tone(220, 0.8, 'sawtooth', 0.06, 0, 880);
+    [0, 4, 7, 12, 16, 19].forEach((s, i) => this.tone(523 * Math.pow(2, s / 12), 0.5, 'triangle', 0.12, 0.1 + i * 0.06));
+    this.noise(0.5, 0.08, 0, 3000);
+  },
+  glowEnd() { this.tone(880, 0.4, 'sine', 0.08, 0, 330); },
+  streak() { [0, 7, 12].forEach((s, i) => this.tone(784 * Math.pow(2, s / 12), 0.16, 'square', 0.05, i * 0.05)); },
+  tick() { this.tone(880, 0.08, 'square', 0.06); },
+  go() { this.tone(1320, 0.3, 'triangle', 0.16); this.tone(660, 0.3, 'triangle', 0.12); },
+  start() { [0, 7, 12].forEach((s, i) => this.tone(440 * Math.pow(2, s / 12), 0.2, 'triangle', 0.15, i * 0.08)); },
+  whoosh() { this.noise(0.35, 0.07, 0, 1400); },
+  star(i) { const f = 784 * Math.pow(2, (i * 4) / 12); this.tone(f, 0.45, 'triangle', 0.17); this.tone(f * 2, 0.3, 'sine', 0.06, 0.05); },
+  fanfare() {
+    const n = [0, 4, 7, 12, 7, 12, 16];
+    n.forEach((s, i) => this.tone(523 * Math.pow(2, s / 12), i === n.length - 1 ? 0.8 : 0.18, 'triangle', 0.14, i * 0.12));
+  },
+  record() { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => this.tone(659 * Math.pow(2, s / 12), 0.2, 'square', 0.05, i * 0.05)); this.noise(0.4, 0.06, 0, 4000); }
+};
+
+// ---------- Helpers ----------
+const rnd = (a, b) => Phaser.Math.Between(a, b);
+const range = n => [...Array(n).keys()];
+const fmt = n => Math.round(n).toLocaleString('en-US');
+function shuffle(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
+function readingOrder(pts) { return pts.sort((a, b) => Math.abs(a.y - b.y) > 20 ? a.y - b.y : a.x - b.x); }
+function txt(scene, x, y, str, size, color, extra = {}) {
+  return scene.add.text(x, y, str, Object.assign({ fontFamily: FONT, fontSize: size + 'px', fontStyle: '800', color }, extra));
+}
+function starPts(r1, r2) {
+  const p = [];
+  for (let i = 0; i < 10; i++) { const r = i % 2 ? r2 : r1, a = -Math.PI / 2 + i * Math.PI / 5; p.push({ x: Math.cos(a) * r, y: Math.sin(a) * r }); }
+  return p;
+}
+
+function drawBackdrop(scene) {
+  const g = scene.add.graphics().setDepth(0);
+  g.fillGradientStyle(C.skyTop, C.skyTop, C.skyBot, C.skyBot, 1);
+  g.fillRect(0, 0, W, H);
+  // moon
+  scene.add.image(780, 70, 'glow').setTint(0xFFF1C9).setScale(2.6).setAlpha(0.3).setBlendMode('ADD');
+  scene.add.circle(780, 70, 24, 0xFFF4D6, 0.95);
+  // stars
+  for (let i = 0; i < 46; i++) {
+    const s = scene.add.circle(rnd(0, W), rnd(0, 380), Math.random() < 0.8 ? 1.2 : 2, 0xFFFFFF, 0.6);
+    scene.tweens.add({ targets: s, alpha: { from: 0.15, to: 0.8 }, duration: rnd(900, 2400), yoyo: true, repeat: -1, delay: rnd(0, 2000), ease: 'Sine.inOut' });
+  }
+  // hills + grass
+  const h = scene.add.graphics().setDepth(0);
+  h.fillStyle(0x1B2558, 1); h.beginPath(); h.moveTo(0, H);
+  for (let x = 0; x <= W; x += 16) h.lineTo(x, 520 + Math.sin(x / 140) * 26 + Math.sin(x / 57) * 8);
+  h.lineTo(W, H); h.closePath(); h.fillPath();
+  h.fillStyle(0x13302F, 1); h.beginPath(); h.moveTo(0, H);
+  for (let x = 0; x <= W; x += 16) h.lineTo(x, 588 + Math.sin(x / 90 + 1) * 12);
+  h.lineTo(W, H); h.closePath(); h.fillPath();
+  h.fillStyle(0x18403A, 1);
+  for (let x = 4; x < W; x += 11) { const by = 596 + Math.sin(x / 90 + 1) * 12, bh = rnd(10, 26); h.fillTriangle(x - 4, by + 6, x + 4, by + 6, x + rnd(-5, 5), by - bh); }
+  // drifting ambient fireflies
+  const ambient = scene.add.particles(0, 0, 'glow', {
+    x: { min: 0, max: W }, y: { min: 300, max: H },
+    lifespan: { min: 4000, max: 7000 },
+    speedX: { min: -18, max: 18 }, speedY: { min: -28, max: -6 },
+    scale: { min: 0.12, max: 0.3 },
+    alpha: { onEmit: () => 0, onUpdate: (p, k, t) => Math.sin(t * Math.PI) * 0.9 },
+    tint: C.fly, blendMode: 'ADD', frequency: 220, quantity: 1
+  }).setDepth(2);
+  if (ambient.fastForward) ambient.fastForward(4000);
+  return { ambient };
+}
+
+function makeButton(scene, x, y, w, h, label, opt = {}) {
+  const fill = opt.fill ?? C.fly, size = opt.size ?? 28, radius = opt.radius ?? Math.min(18, h / 2);
+  const c = scene.add.container(x, y);
+  const shadow = scene.add.graphics(), bg = scene.add.graphics();
+  const draw = (col) => {
+    shadow.clear(); shadow.fillStyle(0x000000, 0.3); shadow.fillRoundedRect(-w / 2, -h / 2 + 6, w, h, radius);
+    bg.clear(); bg.fillStyle(col, 1); bg.fillRoundedRect(-w / 2, -h / 2, w, h, radius);
+    bg.fillStyle(0xFFFFFF, 0.25); bg.fillRoundedRect(-w / 2 + 6, -h / 2 + 5, w - 12, Math.max(6, h * 0.28), Math.min(radius * 0.6, h * 0.14));
+  };
+  draw(fill);
+  const t = txt(scene, 0, -2, label, size, opt.textColor ?? '#26306B').setOrigin(0.5);
+  c.add([shadow, bg, t]);
+  c.setSize(w, h);
+  c.setInteractive({ useHandCursor: true });
+  c.on('pointerover', () => { scene.tweens.add({ targets: c, scale: 1.06, duration: 120, ease: 'Quad.out' }); if (!opt.quiet) Sfx.hover(); });
+  c.on('pointerout', () => scene.tweens.add({ targets: c, scale: 1, duration: 150, ease: 'Quad.out' }));
+  c.on('pointerdown', () => {
+    Sfx.init();
+    scene.tweens.add({ targets: c, scale: 0.92, duration: 70, yoyo: true, ease: 'Quad.out' });
+    if (!opt.silent) Sfx.click();
+    opt.onClick && opt.onClick(c);
+  });
+  c.redraw = draw; c.label = t; c.baseFill = fill;
+  return c;
+}
+
+function addMuteToggle(scene, x, y) {
+  const b = makeButton(scene, x, y, 120, 36, Sfx.muted ? 'Sound off' : 'Sound on', {
+    fill: 0x33428C, textColor: '#FFF6DA', size: 17,
+    onClick: () => { Sfx.setMuted(!Sfx.muted); b.label.setText(Sfx.muted ? 'Sound off' : 'Sound on'); }
+  });
+  return b.setDepth(40);
+}
+
+function makeFly(scene, x, y, d) {
+  const c = scene.add.container(x, y);
+  const halo = scene.add.image(0, 0, 'glow').setTint(C.fly).setScale(d * 1.9 / 64).setAlpha(0.55).setBlendMode('ADD');
+  const core = scene.add.image(0, 0, 'dot').setTint(C.flyCore).setScale(d / 64);
+  const hi = scene.add.image(-d * 0.16, -d * 0.18, 'dot').setTint(0xFFFFFF).setScale(d * 0.26 / 64).setAlpha(0.8);
+  c.add([halo, core, hi]);
+  c.halo = halo; c.d = d;
+  scene.tweens.add({
+    targets: halo, alpha: { from: 0.35, to: 0.75 }, scale: { from: d * 1.6 / 64, to: d * 2.1 / 64 },
+    duration: rnd(700, 1100), yoyo: true, repeat: -1, ease: 'Sine.inOut', delay: rnd(0, 600)
+  });
+  return c;
+}
+function killFly(scene, f) { scene.tweens.killTweensOf(f.halo); scene.tweens.killTweensOf(f); f.destroy(); }
+
+function drawFrame(g, cx, cy, cell) {
+  const w = cell * 5, h = cell * 2, p = Math.round(cell * 0.16);
+  g.fillStyle(0x000000, 0.3); g.fillRoundedRect(cx - w / 2 - p, cy - h / 2 - p + 7, w + 2 * p, h + 2 * p, 14);
+  g.fillStyle(C.wood, 1); g.fillRoundedRect(cx - w / 2 - p, cy - h / 2 - p, w + 2 * p, h + 2 * p, 14);
+  g.fillStyle(C.deep, 0.95); g.fillRect(cx - w / 2, cy - h / 2, w, h);
+  g.lineStyle(2, 0x2A3470, 1);
+  frameCells(cx, cy, cell).forEach(p2 => g.strokeCircle(p2.x, p2.y, cell * 0.3));
+  g.lineStyle(Math.max(3, cell * 0.07), C.wood, 1);
+  for (let i = 1; i < 5; i++) { const x = cx - w / 2 + i * cell; g.lineBetween(x, cy - h / 2, x, cy + h / 2); }
+  g.lineBetween(cx - w / 2, cy, cx + w / 2, cy);
+}
+function frameCells(cx, cy, cell) {
+  return range(10).map(i => ({ x: cx + ((i % 5) - 2) * cell, y: cy + (Math.floor(i / 5) - 0.5) * cell }));
+}
+
+// ================================================================
+class BootScene extends Phaser.Scene {
+  constructor() { super('Boot'); }
+  create() {
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    for (let r = 32; r > 0; r--) { g.fillStyle(0xFFFFFF, 0.035 * (1 - r / 32) + 0.004); g.fillCircle(32, 32, r); }
+    g.generateTexture('glow', 64, 64); g.clear();
+    g.fillStyle(0xFFFFFF, 1); g.fillCircle(32, 32, 31); g.generateTexture('dot', 64, 64); g.clear();
+    g.fillStyle(0xFFFFFF, 1);
+    g.fillPoints([{ x: 8, y: 0 }, { x: 10, y: 6 }, { x: 16, y: 8 }, { x: 10, y: 10 }, { x: 8, y: 16 }, { x: 6, y: 10 }, { x: 0, y: 8 }, { x: 6, y: 6 }], true);
+    g.generateTexture('spark', 16, 16); g.destroy();
+    this.scene.start('Title');
+  }
+}
+
+// ================================================================
+class TitleScene extends Phaser.Scene {
+  constructor() { super('Title'); }
+  create() {
+    this.cameras.main.fadeIn(600);
+    drawBackdrop(this);
+    this.input.once('pointerdown', () => Sfx.init());
+
+    // Title letters
+    const word = 'Firefly Flash'.split('');
+    const letters = word.map(ch => txt(this, 0, 0, ch, 92, '#FFE680', { stroke: '#2A2466', strokeThickness: 12 }).setOrigin(0.5).setShadow(0, 0, '#FFB800', 22, false, true));
+    const widths = letters.map(l => l.width - 12);
+    let x = W / 2 - widths.reduce((a, b) => a + b, 0) / 2;
+    letters.forEach((l, i) => {
+      l.x = x + widths[i] / 2; x += widths[i];
+      l.y = 80; l.setAlpha(0).setScale(0.3);
+      this.tweens.add({ targets: l, y: 138, alpha: 1, scale: 1, duration: 650, delay: 200 + i * 55, ease: 'Back.out',
+        onComplete: () => this.tweens.add({ targets: l, y: 130, duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.inOut', delay: i * 90 }) });
+    });
+
+    const desc = txt(this, W / 2, 244, 'Fireflies light up in the dark. How many do you see?\nTap the number as fast as you can!', 24, '#FFF6DA', { fontStyle: '600', align: 'center', lineSpacing: 2 }).setOrigin(0.5).setAlpha(0);
+    this.tweens.add({ targets: desc, alpha: 1, y: 238, duration: 600, delay: 900, ease: 'Cubic.out' });
+
+    // Demo ten frame
+    this.demo = this.add.container(0, 0).setAlpha(0);
+    const g = this.add.graphics(); drawFrame(g, W / 2 - 40, 372, 46); this.demo.add(g);
+    this.demoCells = frameCells(W / 2 - 40, 372, 46);
+    this.demoNum = txt(this, W / 2 + 150, 372, '', 64, '#FFE680', { stroke: '#2A2466', strokeThickness: 8 }).setOrigin(0.5).setAlpha(0);
+    this.demoFlies = [];
+    this.tweens.add({ targets: this.demo, alpha: 1, duration: 600, delay: 1100 });
+    this.time.delayedCall(1300, () => this.runDemo());
+    this.time.addEvent({ delay: 2600, loop: true, startAt: 0, callback: () => this.runDemo() });
+
+    const start = makeButton(this, W / 2, 520, 250, 76, 'Start', { fill: C.fly, size: 40, onClick: () => {
+      Sfx.start();
+      this.cameras.main.fadeOut(350);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Mode'));
+    } });
+    start.setAlpha(0).setScale(0.6);
+    this.tweens.add({ targets: start, alpha: 1, scale: 1, duration: 500, delay: 1300, ease: 'Back.out',
+      onComplete: () => this.tweens.add({ targets: start, scale: 1.06, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' }) });
+
+    txt(this, W / 2, 606, 'Best scores are saved on this device', 16, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5).setAlpha(0.7);
+    addMuteToggle(this, 790, 30);
+  }
+  runDemo() {
+    this.demoFlies.forEach((f, i) => this.tweens.add({ targets: f, alpha: 0, y: f.y - 20, duration: 300, delay: i * 20, onComplete: () => killFly(this, f) }));
+    this.tweens.add({ targets: this.demoNum, alpha: 0, duration: 200 });
+    const n = rnd(2, 10);
+    const idx = Math.random() < 0.5 ? range(n) : shuffle(range(10)).slice(0, n);
+    this.time.delayedCall(350, () => {
+      this.demoFlies = idx.map((k, i) => {
+        const f = makeFly(this, this.demoCells[k].x, this.demoCells[k].y, 27).setScale(0);
+        this.demo.add(f);
+        this.tweens.add({ targets: f, scale: 1, duration: 260, delay: i * 25, ease: 'Back.out' });
+        return f;
+      });
+      this.time.delayedCall(800, () => {
+        this.demoNum.setText(String(n)).setScale(0.4);
+        this.tweens.add({ targets: this.demoNum, alpha: 1, scale: 1, duration: 300, ease: 'Back.out' });
+      });
+    });
+  }
+}
+
+// ================================================================
+class ModeScene extends Phaser.Scene {
+  constructor() { super('Mode'); }
+  create() {
+    this.cameras.main.fadeIn(400);
+    drawBackdrop(this);
+    const head = txt(this, W / 2, 72, 'Pick a level', 52, '#FFE680', { stroke: '#2A2466', strokeThickness: 10 }).setOrigin(0.5).setAlpha(0).setScale(0.7);
+    this.tweens.add({ targets: head, alpha: 1, scale: 1, duration: 450, ease: 'Back.out' });
+
+    const info = [
+      { key: 'easy', desc: 'One ten frame.\nNumbers 1 to 10.' },
+      { key: 'medium', desc: 'No frame, just\npatterns. 1 to 9.' },
+      { key: 'hard', desc: 'Double ten frame.\nNumbers up to 20.' }
+    ];
+    info.forEach((m, i) => {
+      const cfg = MODES[m.key], x = 172 + i * 260, y = 338;
+      const c = this.add.container(x, y + 70).setAlpha(0);
+      const g = this.add.graphics();
+      g.fillStyle(0x000000, 0.3); g.fillRoundedRect(-120, -172, 240, 352, 26);
+      g.fillStyle(C.panel, 0.96); g.fillRoundedRect(-120, -180, 240, 352, 26);
+      g.lineStyle(4, cfg.color, 1); g.strokeRoundedRect(-120, -180, 240, 352, 26);
+      c.add(g);
+      c.add(txt(this, 0, -148, cfg.name, 38, '#' + cfg.color.toString(16).padStart(6, '0')).setOrigin(0.5));
+      // preview
+      const pg = this.add.graphics(); c.add(pg);
+      if (m.key === 'easy') {
+        drawFrame(pg, 0, -66, 32);
+        frameCells(0, -66, 32).slice(0, 6).forEach(p => c.add(makeFly(this, p.x, p.y, 18)));
+      } else if (m.key === 'medium') {
+        DICE[5].forEach(([u, v]) => c.add(makeFly(this, -38 + u * 20, -66 + v * 20, 15)));
+        DICE[3].forEach(([u, v]) => c.add(makeFly(this, 42 + u * 20, -66 + v * 20, 15)));
+      } else {
+        drawFrame(pg, 0, -94, 24); drawFrame(pg, 0, -36, 24);
+        frameCells(0, -94, 24).forEach(p => c.add(makeFly(this, p.x, p.y, 14)));
+        frameCells(0, -36, 24).slice(0, 4).forEach(p => c.add(makeFly(this, p.x, p.y, 14)));
+      }
+      c.add(txt(this, 0, 2, m.desc, 20, '#FFF6DA', { fontStyle: '600', align: 'center', lineSpacing: -2 }).setOrigin(0.5, 0));
+      const best = Store.get('best_' + m.key, 0), stars = Store.get('stars_' + m.key, 0);
+      c.add(txt(this, 0, 72, best ? 'Best: ' + fmt(best) : 'Not played yet', 17, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5));
+      const sg = this.add.graphics(); c.add(sg);
+      for (let s = 0; s < 3; s++) {
+        sg.fillStyle(s < stars ? C.fly : 0x3A4690, 1);
+        sg.fillPoints(starPts(11, 5).map(p => ({ x: p.x + (s - 1) * 28, y: p.y + 100 })), true);
+      }
+      c.add(makeButton(this, 0, 140, 170, 48, 'Play', { fill: cfg.color, size: 26, onClick: () => this.go(m.key) }));
+      this.tweens.add({ targets: c, y, alpha: 1, duration: 600, delay: 150 + i * 120, ease: 'Back.out' });
+    });
+
+    makeButton(this, 80, 610, 120, 40, 'Back', { fill: 0x33428C, textColor: '#FFF6DA', size: 20, onClick: () => {
+      this.cameras.main.fadeOut(300); this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Title'));
+    } });
+    addMuteToggle(this, 790, 610);
+  }
+  go(key) {
+    Sfx.start();
+    this.cameras.main.fadeOut(350);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Game', { mode: key }));
+  }
+}
+
+// ================================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('Game'); }
+  init(d) { this.mode = d.mode || 'easy'; this.cfg = MODES[this.mode]; }
+  create() {
+    this.cameras.main.fadeIn(400);
+    Object.assign(this, {
+      q: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, allTimes: [], fastest: null,
+      glow: 0, glowActive: 0, glowUses: 0, lightnings: 0, accepting: false, started: false, over: false,
+      prevN: -1, flies: [], results: []
+    });
+    this.bd = drawBackdrop(this);
+    this.glowTint = this.add.rectangle(W / 2, H / 2, W, H, 0xFFC940, 0).setDepth(1);
+    this.colPink = new Phaser.Display.Color(255, 122, 168);
+    this.colYellow = new Phaser.Display.Color(255, 216, 77);
+
+    this.buildBoard(); this.buildHUD(); this.buildJar(); this.buildButtons(); this.buildFx();
+
+    this.speedG = this.add.graphics().setDepth(20);
+    this.speedLabel = txt(this, W / 2 + 184, 376, '', 18, '#FFE680').setOrigin(0, 0.5).setDepth(20);
+    this.prompt = txt(this, W / 2, 410, 'How many fireflies?', 22, '#FFF6DA', { fontStyle: '700' }).setOrigin(0.5).setAlpha(0).setDepth(20);
+    this.drawSpeed(100, true);
+
+    this.input.keyboard.on('keydown', e => {
+      Sfx.init();
+      if (e.key === ' ') { this.tryGlow(); return; }
+      if (this.mode === 'hard') return;
+      const v = e.key === '0' ? 10 : parseInt(e.key, 10);
+      if (v >= 1 && v <= this.cfg.buttons) {
+        const b = this.buttons[v - 1];
+        this.tweens.add({ targets: b, scale: 0.92, duration: 70, yoyo: true });
+        this.answer(v);
+      }
+    });
+
+    makeButton(this, 70, 618, 110, 36, 'Quit', { fill: 0x33428C, textColor: '#FFF6DA', size: 18, onClick: () => {
+      this.over = true; this.accepting = false;
+      this.cameras.main.fadeOut(300); this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Mode'));
+    } }).setDepth(40);
+    addMuteToggle(this, 790, 618);
+
+    const go = () => this.countdown();
+    if (!Store.get('tut_' + this.mode, false)) this.time.delayedCall(450, () => this.showTutorial(go));
+    else this.time.delayedCall(500, go);
+  }
+
+  // ---------- Build ----------
+  buildBoard() {
+    this.board = this.add.container(0, 20).setDepth(5).setAlpha(0);
+    const g = this.add.graphics(); this.board.add(g);
+    if (this.mode === 'easy') {
+      drawFrame(g, 432, 205, 78); this.cells = frameCells(432, 205, 78); this.flyD = 45; this.boardY = 205;
+    } else if (this.mode === 'hard') {
+      drawFrame(g, 432, 150, 58); drawFrame(g, 432, 290, 58);
+      this.cells = [...frameCells(432, 150, 58), ...frameCells(432, 290, 58)]; this.flyD = 34; this.boardY = 220;
+    } else {
+      g.fillStyle(0x000000, 0.25); g.fillRoundedRect(432 - 240, 205 - 130 + 7, 480, 260, 30);
+      g.fillStyle(C.deep, 0.6); g.fillRoundedRect(432 - 240, 205 - 130, 480, 260, 30);
+      g.lineStyle(3, 0x3B4C9A, 0.9); g.strokeRoundedRect(432 - 240, 205 - 130, 480, 260, 30);
+      this.flyD = 40; this.boardY = 205;
+    }
+    this.tweens.add({ targets: this.board, alpha: 1, y: 0, duration: 550, ease: 'Cubic.out' });
+  }
+  buildHUD() {
+    const g = this.add.graphics().setDepth(20);
+    g.fillStyle(this.cfg.color, 1); g.fillRoundedRect(20, 14, 110, 38, 19);
+    txt(this, 75, 32, this.cfg.name, 21, '#1E2A66').setOrigin(0.5).setDepth(21);
+    this.dots = range(TOTAL).map(i => this.add.circle(432 - 152 + i * 16, 22, 5, 0xFFFFFF, 0.2).setDepth(20));
+    this.qText = txt(this, 432, 34, 'Get ready', 16, '#FFF6DA', { fontStyle: '600' }).setOrigin(0.5, 0).setAlpha(0.8).setDepth(20);
+    this.scoreText = txt(this, 844, 8, '0', 38, '#FFE680', { stroke: '#1A1F4A', strokeThickness: 6 }).setOrigin(1, 0).setDepth(20);
+    this.streakText = txt(this, 844, 54, '', 17, '#FFF6DA', { fontStyle: '700' }).setOrigin(1, 0).setDepth(20);
+    this.scoreObj = { v: 0 };
+  }
+  buildJar() {
+    const x = 62, top = 128, h = 200;
+    this.jar = { x, top, h };
+    this.jarHalo = this.add.image(x, top + h / 2, 'glow').setScale(4.2).setTint(C.fly).setAlpha(0).setBlendMode('ADD').setDepth(19);
+    const g = this.add.graphics().setDepth(20);
+    g.fillStyle(0xB6D4FF, 0.1); g.fillRoundedRect(x - 30, top, 60, h, 18);
+    g.lineStyle(3, 0xCFE3FF, 0.6); g.strokeRoundedRect(x - 30, top, 60, h, 18);
+    g.fillStyle(C.wood, 1); g.fillRoundedRect(x - 34, top - 14, 68, 18, 6);
+    this.jarG = this.add.graphics().setDepth(21);
+    this.jarLabel = txt(this, x, top + h + 12, 'Glow jar', 15, '#FFF6DA', { fontStyle: '700', align: 'center' }).setOrigin(0.5, 0).setAlpha(0.85).setDepth(20);
+    this.jarTap = txt(this, x, top - 38, 'Tap me!', 18, '#FFE680', { stroke: '#1A1F4A', strokeThickness: 5 }).setOrigin(0.5).setAlpha(0).setDepth(22);
+    const zone = this.add.zone(x, top + h / 2, 76, h + 40).setInteractive({ useHandCursor: true }).setDepth(22);
+    zone.on('pointerdown', () => { Sfx.init(); this.tryGlow(); });
+    this.updateJar();
+  }
+  segY(i) { const { top, h } = this.jar; return top + h - 10 - (i + 1) * 32 - i * 4 + 16; }
+  buildButtons() {
+    const n = this.cfg.buttons;
+    this.buttons = range(n).map(i => {
+      let x, y, bw, bh, size;
+      if (n === 20) { bw = 66; bh = 58; size = 26; x = 90 + (i % 10) * 76; y = i < 10 ? 458 : 526; }
+      else { bw = n === 10 ? 68 : 74; bh = 72; size = 32; const total = n * bw + (n - 1) * 10; x = 432 - total / 2 + bw / 2 + i * (bw + 10); y = 486; }
+      const b = makeButton(this, x, y, bw, bh, String(i + 1), { fill: C.cream, size, quiet: true, silent: true, onClick: () => this.answer(i + 1) });
+      b.setDepth(20).setAlpha(0); b.y += 30;
+      this.tweens.add({ targets: b, alpha: 1, y, duration: 400, delay: 200 + i * 30, ease: 'Back.out' });
+      return b;
+    });
+  }
+  buildFx() {
+    this.burst = this.add.particles(0, 0, 'spark', {
+      speed: { min: 150, max: 380 }, angle: { min: 0, max: 360 }, scale: { start: 1.1, end: 0 }, alpha: { start: 1, end: 0 },
+      lifespan: { min: 450, max: 850 }, gravityY: 260, tint: [C.fly, C.cream, C.pink, C.mint], blendMode: 'ADD', emitting: false
+    }).setDepth(50);
+    this.puff = this.add.particles(0, 0, 'glow', {
+      speed: { min: 30, max: 120 }, scale: { start: 0.5, end: 0 }, alpha: { start: 0.9, end: 0 },
+      lifespan: 500, tint: C.fly, blendMode: 'ADD', emitting: false
+    }).setDepth(50);
+  }
+
+  // ---------- Tutorial ----------
+  showTutorial(done) {
+    const o = this.add.container(W / 2, H / 2).setDepth(100).setAlpha(0).setScale(0.9);
+    const dim = this.add.rectangle(0, 0, W * 1.2, H * 1.2, 0x070A20, 0.72).setInteractive();
+    const p = this.add.graphics();
+    p.fillStyle(C.panel, 1); p.fillRoundedRect(-300, -220, 600, 440, 28);
+    p.lineStyle(4, this.cfg.color, 1); p.strokeRoundedRect(-300, -220, 600, 440, 28);
+    o.add([dim, p, txt(this, 0, -182, 'How to play', 38, '#FFE680').setOrigin(0.5)]);
+    const ill = this.add.graphics(); o.add(ill);
+    let answer;
+    if (this.mode === 'easy') {
+      drawFrame(ill, -50, -95, 36); frameCells(-50, -95, 36).slice(0, 7).forEach(c => o.add(makeFly(this, c.x, c.y, 22))); answer = '7';
+    } else if (this.mode === 'medium') {
+      DICE[5].forEach(([u, v]) => o.add(makeFly(this, -110 + u * 26, -95 + v * 26, 20)));
+      DICE[3].forEach(([u, v]) => o.add(makeFly(this, -10 + u * 26, -95 + v * 26, 20))); answer = '8';
+    } else {
+      drawFrame(ill, -50, -122, 24); drawFrame(ill, -50, -66, 24);
+      frameCells(-50, -122, 24).forEach(c => o.add(makeFly(this, c.x, c.y, 15)));
+      frameCells(-50, -66, 24).slice(0, 3).forEach(c => o.add(makeFly(this, c.x, c.y, 15))); answer = '13';
+    }
+    ill.fillStyle(C.mint, 1); ill.fillRoundedRect(100, -125, 64, 60, 14);
+    o.add(txt(this, 132, -97, answer, 32, '#1E2A66').setOrigin(0.5));
+    const lead = {
+      easy: 'Fireflies land in the ten frame. How many do you see? Tap the number. Keys 1 to 9 work too, and 0 means 10.',
+      medium: 'No frame this time! Fireflies land in groups and patterns. Spot the groups to see the total fast. Number keys work too.',
+      hard: 'Two ten frames! A full frame is 10. See the full frame as ten, then add the rest.'
+    }[this.mode];
+    const body = lead + '\n\nFaster answers score more. Quick right answers fill the glow jar. When it is full, tap it (or press Space) for double points!';
+    o.add(txt(this, 0, -32, body, 19, '#FFF6DA', { fontStyle: '600', align: 'center', wordWrap: { width: 520 }, lineSpacing: 2 }).setOrigin(0.5, 0));
+    const btn = makeButton(this, 0, 172, 200, 56, 'Got it', { fill: C.fly, size: 28, onClick: () => {
+      Store.set('tut_' + this.mode, true);
+      btn.disableInteractive();
+      this.tweens.add({ targets: o, alpha: 0, scale: 0.92, duration: 280, ease: 'Cubic.in', onComplete: () => { o.destroy(true); done(); } });
+    } });
+    o.add(btn);
+    this.tweens.add({ targets: o, alpha: 1, scale: 1, duration: 380, ease: 'Back.out' });
+  }
+
+  // ---------- Flow ----------
+  countdown() {
+    const seq = ['3', '2', '1', 'Go!'];
+    seq.forEach((s, i) => this.time.delayedCall(i * 650, () => {
+      const t = txt(this, 432, this.boardY, s, 110, '#FFE680', { stroke: '#2A2466', strokeThickness: 12 }).setOrigin(0.5).setDepth(90).setScale(2).setAlpha(0);
+      this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 260, ease: 'Back.out' });
+      this.tweens.add({ targets: t, scale: 0.6, alpha: 0, duration: 240, delay: 400, ease: 'Quad.in', onComplete: () => t.destroy() });
+      i < 3 ? Sfx.tick() : Sfx.go();
+    }));
+    this.time.delayedCall(seq.length * 650, () => { this.started = true; this.nextQuestion(); });
+  }
+
+  nextQuestion() {
+    if (this.over) return;
+    if (this.q >= TOTAL) { this.finishRound(); return; }
+    this.q++;
+    this.resetButtons();
+    this.qText.setText(`Question ${this.q} of ${TOTAL}`);
+    const dot = this.dots[this.q - 1];
+    dot.setFillStyle(C.fly, 1);
+    this.tweens.add({ targets: dot, scale: 1.5, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+
+    const n = this.pickN(); this.prevN = n; this.currentN = n;
+    const { pts, d } = this.layout(n);
+    this.flies = pts.map((p, i) => {
+      const f = makeFly(this, p.x, p.y, d).setDepth(10).setScale(0);
+      this.tweens.add({ targets: f, scale: 1, duration: 260, delay: i * 22, ease: 'Back.out' });
+      return f;
+    });
+    for (let k = 0; k < Math.min(n, 4); k++) this.time.delayedCall(k * 55, () => Sfx.pop());
+    this.tweens.add({ targets: this.prompt, alpha: 0.85, duration: 250 });
+    this.time.delayedCall((n - 1) * 22 + 170, () => {
+      if (this.over) return;
+      this.accepting = true; this.qStart = this.time.now;
+    });
+  }
+
+  pickN() {
+    const q = this.q; let n, tries = 0;
+    do {
+      if (this.mode === 'easy') n = q <= 4 ? rnd(1, 5) : q <= 10 ? rnd(1, 10) : rnd(3, 10);
+      else if (this.mode === 'medium') n = q <= 4 ? rnd(1, 6) : (Math.random() < 0.7 ? rnd(4, 9) : rnd(1, 9));
+      else n = q <= 4 ? rnd(8, 14) : (Math.random() < 0.7 ? rnd(11, 20) : rnd(5, 10));
+      tries++;
+    } while (n === this.prevN && tries < 12);
+    return n;
+  }
+
+  layout(n) {
+    const q = this.q, r = Math.random();
+    if (this.mode === 'easy') {
+      const idx = (q <= 7 || (q <= 14 && r < 0.5)) ? range(n) : shuffle(range(10)).slice(0, n).sort((a, b) => a - b);
+      return { pts: idx.map(i => this.cells[i]), d: this.flyD };
+    }
+    if (this.mode === 'hard') {
+      let idx;
+      if (q <= 6 || (q <= 12 && r < 0.4)) idx = range(n);
+      else if (q <= 14 || r < 0.35) {
+        if (n < 2) idx = [0];
+        else { const a = rnd(Math.max(1, n - 10), Math.min(10, n - 1)); idx = [...range(a), ...range(n - a).map(i => i + 10)]; }
+      } else idx = shuffle(range(20)).slice(0, n).sort((a, b) => a - b);
+      return { pts: idx.map(i => this.cells[i]), d: this.flyD };
+    }
+    // medium
+    const cx = 432, cy = 205;
+    let kind;
+    if (q <= 6) kind = (n <= 6 || r < 0.5) ? 'dice' : 'group';
+    else if (q <= 13) kind = r < 0.4 ? 'dice' : r < 0.75 ? 'group' : 'ring';
+    else kind = r < 0.55 ? 'scatter' : r < 0.8 ? 'group' : 'ring';
+    if (kind === 'group' && n < 2) kind = 'dice';
+    if (kind === 'ring' && n < 3) kind = 'dice';
+    let pts = [], d = 40;
+    if (kind === 'scatter') {
+      for (let t = 0; t < 600 && pts.length < n; t++) {
+        const p = { x: rnd(cx - 200, cx + 200), y: rnd(cy - 95, cy + 95) };
+        if (pts.every(o => Phaser.Math.Distance.Between(o.x, o.y, p.x, p.y) >= 66)) pts.push(p);
+      }
+      if (pts.length < n) kind = 'dice'; else readingOrder(pts);
+    }
+    if (kind === 'dice') { pts = readingOrder(DICE[n].map(([a, b]) => ({ x: cx + a * 64, y: cy + b * 64 }))); }
+    else if (kind === 'group') {
+      const a = rnd(Math.max(1, n - 6), Math.min(6, n - 1)), b = n - a, s = 46; d = 36;
+      pts = [...readingOrder(DICE[a].map(([u, v]) => ({ x: cx - 115 + u * s, y: cy + v * s }))),
+             ...readingOrder(DICE[b].map(([u, v]) => ({ x: cx + 115 + u * s, y: cy + v * s })))];
+    } else if (kind === 'ring') {
+      const rad = Math.min(105, 34 + n * 9), off = Math.random() * Math.PI * 2;
+      pts = range(n).map(i => ({ x: cx + Math.cos(off + i * Math.PI * 2 / n) * rad, y: cy + Math.sin(off + i * Math.PI * 2 / n) * rad }));
+    }
+    return { pts, d };
+  }
+
+  windowSec() { return this.cfg.window - (this.q - 1) * 0.08; }
+  speedPoints(t) { const w = this.windowSec(); if (t <= 1) return 100; return Math.max(10, Math.round(100 - 90 * (t - 1) / (w - 1))); }
+  streakMult() { const s = this.streak; return s >= 10 ? 2.5 : s >= 6 ? 2 : s >= 3 ? 1.5 : 1; }
+
+  answer(v) {
+    if (!this.accepting || this.over) return;
+    this.accepting = false;
+    const t = (this.time.now - this.qStart) / 1000;
+    const btn = this.buttons[v - 1];
+    const dot = this.dots[this.q - 1];
+    this.tweens.killTweensOf(dot); dot.setScale(1);
+    this.tweens.add({ targets: this.prompt, alpha: 0, duration: 200 });
+    if (v === this.currentN) this.onCorrect(t, btn); else this.onWrong(t, btn);
+  }
+
+  onCorrect(t, btn) {
+    this.correct++; this.streak++; this.bestStreak = Math.max(this.bestStreak, this.streak);
+    this.allTimes.push(t); if (this.fastest === null || t < this.fastest) this.fastest = t;
+    this.dots[this.q - 1].setFillStyle(C.mint, 1);
+    const glowMult = this.glowActive > 0 ? 2 : 1;
+    const mult = this.streakMult() * glowMult;
+    const lightning = t < 1.5; if (lightning) this.lightnings++;
+    const pts = Math.round(this.speedPoints(t) * mult) + (lightning ? 25 * glowMult : 0);
+    this.score += pts; this.animateScore();
+
+    Sfx.correct(this.streak); if (lightning) Sfx.fast();
+    btn.redraw(C.mint);
+    this.tweens.add({ targets: btn, scale: 1.16, duration: 120, yoyo: true, ease: 'Quad.out' });
+    this.burst.explode(18, btn.x, btn.y);
+    this.floatText(432, this.boardY, '+' + pts, '#FFE680', 48);
+    if (lightning) {
+      this.floatText(432, this.boardY - 58, 'Lightning fast!', '#9FF5D0', 26);
+      this.cameras.main.flash(140, 255, 245, 200);
+    }
+    if ([3, 6, 10].includes(this.streak)) {
+      Sfx.streak();
+      this.cameras.main.shake(180, 0.005);
+      this.floatText(745, this.boardY + 40, `Streak ${this.streak}!\nx${this.streakMult()}`, '#FF9FC4', 30);
+    }
+    this.updateStreak();
+
+    this.flies.forEach((f, i) => {
+      this.tweens.killTweensOf(f.halo);
+      this.tweens.add({ targets: f, x: 800, y: 30, scale: 0.25, alpha: 0.3, duration: 420, delay: i * 18, ease: 'Cubic.in',
+        onComplete: () => { this.puff.explode(2, 800, 30); killFly(this, f); } });
+    });
+    this.time.delayedCall(430, () => this.tweens.add({ targets: this.scoreText, scale: 1.18, duration: 110, yoyo: true }));
+    this.flies = [];
+    if (this.glowActive === 0 && t <= this.cfg.fast) this.addGlow();
+    this.afterAnswer(this.currentN * 18 + 700);
+  }
+
+  onWrong(t, btn) {
+    this.streak = 0; this.allTimes.push(t);
+    this.dots[this.q - 1].setFillStyle(C.pink, 1);
+    this.updateStreak();
+    Sfx.wrong();
+    this.cameras.main.shake(220, 0.008);
+    btn.redraw(C.pink);
+    const bx = btn.x;
+    this.tweens.add({ targets: btn, x: bx + 8, duration: 50, yoyo: true, repeat: 3, onComplete: () => { btn.x = bx; } });
+    const cb = this.buttons[this.currentN - 1];
+    cb.redraw(C.mint);
+    this.tweens.add({ targets: cb, scale: 1.14, duration: 260, yoyo: true, repeat: 2, ease: 'Sine.inOut' });
+    if (this.glowActive === 0 && this.glow > 0) { this.glow--; this.updateJar(); }
+
+    const n = this.currentN, dt = n > 10 ? 110 : 160;
+    const flies = this.flies; this.flies = [];
+    flies.forEach((f, i) => this.time.delayedCall(300 + i * dt, () => {
+      if (!f.active) return;
+      this.tweens.add({ targets: f, scale: 1.25, duration: 100, yoyo: true, ease: 'Quad.out' });
+      f.add(txt(this, 0, 1, String(i + 1), Math.round(f.d * 0.55), '#3A2A00').setOrigin(0.5));
+      Sfx.count(i);
+    }));
+    const doneCount = 300 + n * dt;
+    this.time.delayedCall(doneCount + 100, () => this.floatText(432, this.boardY, `That's ${n}!`, '#9FF5D0', 44));
+    this.time.delayedCall(doneCount + 900, () => flies.forEach((f, i) => {
+      if (!f.active) return;
+      this.tweens.killTweensOf(f.halo);
+      this.tweens.add({ targets: f, y: f.y - 30, alpha: 0, duration: 320, delay: i * 12, onComplete: () => killFly(this, f) });
+    }));
+    this.afterAnswer(doneCount + 1300);
+  }
+
+  afterAnswer(delay) {
+    if (this.glowActive > 0) {
+      this.glowActive--;
+      if (this.glowActive === 0) this.endGlow();
+      this.updateJar(); this.updateStreak();
+    }
+    this.time.delayedCall(delay, () => this.nextQuestion());
+  }
+
+  resetButtons() { this.buttons.forEach(b => { b.redraw(C.cream); b.setScale(1); }); }
+
+  // ---------- Glow power ----------
+  addGlow() {
+    if (this.glowActive > 0 || this.glow >= 5) return;
+    this.glow++;
+    const lvl = this.glow, sy = this.segY(lvl - 1);
+    const orb = this.add.image(432, this.boardY, 'glow').setTint(C.fly).setBlendMode('ADD').setScale(0.9).setDepth(55);
+    this.tweens.add({ targets: orb, x: this.jar.x, y: sy, scale: 0.4, duration: 480, ease: 'Cubic.in', onComplete: () => {
+      orb.destroy(); this.puff.explode(8, this.jar.x, sy); Sfx.glowStep(lvl); this.updateJar();
+      if (lvl >= 5 && this.glowActive === 0) {
+        this.time.delayedCall(200, () => Sfx.glowReady());
+        this.floatText(this.jar.x + 70, this.jar.top - 30, 'Glow ready!', '#FFE680', 22);
+      }
+    } });
+  }
+  tryGlow() {
+    if (this.glow < 5 || this.glowActive > 0 || this.over || !this.started) return;
+    this.glow = 0; this.glowActive = 5; this.glowUses++;
+    Sfx.glowActivate();
+    this.cameras.main.flash(350, 255, 225, 130);
+    this.cameras.main.shake(300, 0.01);
+    this.tweens.add({ targets: this.glowTint, alpha: 0.1, duration: 500 });
+    this.bd.ambient.setFrequency(50);
+    this.burst.explode(40, this.jar.x, this.jar.top + this.jar.h / 2);
+    const b = txt(this, 432, 300, 'Glow time!\nDouble points', 54, '#FFE680', { stroke: '#2A2466', strokeThickness: 10, align: 'center' })
+      .setOrigin(0.5).setDepth(95).setScale(0.3).setAlpha(0).setShadow(0, 0, '#FFB800', 24, false, true);
+    this.tweens.add({ targets: b, scale: 1, alpha: 1, duration: 350, ease: 'Back.out' });
+    this.tweens.add({ targets: b, alpha: 0, y: 260, duration: 400, delay: 1000, onComplete: () => b.destroy() });
+    this.updateJar(); this.updateStreak();
+  }
+  endGlow() {
+    Sfx.glowEnd();
+    this.tweens.add({ targets: this.glowTint, alpha: 0, duration: 800 });
+    this.bd.ambient.setFrequency(220);
+  }
+  updateJar() {
+    const g = this.jarG, x = this.jar.x, active = this.glowActive > 0, n = active ? this.glowActive : this.glow;
+    g.clear();
+    for (let i = 0; i < 5; i++) {
+      const y = this.segY(i) - 16, filled = i < n;
+      g.fillStyle(filled ? (active ? 0xFFB347 : C.fly) : C.deep, filled ? 1 : 0.5);
+      g.fillRoundedRect(x - 22, y, 44, 32, 10);
+      if (filled) { g.fillStyle(0xFFFFFF, 0.35); g.fillRoundedRect(x - 16, y + 4, 32, 8, 4); }
+    }
+    const ready = !active && this.glow >= 5;
+    this.tweens.killTweensOf([this.jarHalo, this.jarTap]);
+    if (ready) {
+      this.jarTap.setAlpha(1).setY(this.jar.top - 38);
+      this.tweens.add({ targets: this.jarHalo, alpha: { from: 0.25, to: 0.7 }, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.tweens.add({ targets: this.jarTap, y: this.jar.top - 46, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    } else {
+      this.tweens.add({ targets: this.jarTap, alpha: 0, duration: 200 });
+      this.tweens.add({ targets: this.jarHalo, alpha: active ? 0.4 : 0, duration: 300 });
+    }
+    this.jarLabel.setText(active ? 'Double\npoints!' : 'Glow jar');
+  }
+
+  // ---------- HUD bits ----------
+  updateStreak() {
+    const parts = [];
+    if (this.streak > 0) parts.push(`Streak ${this.streak}  x${this.streakMult()}`);
+    if (this.glowActive > 0) parts.push('Glow x2');
+    this.streakText.setText(parts.join('   '));
+  }
+  animateScore() {
+    if (this.scoreTween) this.scoreTween.stop();
+    this.scoreTween = this.tweens.add({ targets: this.scoreObj, v: this.score, duration: 600, ease: 'Cubic.out',
+      onUpdate: () => this.scoreText.setText(fmt(this.scoreObj.v)) });
+  }
+  drawSpeed(pts, idle) {
+    const g = this.speedG, w = 340, x = 432 - w / 2, y = 376, pct = pts / 100;
+    g.clear();
+    g.fillStyle(C.deep, 0.75); g.fillRoundedRect(x, y - 8, w, 16, 8);
+    const c = Phaser.Display.Color.Interpolate.ColorWithColor(this.colPink, this.colYellow, 100, pct * 100);
+    g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b), idle ? 0.35 : 1);
+    g.fillRoundedRect(x, y - 8, Math.max(16, w * pct), 16, 8);
+    this.speedLabel.setText(idle ? '' : '+' + pts);
+  }
+  floatText(x, y, str, color, size = 34) {
+    const t = txt(this, x, y, str, size, color, { stroke: '#1A1F4A', strokeThickness: 7, align: 'center' }).setOrigin(0.5).setDepth(60).setScale(0.4).setAlpha(0);
+    this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 220, ease: 'Back.out' });
+    this.tweens.add({ targets: t, y: y - 60, alpha: 0, duration: 650, delay: 500, ease: 'Quad.in', onComplete: () => t.destroy() });
+  }
+
+  update() {
+    if (this.accepting) this.drawSpeed(this.speedPoints((this.time.now - this.qStart) / 1000), false);
+  }
+
+  finishRound() {
+    this.over = true; this.accepting = false;
+    this.drawSpeed(0, true);
+    Sfx.whoosh();
+    this.tweens.add({ targets: [this.board, ...this.buttons, this.prompt, this.speedG, this.speedLabel], alpha: 0, duration: 500 });
+    const times = this.allTimes;
+    const stats = {
+      mode: this.mode, score: this.score, correct: this.correct, total: TOTAL,
+      avg: times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0,
+      bestStreak: this.bestStreak, fastest: this.fastest, glowUses: this.glowUses, lightnings: this.lightnings
+    };
+    this.time.delayedCall(700, () => {
+      this.cameras.main.fadeOut(450);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('End', stats));
+    });
+  }
+}
+
+// ================================================================
+class EndScene extends Phaser.Scene {
+  constructor() { super('End'); }
+  init(d) { this.s = d; }
+  create() {
+    const s = this.s, cam = this.cameras.main, cfg = MODES[s.mode];
+    cam.fadeIn(500);
+    drawBackdrop(this);
+    const acc = s.correct / s.total;
+    const stars = acc >= 0.9 ? 3 : acc >= 0.7 ? 2 : 1;
+    const prevBest = Store.get('best_' + s.mode, 0), isRecord = s.score > prevBest;
+    if (isRecord) Store.set('best_' + s.mode, s.score);
+    if (stars > Store.get('stars_' + s.mode, 0)) Store.set('stars_' + s.mode, stars);
+
+    // rising fireflies celebration
+    const cel = this.add.particles(0, 0, 'glow', {
+      x: { min: 0, max: W }, y: H + 10, speedY: { min: -240, max: -90 }, speedX: { min: -40, max: 40 },
+      lifespan: 3200, scale: { start: 0.4, end: 0.05 }, alpha: { start: 0.9, end: 0 },
+      tint: [C.fly, C.pink, C.mint], blendMode: 'ADD', frequency: 40, quantity: 2
+    }).setDepth(3);
+    this.time.delayedCall(2600, () => cel.stop());
+    const burst = this.add.particles(0, 0, 'spark', {
+      speed: { min: 150, max: 420 }, scale: { start: 1.2, end: 0 }, alpha: { start: 1, end: 0 }, lifespan: 900,
+      gravityY: 240, tint: [C.fly, C.cream, C.pink, C.mint], blendMode: 'ADD', emitting: false
+    }).setDepth(50);
+
+    const head = txt(this, W / 2, 76, ['', 'Nice work!', 'Great job!', 'Brilliant!'][stars], 66, '#FFE680', { stroke: '#2A2466', strokeThickness: 12 })
+      .setOrigin(0.5).setScale(0).setShadow(0, 0, '#FFB800', 24, false, true);
+    this.tweens.add({ targets: head, scale: 1, duration: 600, ease: 'Back.out', delay: 200,
+      onComplete: () => this.tweens.add({ targets: head, y: 70, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.inOut' }) });
+    const sub = txt(this, W / 2, 128, `${cfg.name} level complete`, 20, '#C9D2FF', { fontStyle: '600' }).setOrigin(0.5).setAlpha(0);
+    this.tweens.add({ targets: sub, alpha: 1, duration: 500, delay: 500 });
+    this.time.delayedCall(450, () => { Sfx.fanfare(); cam.flash(250, 255, 235, 170); });
+
+    // stars
+    for (let i = 0; i < 3; i++) {
+      const x = W / 2 + (i - 1) * 96, y = 188;
+      const bg = this.add.graphics().setPosition(x, y);
+      bg.fillStyle(0x2E3A80, 1); bg.fillPoints(starPts(38, 17), true);
+      if (i < stars) {
+        const st = this.add.graphics().setPosition(x, y).setScale(0).setDepth(5);
+        st.fillStyle(C.fly, 1); st.fillPoints(starPts(38, 17), true);
+        st.fillStyle(0xFFFFFF, 0.35); st.fillPoints(starPts(20, 9).map(p => ({ x: p.x - 6, y: p.y - 6 })), true);
+        this.time.delayedCall(900 + i * 420, () => {
+          Sfx.star(i); burst.explode(26, x, y); cam.shake(120, 0.004);
+          this.tweens.add({ targets: st, scale: 1, angle: 360, duration: 500, ease: 'Back.out' });
+        });
+      }
+    }
+
+    // stats panel
+    const pg = this.add.graphics();
+    pg.fillStyle(0x000000, 0.3); pg.fillRoundedRect(W / 2 - 250, 247, 500, 250, 24);
+    pg.fillStyle(C.panel, 0.95); pg.fillRoundedRect(W / 2 - 250, 240, 500, 250, 24);
+    pg.lineStyle(3, cfg.color, 1); pg.strokeRoundedRect(W / 2 - 250, 240, 500, 250, 24);
+    const rows = [
+      ['Score', fmt(s.score)],
+      ['Correct', `${s.correct} of ${s.total}`],
+      ['Average speed', s.avg.toFixed(1) + ' sec'],
+      ['Best streak', String(s.bestStreak)],
+      ['Fastest answer', s.fastest !== null ? s.fastest.toFixed(2) + ' sec' : 'None'],
+      ['Glow jars used', String(s.glowUses)]
+    ];
+    rows.forEach((r, i) => {
+      const y = 272 + i * 37;
+      const l = txt(this, W / 2 - 220, y, r[0], 22, '#FFF6DA', { fontStyle: '600' }).setOrigin(0, 0.5).setAlpha(0);
+      const v = txt(this, W / 2 + 220, y, i === 0 ? '0' : r[1], i === 0 ? 28 : 22, i === 0 ? '#FFE680' : '#FFF6DA').setOrigin(1, 0.5).setAlpha(0);
+      [l, v].forEach(o => { o.x -= 20; this.tweens.add({ targets: o, alpha: 1, x: o.x + 20, duration: 350, delay: 600 + i * 90, ease: 'Cubic.out' }); });
+      if (i === 0) {
+        const o = { v: 0 };
+        this.tweens.add({ targets: o, v: s.score, duration: 1300, delay: 700, ease: 'Cubic.out', onUpdate: () => v.setText(fmt(o.v)) });
+      }
+    });
+
+    if (isRecord && s.score > 0) {
+      this.time.delayedCall(1000 + stars * 420, () => {
+        const c = this.add.container(W / 2 + 230, 180).setDepth(60).setAngle(-12).setScale(3).setAlpha(0);
+        const g = this.add.graphics(); g.fillStyle(C.pink, 1); g.fillRoundedRect(-80, -26, 160, 52, 26);
+        c.add([g, txt(this, 0, -2, 'New best!', 26, '#2A1A4A').setOrigin(0.5)]);
+        this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 320, ease: 'Back.out', onComplete: () => {
+          Sfx.record(); cam.shake(250, 0.01); cam.flash(200, 255, 170, 210); burst.explode(40, c.x, c.y);
+          this.tweens.add({ targets: c, scale: 1.08, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+        } });
+      });
+    }
+
+    const again = makeButton(this, W / 2 - 115, 562, 210, 62, 'Play again', { fill: C.fly, size: 28, onClick: () => this.leave('Game', { mode: s.mode }) });
+    const pick = makeButton(this, W / 2 + 115, 562, 210, 62, 'Pick level', { fill: C.cream, size: 28, onClick: () => this.leave('Mode') });
+    [again, pick].forEach((b, i) => { b.setAlpha(0); b.y += 30; this.tweens.add({ targets: b, alpha: 1, y: 562, duration: 450, delay: 1500 + i * 100, ease: 'Back.out' }); });
+    addMuteToggle(this, 790, 618);
+  }
+  leave(scene, data) {
+    this.cameras.main.fadeOut(350);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(scene, data));
+  }
+}
+
+// ================================================================
+const config = {
+  type: Phaser.AUTO, parent: 'game', width: W, height: H, backgroundColor: '#121840',
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [BootScene, TitleScene, ModeScene, GameScene, EndScene]
+};
+const fontsReady = document.fonts ? Promise.all([document.fonts.load('800 40px "Baloo 2"'), document.fonts.load('600 20px "Baloo 2"')]) : Promise.resolve();
+Promise.race([fontsReady, new Promise(r => setTimeout(r, 2500))]).then(() => new Phaser.Game(config));
+</script>
+</body>
+</html>
