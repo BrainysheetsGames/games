@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lily Pad Leap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #2A7C8E; overflow: hidden; }
+  #game { width: 100%; height: 100%; }
+  canvas { display: block; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+</head>
+<body>
+<div id="game"></div>
+<script>
+// ================================================================
+//  LILY PAD LEAP — a skip counting game
+// ================================================================
+const W = 864, H = 646, TOTAL = 20;
+const FONT = '"Fredoka", "Trebuchet MS", sans-serif';
+const NAVY = '#1F3A4D';
+const P = {
+  pad: 0x5DBB63, padDark: 0x3E8E4A, frog: 0x8EDB4F, frogDark: 0x4C9A2A, belly: 0xDDF6B0,
+  sun: 0xFFC93C, coral: 0xFF7F6B, cream: 0xFFF8E7, navy: 0x1F3A4D, mint: 0x7EE0A6, gold: 0xFFD54A
+};
+const LEVELS = {
+  by1:   { chip: 'By 1s', name: 'By 1s', step: 1, kind: 'hop', color: 0x9ED36A, seq: '…28, 29, 30, 31…' },
+  by2:   { chip: 'By 2s', name: 'By 2s', step: 2, kind: 'hop', color: 0xFF9F6B, seq: '2, 4, 6, 8…' },
+  by5:   { chip: 'By 5s', name: 'By 5s', step: 5, kind: 'hop', color: 0xFFC93C, seq: '5, 10, 15, 20…' },
+  by10:  { chip: 'By 10s', name: 'By 10s', step: 10, kind: 'hop', color: 0x6FC3FF, seq: '10, 20, 30, 40…' },
+  by25:  { chip: 'By 25s', name: 'By 25s', step: 25, kind: 'hop', color: 0xC9A0FF, seq: '25, 50, 75, 100…' },
+  mixed: { chip: 'Mixed', name: "What's the jump?", kind: 'mixed', color: 0x7EE0A6, seq: 'Find the rule' },
+  back:  { chip: 'Count back', name: 'Count back', kind: 'back', color: 0xFF8FB1, seq: '50, 40, 30, 20…' }
+};
+const CHANT = { 1: { start: 90, top: 110 }, 2: { start: 0, top: 30 }, 5: { start: 0, top: 100 }, 10: { start: 0, top: 120 }, 25: { start: 0, top: 200 } };
+const LEVEL_ORDER = ['by1', 'by2', 'by5', 'by10', 'by25', 'mixed', 'back'];
+
+// ---------- Storage ----------
+const Store = {
+  get(k, d) { try { const v = localStorage.getItem('lpl_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('lpl_' + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+// ---------- Audio ----------
+const Sfx = {
+  ctx: null, master: null, muted: Store.get('muted', false),
+  init() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    this.ctx = new AC(); this.master = this.ctx.createGain();
+    this.master.gain.value = this.muted ? 0 : 0.5; this.master.connect(this.ctx.destination);
+  },
+  setMuted(m) { this.muted = m; Store.set('muted', m); if (this.master) this.master.gain.value = m ? 0 : 0.5; },
+  tone(freq, dur, type = 'sine', vol = 0.2, when = 0, slideTo = null) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + when, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(this.master); o.start(t); o.stop(t + dur + 0.05);
+  },
+  noise(dur, vol, when = 0, freq = 1200) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + when, len = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const s = this.ctx.createBufferSource(); s.buffer = buf;
+    const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq;
+    const g = this.ctx.createGain(); g.gain.value = vol;
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  },
+  noteFreq(i) { const sc = [0, 2, 4, 7, 9]; const k = i % 15; return 392 * Math.pow(2, (sc[k % 5] + 12 * Math.floor(k / 5)) / 12); },
+  hover() { this.tone(900, 0.04, 'sine', 0.05); },
+  click() { this.tone(640, 0.07, 'triangle', 0.15); },
+  hop() { this.tone(260, 0.16, 'sine', 0.13, 0, 640); },
+  plop() { this.tone(190, 0.12, 'sine', 0.16, 0, 70); this.noise(0.12, 0.05, 0, 900); },
+  note(i) { this.tone(this.noteFreq(i), 0.28, 'triangle', 0.13); },
+  correct(streak) {
+    const base = 523.25 * Math.pow(2, Math.min(streak - 1, 12) / 12);
+    [0, 4, 7, 12].forEach((s, i) => this.tone(base * Math.pow(2, s / 12), 0.22, 'triangle', 0.15, i * 0.055));
+  },
+  fast() { for (let i = 0; i < 5; i++) this.tone(1800 + i * 260, 0.08, 'sine', 0.05, 0.2 + i * 0.035); },
+  wrong() { this.tone(210, 0.3, 'triangle', 0.24, 0, 120); this.tone(196, 0.32, 'sine', 0.13, 0.06, 105); },
+  buzz() { for (let i = 0; i < 8; i++) this.tone(170 + (i % 2) * 30, 0.07, 'sawtooth', 0.025, i * 0.06); },
+  snap() { this.tone(1500, 0.06, 'square', 0.05, 0, 400); },
+  gulp() { this.tone(240, 0.16, 'sine', 0.16, 0, 110); this.tone(520, 0.1, 'sine', 0.06, 0.12, 900); },
+  meterStep(l) { this.tone(600 + l * 110, 0.14, 'sine', 0.11); this.tone(1200 + l * 220, 0.1, 'sine', 0.04, 0.04); },
+  superReady() { [0, 4, 7, 11, 14].forEach((s, i) => this.tone(659 * Math.pow(2, s / 12), 0.3, 'sine', 0.11, i * 0.07)); },
+  superLeap() {
+    this.tone(220, 0.8, 'sawtooth', 0.05, 0, 880);
+    [0, 4, 7, 12, 16, 19].forEach((s, i) => this.tone(523 * Math.pow(2, s / 12), 0.5, 'triangle', 0.12, 0.1 + i * 0.06));
+    this.noise(0.5, 0.07, 0, 3000);
+  },
+  superEnd() { this.tone(880, 0.4, 'sine', 0.08, 0, 330); },
+  streak() { [0, 7, 12].forEach((s, i) => this.tone(784 * Math.pow(2, s / 12), 0.16, 'square', 0.045, i * 0.05)); },
+  tick() { this.tone(880, 0.08, 'square', 0.05); },
+  go() { this.tone(1320, 0.3, 'triangle', 0.15); this.tone(660, 0.3, 'triangle', 0.11); },
+  start() { [0, 7, 12].forEach((s, i) => this.tone(440 * Math.pow(2, s / 12), 0.2, 'triangle', 0.14, i * 0.08)); },
+  whoosh() { this.noise(0.35, 0.07, 0, 1400); },
+  star(i) { const f = 784 * Math.pow(2, (i * 4) / 12); this.tone(f, 0.45, 'triangle', 0.16); this.tone(f * 2, 0.3, 'sine', 0.05, 0.05); },
+  fanfare() { const n = [0, 4, 7, 12, 7, 12, 16]; n.forEach((s, i) => this.tone(523 * Math.pow(2, s / 12), i === n.length - 1 ? 0.8 : 0.18, 'triangle', 0.13, i * 0.12)); },
+  record() { [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => this.tone(659 * Math.pow(2, s / 12), 0.2, 'square', 0.045, i * 0.05)); this.noise(0.4, 0.05, 0, 4000); },
+  kick() { this.tone(150, 0.22, 'sine', 0.42, 0, 45); },
+  clap() { this.noise(0.12, 0.16, 0, 1600); },
+  hat() { this.noise(0.04, 0.05, 0, 7000); },
+  chantQ() { this.tone(523, 0.16, 'square', 0.05); this.tone(784, 0.18, 'square', 0.045, 0.09); },
+  ding(i) { this.tone(this.noteFreq(i) * 2, 0.3, 'sine', 0.09); },
+  phaseWin() { [0, 4, 7, 12].forEach((s, i) => this.tone(523 * Math.pow(2, s / 12), 0.35, 'triangle', 0.12, i * 0.07)); }
+};
+
+// ---------- Helpers ----------
+const rnd = (a, b) => Phaser.Math.Between(a, b);
+const range = n => [...Array(n).keys()];
+const fmt = n => Math.round(n).toLocaleString('en-US');
+function shuffle(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
+function txt(scene, x, y, str, size, color, extra = {}) {
+  return scene.add.text(x, y, str, Object.assign({ fontFamily: FONT, fontSize: size + 'px', fontStyle: '700', color }, extra));
+}
+function starPts(r1, r2) {
+  const p = [];
+  for (let i = 0; i < 10; i++) { const r = i % 2 ? r2 : r1, a = -Math.PI / 2 + i * Math.PI / 5; p.push({ x: Math.cos(a) * r, y: Math.sin(a) * r }); }
+  return p;
+}
+const hex = c => '#' + c.toString(16).padStart(6, '0');
+
+function makeButton(scene, x, y, w, h, label, opt = {}) {
+  const fill = opt.fill ?? P.sun, size = opt.size ?? 28, radius = opt.radius ?? Math.min(18, h / 2);
+  const c = scene.add.container(x, y);
+  const shadow = scene.add.graphics(), bg = scene.add.graphics();
+  const draw = (col) => {
+    shadow.clear(); shadow.fillStyle(0x0B3340, 0.3); shadow.fillRoundedRect(-w / 2, -h / 2 + 6, w, h, radius);
+    bg.clear(); bg.fillStyle(col, 1); bg.fillRoundedRect(-w / 2, -h / 2, w, h, radius);
+    bg.fillStyle(0xFFFFFF, 0.3); bg.fillRoundedRect(-w / 2 + 6, -h / 2 + 5, w - 12, Math.max(6, h * 0.24), Math.min(radius * 0.6, h * 0.12));
+  };
+  draw(fill);
+  const t = txt(scene, 0, -2, label, size, opt.textColor ?? NAVY).setOrigin(0.5);
+  c.add([shadow, bg, t]);
+  c.setSize(w, h);
+  c.setInteractive({ useHandCursor: true });
+  c.on('pointerover', () => { scene.tweens.add({ targets: c, scale: 1.05, duration: 120, ease: 'Quad.out' }); if (!opt.quiet) Sfx.hover(); });
+  c.on('pointerout', () => scene.tweens.add({ targets: c, scale: 1, duration: 150, ease: 'Quad.out' }));
+  c.on('pointerdown', () => {
+    Sfx.init();
+    scene.tweens.add({ targets: c, scale: 0.92, duration: 70, yoyo: true, ease: 'Quad.out' });
+    if (!opt.silent) Sfx.click();
+    opt.onClick && opt.onClick(c);
+  });
+  c.redraw = draw; c.label = t;
+  return c;
+}
+function addMuteToggle(scene, x, y) {
+  const b = makeButton(scene, x, y, 120, 36, Sfx.muted ? 'Sound off' : 'Sound on', {
+    fill: P.navy, textColor: '#FFF8E7', size: 17,
+    onClick: () => { Sfx.setMuted(!Sfx.muted); b.label.setText(Sfx.muted ? 'Sound off' : 'Sound on'); }
+  });
+  return b.setDepth(40);
+}
+
+// ---------- Scenery ----------
+function vGrad(g, x, y, w, h, c1, c2, bands = 40) {
+  const a = Phaser.Display.Color.IntegerToColor(c1), b = Phaser.Display.Color.IntegerToColor(c2);
+  for (let i = 0; i < bands; i++) {
+    const c = Phaser.Display.Color.Interpolate.ColorWithColor(a, b, bands - 1, i);
+    g.fillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b), 1);
+    g.fillRect(x, y + Math.floor(i * h / bands), w, Math.ceil(h / bands) + 1);
+  }
+}
+function ripple(scene, x, y, depth = 8, size = 60) {
+  const r = scene.add.graphics().setDepth(depth).setPosition(x, y);
+  r.lineStyle(3, 0xFFFFFF, 0.6); r.strokeEllipse(0, 0, size, size * 0.3); r.setScale(0.5);
+  scene.tweens.add({ targets: r, scaleX: 2.2, scaleY: 2.2, alpha: 0, duration: 800, ease: 'Quad.out', onComplete: () => r.destroy() });
+}
+function drawPond(scene) {
+  const g = scene.add.graphics().setDepth(0);
+  vGrad(g, 0, 0, W, 238, 0xA9E3EE, 0xE6F7F1, 30);
+  g.fillStyle(0xB5DDA0, 1); g.beginPath(); g.moveTo(0, 240);
+  for (let x = 0; x <= W; x += 12) g.lineTo(x, 206 + Math.sin(x / 120) * 12 + Math.sin(x / 47) * 4);
+  g.lineTo(W, 240); g.closePath(); g.fillPath();
+  g.fillStyle(0x8CC77C, 1); g.beginPath(); g.moveTo(0, 240);
+  for (let x = 0; x <= W; x += 12) g.lineTo(x, 222 + Math.sin(x / 90 + 2) * 8);
+  g.lineTo(W, 240); g.closePath(); g.fillPath();
+  vGrad(g, 0, 236, W, H - 236, 0x63C6D1, 0x2A7C8E, 50);
+  g.fillStyle(0xFFFFFF, 0.45); g.fillRect(0, 236, W, 3);
+  // cattails
+  const reeds = scene.add.graphics().setDepth(1);
+  const cattail = (x, h, lean) => {
+    reeds.lineStyle(3, 0x4E7F35, 1); reeds.lineBetween(x, 248, x + lean, 248 - h);
+    reeds.fillStyle(0x8B5A2B, 1); reeds.fillRoundedRect(x + lean * 0.8 - 5, 248 - h * 0.86, 10, 26, 5);
+    reeds.fillStyle(0x5E9A42, 1); reeds.fillTriangle(x - 6, 250, x + 2, 250, x - 16 + lean, 250 - h * 0.6);
+  };
+  [[14, 80, -4], [30, 100, 3], [44, 70, 6], [822, 92, -5], [838, 74, 2], [852, 104, 4]].forEach(a => cattail(...a));
+  // clouds
+  for (let i = 0; i < 3; i++) {
+    const cl = scene.add.container(rnd(0, W), rnd(40, 150)).setDepth(0).setAlpha(0.85);
+    [[0, 0, 26], [24, -10, 22], [46, 2, 20], [-22, 4, 18]].forEach(([x, y, r]) => cl.add(scene.add.circle(x, y, r, 0xFFFFFF)));
+    const drift = () => scene.tweens.add({ targets: cl, x: W + 120, duration: (W + 120 - cl.x) * 90, onComplete: () => { cl.x = -120; drift(); } });
+    drift();
+  }
+  // glints
+  for (let i = 0; i < 16; i++) {
+    const e = scene.add.ellipse(rnd(0, W), rnd(260, 640), rnd(14, 34), 3, 0xFFFFFF, 0.5).setDepth(1);
+    scene.tweens.add({ targets: e, alpha: { from: 0.05, to: 0.5 }, duration: rnd(1200, 2600), yoyo: true, repeat: -1, delay: rnd(0, 2000), ease: 'Sine.inOut' });
+  }
+  scene.time.addEvent({ delay: 1600, loop: true, callback: () => ripple(scene, rnd(40, W - 40), rnd(270, 630), 1, rnd(40, 80)) });
+}
+function makeFx(scene) {
+  scene.drops = scene.add.particles(0, 0, 'drop', {
+    speed: { min: 80, max: 220 }, angle: { min: 200, max: 340 }, gravityY: 520, lifespan: { min: 350, max: 650 },
+    scale: { start: 0.7, end: 0.1 }, alpha: { start: 0.95, end: 0 }, tint: [0xFFFFFF, 0xC8F1FF], emitting: false
+  }).setDepth(25);
+  scene.burst = scene.add.particles(0, 0, 'spark', {
+    speed: { min: 150, max: 380 }, angle: { min: 0, max: 360 }, scale: { start: 1.1, end: 0 }, alpha: { start: 1, end: 0 },
+    lifespan: { min: 450, max: 850 }, gravityY: 260, tint: [P.sun, P.cream, P.coral, P.mint, 0x6FC3FF], emitting: false
+  }).setDepth(50);
+  scene.sparkle = scene.add.particles(0, 0, 'spark', {
+    speed: { min: 20, max: 80 }, scale: { start: 0.8, end: 0 }, alpha: { start: 1, end: 0 }, lifespan: 600,
+    tint: [P.gold, 0xFFFFFF], emitting: false
+  }).setDepth(24);
+}
+
+// Lily pad shape with its notch
+function drawPad(g, x, y, w = 116, h = 56) {
+  g.fillStyle(0x0B3F4A, 0.22); g.fillEllipse(x + 4, y + 9, w, h);
+  const notch = 0.3, a0 = -Math.PI / 2 - 0.55, pts = [{ x, y }];
+  for (let i = 0; i <= 40; i++) { const a = a0 + notch + i * (2 * Math.PI - 2 * notch) / 40; pts.push({ x: x + Math.cos(a) * w / 2, y: y + Math.sin(a) * h / 2 }); }
+  g.fillStyle(P.padDark, 1); g.fillPoints(pts.map(p => ({ x: p.x, y: p.y + 5 })), true);
+  g.fillStyle(P.pad, 1); g.fillPoints(pts, true);
+  g.lineStyle(2, P.padDark, 0.3);
+  for (let k = 0; k < 5; k++) { const a = a0 + notch + 0.5 + k * 1.05; g.lineBetween(x, y, x + Math.cos(a) * w * 0.42, y + Math.sin(a) * h * 0.42); }
+}
+
+// Group pictures: 2 = pair, 5 = hand, 10 = ten-stick, 25 = quarter
+function makeIcon(scene, step) {
+  const c = scene.add.container(0, 0), g = scene.add.graphics(); c.add(g);
+  if (step === 2) {
+    g.fillStyle(P.cream, 1); g.fillRoundedRect(-26, -16, 52, 32, 9);
+    g.lineStyle(2, P.navy, 0.25); g.strokeRoundedRect(-26, -16, 52, 32, 9);
+    g.fillStyle(P.coral, 1); g.fillCircle(-12, 0, 8); g.fillCircle(12, 0, 8);
+  } else if (step === 5) {
+    const skin = 0xF6C49B, ln = 0xC98B5E;
+    g.fillStyle(skin, 1); g.lineStyle(2, ln, 0.8);
+    [[-12, -14, 20], [-4, -18, 24], [4, -18, 24], [12, -14, 20]].forEach(([x, y, h]) => { g.fillRoundedRect(x - 3.8, y - h / 2, 7.6, h, 3.8); g.strokeRoundedRect(x - 3.8, y - h / 2, 7.6, h, 3.8); });
+    g.fillPoints([{ x: -15, y: 0 }, { x: -27, y: -10 }, { x: -31, y: -5 }, { x: -18, y: 12 }], true);
+    g.fillCircle(-29, -8, 4);
+    g.fillRoundedRect(-16, -6, 32, 24, 9); g.strokeRoundedRect(-16, -6, 32, 24, 9);
+    g.fillStyle(skin, 1); g.fillRect(-14, -6, 28, 6);
+  } else if (step === 10) {
+    for (let k = 0; k < 10; k++) {
+      const x = -40 + k * 8;
+      g.fillStyle(0x4A7BD0, 1); g.fillRect(x, -8, 8, 16);
+      g.lineStyle(1.5, 0x2C4E8F, 1); g.strokeRect(x, -8, 8, 16);
+    }
+    g.fillStyle(0xFFFFFF, 0.3); g.fillRect(-40, -8, 80, 4);
+  } else if (step === 1) {
+    g.fillStyle(0x4A7BD0, 1); g.fillRect(-11, -11, 22, 22);
+    g.lineStyle(2, 0x2C4E8F, 1); g.strokeRect(-11, -11, 22, 22);
+    g.fillStyle(0xFFFFFF, 0.35); g.fillRect(-11, -11, 22, 5);
+  } else if (step === 25) {
+    g.fillStyle(0x8C949E, 1); g.fillCircle(0, 0, 21);
+    g.fillStyle(0xD3D8DF, 1); g.fillCircle(0, 0, 18);
+    g.lineStyle(1.5, 0x9AA2AD, 1); g.strokeCircle(0, 0, 15);
+    c.add(txt(scene, 0, 0, '25¢', 13, NAVY).setOrigin(0.5));
+  }
+  return c;
+}
+
+function makeFrog(scene) {
+  const c = scene.add.container(0, 0), body = scene.add.container(0, 0), g = scene.add.graphics();
+  body.add(g); c.add(body); c.body = body;
+  c.paint = (gold) => {
+    const B = gold ? 0xFFD54A : P.frog, D = gold ? 0xD9A21B : P.frogDark, Y = gold ? 0xFFF3C2 : P.belly;
+    g.clear();
+    g.fillStyle(D, 1); g.fillEllipse(-24, -12, 30, 20); g.fillEllipse(24, -12, 30, 20);
+    g.fillStyle(B, 1); g.fillEllipse(0, -26, 62, 48);
+    g.fillStyle(Y, 1); g.fillEllipse(0, -18, 36, 26);
+    g.fillStyle(B, 1); g.fillCircle(-15, -48, 12); g.fillCircle(15, -48, 12);
+    g.fillStyle(0xFFFFFF, 1); g.fillCircle(-15, -49, 8.5); g.fillCircle(15, -49, 8.5);
+    g.fillStyle(P.navy, 1); g.fillCircle(-13, -48, 4.3); g.fillCircle(17, -48, 4.3);
+    g.fillStyle(0xFFFFFF, 1); g.fillCircle(-11.5, -50, 1.5); g.fillCircle(18.5, -50, 1.5);
+    g.lineStyle(3, D, 1); g.beginPath(); g.arc(0, -34, 11, 0.25, Math.PI - 0.25, false); g.strokePath();
+    g.fillStyle(0xFF9E9E, 0.6); g.fillCircle(-19, -32, 4); g.fillCircle(19, -32, 4);
+    g.fillStyle(D, 1); g.fillEllipse(-13, -3, 16, 8); g.fillEllipse(13, -3, 16, 8);
+  };
+  c.face = (d) => { c.scaleX = d; c.facing = d; };
+  c.paint(false); c.face(1);
+  return c;
+}
+
+// A scrolling row of lily pads on a number line, with a frog
+class PondLine {
+  constructor(scene, o) {
+    this.scene = scene; this.dir = o.dir || 1; this.step = o.step; this.base = o.base || 0;
+    this.anchor = o.anchor; this.padY = o.padY || 372; this.S = o.S || 150;
+    this.c = scene.add.container(0, 0).setDepth(o.depth || 10);
+    this.lineG = scene.add.graphics();
+    this.padLayer = scene.add.container(0, 0); this.arcLayer = scene.add.container(0, 0); this.top = scene.add.container(0, 0);
+    this.c.add([this.lineG, this.padLayer, this.arcLayer, this.top]);
+    this.pads = {}; this.loops = [];
+    this.frog = makeFrog(scene); this.top.add(this.frog); this.frog.face(this.dir); this.fi = 0;
+  }
+  x(i) { return i * this.S * this.dir; }
+  valueAt(i) { return this.base + i * this.step * this.dir; }
+  pad(i, showLabel) {
+    if (this.pads[i]) return this.pads[i];
+    const sc = this.scene, x = this.x(i), v = this.valueAt(i);
+    const pc = sc.add.container(x, this.padY);
+    const ring = sc.add.graphics(); ring.lineStyle(5, P.sun, 1); ring.strokeEllipse(0, 2, 136, 74); ring.setAlpha(0);
+    const pg = sc.add.graphics(); drawPad(pg, 0, 0);
+    const label = txt(sc, 0, 0, showLabel ? String(v) : '', 30, '#1E4D22').setOrigin(0.5);
+    pc.add([ring, pg, label]); this.padLayer.add(pc);
+    const p = { i, x, v, c: pc, label, ring }; this.pads[i] = p;
+    if (this.pads[i - 1]) this.seg(i - 1);
+    if (this.pads[i + 1]) this.seg(i);
+    pc.setScale(0.6).setAlpha(0);
+    sc.tweens.add({ targets: pc, scale: 1, alpha: 1, duration: 300, ease: 'Back.out' });
+    return p;
+  }
+  ensure(upto) {
+    for (let i = 0; i <= upto; i++) { if (this.pads[i]) continue; if (this.valueAt(i) < 0) break; this.pad(i, false); }
+  }
+  seg(a) {
+    const g = this.lineG, x1 = this.x(a), x2 = this.x(a + 1), y = this.padY + 46, u = this.step;
+    g.lineStyle(3, 0xFFFFFF, 0.75); g.lineBetween(x1, y, x2, y);
+    for (let k = 0; k <= u; k++) {
+      const x = x1 + (x2 - x1) * k / u, big = k === 0 || k === u, mid = u >= 10 && k % 5 === 0;
+      const h = big ? 16 : mid ? 10 : 6;
+      g.lineStyle(big ? 3 : 2, 0xFFFFFF, big ? 0.95 : 0.6); g.lineBetween(x, y - h / 2, x, y + h / 2);
+    }
+  }
+  arc(a, labelStr, iconStep) {
+    const sc = this.scene, x1 = this.x(a), x2 = this.x(a + 1), y = this.padY - 28, h = 62;
+    const g = sc.add.graphics();
+    for (let k = 1; k < 18; k++) { const t = k / 18; g.fillStyle(0xFFFFFF, 0.95); g.fillCircle(x1 + (x2 - x1) * t, y - Math.sin(Math.PI * t) * h, k === 17 ? 4 : 2.6); }
+    const mx = (x1 + x2) / 2, apexY = y - h;
+    const lab = txt(sc, mx, apexY - 14, labelStr, 24, NAVY, { stroke: '#FFFFFF', strokeThickness: 6 }).setOrigin(0.5);
+    const grp = sc.add.container(0, 0); grp.add([g, lab]); this.arcLayer.add(grp);
+    grp.setAlpha(0); sc.tweens.add({ targets: grp, alpha: 1, duration: 250 });
+    const a2 = { grp, lab, mx, apexY, icon: null };
+    if (iconStep) this.addIcon(a2, iconStep);
+    return a2;
+  }
+  addIcon(a, step) {
+    const icon = makeIcon(this.scene, step); icon.setPosition(a.mx, a.apexY - 54).setScale(0);
+    a.grp.add(icon); a.icon = icon;
+    this.scene.tweens.add({ targets: icon, scale: 1, duration: 380, ease: 'Back.out', delay: 120 });
+  }
+  setLabel(i, str, color = '#1E4D22') {
+    const p = this.pads[i]; if (!p) return;
+    p.label.setText(str).setColor(color).setFontSize(30).setScale(0.5);
+    this.scene.tweens.add({ targets: p.label, scale: 1, duration: 260, ease: 'Back.out' });
+  }
+  setTarget(i, on) {
+    const p = this.pads[i]; if (!p) return;
+    const sc = this.scene;
+    sc.tweens.killTweensOf(p.ring);
+    if (on) {
+      p.label.setText('?').setColor('#E8553F').setFontSize(38);
+      p.ring.setAlpha(1).setScale(1);
+      sc.tweens.add({ targets: p.ring, scale: 1.1, alpha: 0.6, duration: 500, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+      this.loops.push(p.ring);
+    } else { p.ring.setAlpha(0).setScale(1); }
+  }
+  setFrog(i) { this.fi = i; this.frog.setPosition(this.x(i), this.padY - 6); }
+  frogWorld() { return { x: this.c.x + this.frog.x, y: this.c.y + this.frog.y }; }
+  scrollTo(i, dur = 450) { this.scene.tweens.add({ targets: this.c, x: this.anchor - this.x(i), duration: dur, ease: 'Cubic.inOut' }); }
+  hopTo(i, dur, onLand, opts = {}) {
+    const sc = this.scene, f = this.frog, b = f.body, fx = f.x, fy = f.y, tx = this.x(i), ty = this.padY - 6, h = opts.h || 95;
+    sc.tweens.killTweensOf(b); b.setScale(1);
+    sc.tweens.add({ targets: b, scaleY: 0.72, scaleX: 1.18, duration: Math.max(50, dur * 0.14), ease: 'Quad.out', onComplete: () => {
+      if (!opts.quiet) Sfx.hop();
+      sc.tweens.add({ targets: b, scaleY: 1.16, scaleX: 0.9, duration: dur * 0.3, ease: 'Quad.out', yoyo: true });
+      const o = { t: 0 };
+      sc.tweens.add({ targets: o, t: 1, duration: dur * 0.72, ease: 'Sine.inOut',
+        onUpdate: () => { f.x = fx + (tx - fx) * o.t; f.y = fy + (ty - fy) * o.t - Math.sin(Math.PI * o.t) * h; opts.onStep && opts.onStep(); },
+        onComplete: () => {
+          f.x = tx; f.y = ty; this.fi = i;
+          sc.tweens.killTweensOf(b); b.setScale(1.2, 0.75);
+          sc.tweens.add({ targets: b, scaleX: 1, scaleY: 1, duration: 240, ease: 'Back.out' });
+          const p = this.pads[i];
+          if (p) sc.tweens.add({ targets: p.c, y: this.padY + 6, duration: 90, yoyo: true, ease: 'Quad.out' });
+          this.splashAt(i, opts.quiet);
+          onLand && onLand();
+        } });
+    } });
+  }
+  splashAt(i, quiet) {
+    const x = this.c.x + this.x(i), y = this.c.y + this.padY + 14;
+    if (this.scene.drops) this.scene.drops.explode(10, x, y);
+    ripple(this.scene, x, y + 8, 9, 90);
+    if (!quiet) Sfx.plop();
+  }
+  destroy() {
+    const sc = this.scene;
+    this.loops.forEach(t => sc.tweens.killTweensOf(t));
+    sc.tweens.killTweensOf(this.frog.body); sc.tweens.killTweensOf(this.c);
+    this.c.destroy(true);
+  }
+  fadeOut() {
+    const sc = this.scene;
+    this.loops.forEach(t => sc.tweens.killTweensOf(t));
+    sc.tweens.killTweensOf(this.c);
+    sc.tweens.add({ targets: this.c, alpha: 0, y: 40, duration: 350, ease: 'Quad.in', onComplete: () => this.destroy() });
+  }
+}
+
+// Shared overlay panel for tutorials
+function showPanel(scene, { title, body, color, build, button = 'Got it', onDone }) {
+  const o = scene.add.container(W / 2, H / 2).setDepth(100).setAlpha(0).setScale(0.9);
+  const dim = scene.add.rectangle(0, 0, W * 1.2, H * 1.2, 0x0B3340, 0.65).setInteractive();
+  const p = scene.add.graphics();
+  p.fillStyle(0x0B3340, 0.3); p.fillRoundedRect(-300, -205, 600, 420, 28);
+  p.fillStyle(P.cream, 1); p.fillRoundedRect(-300, -212, 600, 420, 28);
+  p.lineStyle(5, color, 1); p.strokeRoundedRect(-300, -212, 600, 420, 28);
+  o.add([dim, p, txt(scene, 0, -174, title, 36, NAVY).setOrigin(0.5)]);
+  if (build) build(o);
+  o.add(txt(scene, 0, -10, body, 20, '#2A4A5A', { fontStyle: '500', align: 'center', wordWrap: { width: 520 }, lineSpacing: 3 }).setOrigin(0.5, 0));
+  const btn = makeButton(scene, 0, 160, 200, 56, button, { fill: color, size: 28, onClick: () => {
+    btn.disableInteractive();
+    scene.tweens.add({ targets: o, alpha: 0, scale: 0.92, duration: 260, ease: 'Cubic.in', onComplete: () => { o.destroy(true); onDone(); } });
+  } });
+  o.add(btn);
+  scene.tweens.add({ targets: o, alpha: 1, scale: 1, duration: 360, ease: 'Back.out' });
+}
+function miniRow(scene, o, values, arcLabel, y = -92) {
+  const g = scene.add.graphics(); o.add(g);
+  const xs = values.map((v, i) => (i - (values.length - 1) / 2) * 112);
+  xs.forEach((x, i) => {
+    if (i > 0) for (let k = 1; k < 12; k++) { const t = k / 12; g.fillStyle(0x6FA7B5, 1); g.fillCircle(xs[i - 1] + (x - xs[i - 1]) * t, y - 22 - Math.sin(Math.PI * t) * 38, 2.4); }
+    drawPad(g, x, y, 90, 44);
+    o.add(txt(scene, x, y, String(values[i]), 24, values[i] === '?' ? '#E8553F' : '#1E4D22').setOrigin(0.5));
+    if (i > 0) o.add(txt(scene, (x + xs[i - 1]) / 2, y - 74, arcLabel, 20, NAVY).setOrigin(0.5));
+  });
+}
+
+// ================================================================
+class BootScene extends Phaser.Scene {
+  constructor() { super('Boot'); }
+  create() {
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0xFFFFFF, 1); g.fillCircle(6, 6, 6); g.generateTexture('drop', 12, 12); g.clear();
+    g.fillStyle(0xFFFFFF, 1);
+    g.fillPoints([{ x: 8, y: 0 }, { x: 10, y: 6 }, { x: 16, y: 8 }, { x: 10, y: 10 }, { x: 8, y: 16 }, { x: 6, y: 10 }, { x: 0, y: 8 }, { x: 6, y: 6 }], true);
+    g.generateTexture('spark', 16, 16); g.clear();
+    g.fillStyle(0xFFFFFF, 0.85); g.fillEllipse(10, 6, 12, 8); g.fillEllipse(19, 6, 12, 8);
+    g.fillStyle(0x2B2B2B, 1); g.fillEllipse(14, 13, 16, 10);
+    g.fillStyle(0xE04848, 1); g.fillCircle(21, 11, 2.2);
+    g.generateTexture('fly', 28, 20);
+    g.destroy();
+    this.scene.start('Title');
+  }
+}
+
+// ================================================================
+class TitleScene extends Phaser.Scene {
+  constructor() { super('Title'); }
+  create() {
+    this.cameras.main.fadeIn(600);
+    drawPond(this); makeFx(this);
+    this.input.once('pointerdown', () => Sfx.init());
+
+    const letters = 'Lily Pad Leap'.split('').map(ch =>
+      txt(this, 0, 0, ch, 88, '#4C9A2A', { stroke: '#FFFFFF', strokeThickness: 12 }).setOrigin(0.5).setShadow(0, 6, NAVY, 0, true, true));
+    const widths = letters.map(l => l.width - 14);
+    let x = W / 2 - widths.reduce((a, b) => a + b, 0) / 2;
+    letters.forEach((l, i) => {
+      l.x = x + widths[i] / 2; x += widths[i];
+      l.y = 40; l.setAlpha(0).setScale(0.3).setDepth(20);
+      this.tweens.add({ targets: l, y: 108, alpha: 1, scale: 1, duration: 650, delay: 200 + i * 55, ease: 'Back.out',
+        onComplete: () => this.tweens.add({ targets: l, y: 100, duration: 500, yoyo: true, repeat: -1, repeatDelay: 1800, ease: 'Sine.inOut', delay: i * 70 }) });
+    });
+    const desc = txt(this, W / 2, 190, 'Help the frog hop! Count by 1s, 2s, 5s, 10s, and 25s.', 24, NAVY, { fontStyle: '600', stroke: '#FFFFFF', strokeThickness: 5 }).setOrigin(0.5).setAlpha(0).setDepth(20);
+    this.tweens.add({ targets: desc, alpha: 1, duration: 600, delay: 900 });
+
+    this.demoN = 0; this.demo = null;
+    this.time.delayedCall(900, () => this.startDemo());
+    this.time.addEvent({ delay: 1100, loop: true, startAt: 0, callback: () => this.demoTick() });
+
+    const start = makeButton(this, W / 2, 548, 250, 76, 'Start', { fill: P.sun, size: 40, onClick: () => {
+      Sfx.start();
+      this.cameras.main.fadeOut(350);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Levels'));
+    } });
+    start.setAlpha(0).setScale(0.6).setDepth(30);
+    this.tweens.add({ targets: start, alpha: 1, scale: 1, duration: 500, delay: 1300, ease: 'Back.out',
+      onComplete: () => this.tweens.add({ targets: start, scale: 1.06, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut' }) });
+    txt(this, W / 2, 614, 'Best scores are saved on this device', 16, '#E6F7F1', { fontStyle: '500' }).setOrigin(0.5).setAlpha(0.85).setDepth(20);
+    addMuteToggle(this, 790, 30);
+  }
+  startDemo() {
+    if (this.demo) this.demo.fadeOut();
+    const step = [5, 10, 2, 25][this.demoN++ % 4];
+    const L = new PondLine(this, { dir: 1, step, anchor: 150, padY: 410 });
+    for (let i = 0; i <= 6; i++) L.pad(i, i === 0);
+    L.setFrog(0); L.c.x = 150; L.c.alpha = 0;
+    this.tweens.add({ targets: L.c, alpha: 1, duration: 400 });
+    this.demo = L; this.demoK = 0;
+  }
+  demoTick() {
+    const L = this.demo; if (!L) return;
+    if (this.demoK >= 4) { this.startDemo(); return; }
+    this.demoK++;
+    const k = L.fi;
+    L.arc(k, '+' + L.step, L.step);
+    L.hopTo(k + 1, 560, () => { L.setLabel(k + 1, String(L.valueAt(k + 1))); L.scrollTo(k + 1, 400); }, { quiet: true });
+  }
+}
+
+// ================================================================
+class LevelsScene extends Phaser.Scene {
+  constructor() { super('Levels'); }
+  create() {
+    this.cameras.main.fadeIn(400);
+    drawPond(this);
+    const head = txt(this, W / 2, 52, 'Choose your hops', 46, NAVY, { stroke: '#FFFFFF', strokeThickness: 8 }).setOrigin(0.5).setAlpha(0).setScale(0.7);
+    this.tweens.add({ targets: head, alpha: 1, scale: 1, duration: 450, ease: 'Back.out' });
+
+    LEVEL_ORDER.forEach((key, i) => {
+      const cfg = LEVELS[key], row = i < 4 ? 0 : 1, col = row ? i - 4 : i;
+      const x = W / 2 + (col - (row ? 1 : 1.5)) * 210, y = 182 + row * 182;
+      const c = this.add.container(x, y + 50).setAlpha(0);
+      const g = this.add.graphics();
+      g.fillStyle(0x0B3340, 0.25); g.fillRoundedRect(-98, -76, 196, 160, 22);
+      g.fillStyle(P.cream, 1); g.fillRoundedRect(-98, -82, 196, 160, 22);
+      g.lineStyle(5, cfg.color, 1); g.strokeRoundedRect(-98, -82, 196, 160, 22);
+      g.fillStyle(cfg.color, 0.35); g.fillRoundedRect(-98, -82, 196, 44, { tl: 22, tr: 22, bl: 0, br: 0 });
+      c.add(g);
+      c.add(txt(this, 0, -60, cfg.name, cfg.name.length > 10 ? 21 : 25, NAVY).setOrigin(0.5));
+      if (cfg.step) c.add(makeIcon(this, cfg.step).setPosition(0, -10).setScale(1.05));
+      else if (key === 'mixed') {
+        [2, 5, 10].forEach((s, k) => c.add(makeIcon(this, s).setPosition((k - 1) * 50 + (s === 10 ? 12 : 0), -10).setScale(s === 10 ? 0.5 : 0.65)));
+      } else {
+        const ag = this.add.graphics(); c.add(ag);
+        ag.lineStyle(7, 0xE86A8F, 1); ag.lineBetween(-30, -10, 30, -10);
+        ag.fillStyle(0xE86A8F, 1); ag.fillTriangle(-44, -10, -24, -24, -24, 4);
+      }
+      c.add(txt(this, 0, 24, cfg.seq, 16, '#4A6B78', { fontStyle: '600' }).setOrigin(0.5));
+      const best = Store.get('best_' + key, 0), stars = Store.get('stars_' + key, 0);
+      c.add(txt(this, -84, 55, best ? 'Best ' + fmt(best) : 'New!', 16, '#2A4A5A', { fontStyle: '600' }).setOrigin(0, 0.5));
+      const sg = this.add.graphics(); c.add(sg);
+      for (let s = 0; s < 3; s++) {
+        sg.fillStyle(s < stars ? P.sun : 0xD9D2C0, 1);
+        sg.fillPoints(starPts(10, 4.6).map(p => ({ x: p.x + 26 + s * 22, y: p.y + 55 })), true);
+      }
+      c.setSize(196, 160); c.setInteractive({ useHandCursor: true });
+      c.on('pointerover', () => { this.tweens.add({ targets: c, scale: 1.05, duration: 120 }); Sfx.hover(); });
+      c.on('pointerout', () => this.tweens.add({ targets: c, scale: 1, duration: 150 }));
+      c.on('pointerdown', () => { Sfx.init(); Sfx.start(); this.go('Game', { level: key }); });
+      this.tweens.add({ targets: c, y, alpha: 1, duration: 550, delay: 120 + i * 80, ease: 'Back.out' });
+    });
+
+    // Class chant banner
+    const b = this.add.container(W / 2, 560).setAlpha(0);
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0B3340, 0.3); bg.fillRoundedRect(-280, -38, 560, 84, 24);
+    bg.fillStyle(P.navy, 1); bg.fillRoundedRect(-280, -44, 560, 84, 24);
+    bg.lineStyle(4, P.sun, 1); bg.strokeRoundedRect(-280, -44, 560, 84, 24);
+    const fr = makeFrog(this); fr.setPosition(-220, 22).setScale(0.75);
+    b.add([bg, fr,
+      txt(this, -170, -14, 'Class Chant', 30, '#FFC93C').setOrigin(0, 0.5),
+      txt(this, -170, 18, 'Chant along together on the big screen', 18, '#FFF8E7', { fontStyle: '500' }).setOrigin(0, 0.5)]);
+    b.setSize(560, 84); b.setInteractive({ useHandCursor: true });
+    b.on('pointerover', () => { this.tweens.add({ targets: b, scale: 1.04, duration: 120 }); Sfx.hover(); });
+    b.on('pointerout', () => this.tweens.add({ targets: b, scale: 1, duration: 150 }));
+    b.on('pointerdown', () => { Sfx.init(); Sfx.start(); this.go('Chant', {}); });
+    this.tweens.add({ targets: b, alpha: 1, y: 552, duration: 500, delay: 650, ease: 'Back.out' });
+    this.tweens.add({ targets: fr.body, scaleY: 0.85, scaleX: 1.1, duration: 400, yoyo: true, repeat: -1, repeatDelay: 900 });
+
+    makeButton(this, 80, 618, 120, 38, 'Back', { fill: P.navy, textColor: '#FFF8E7', size: 19, onClick: () => this.go('Title') });
+    addMuteToggle(this, 790, 618);
+  }
+  go(scene, data) {
+    this.input.enabled = false;
+    this.cameras.main.fadeOut(350);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(scene, data));
+  }
+}
+
+// ================================================================
+class GameScene extends Phaser.Scene {
+  constructor() { super('Game'); }
+  init(d) { this.lv = d.level || 'by5'; this.cfg = LEVELS[this.lv]; }
+  create() {
+    this.cameras.main.fadeIn(400);
+    Object.assign(this, {
+      q: 0, score: 0, streak: 0, bestStreak: 0, correct: 0, times: [], fastest: null,
+      flies: 0, superLeft: 0, superUses: 0, lightnings: 0, hops: 0, noteIdx: 0,
+      accepting: false, started: false, over: false, run: null, runIdx: -1, qInRun: 0
+    });
+    if (this.cfg.kind === 'mixed') this.mixedSteps = [...shuffle([2, 5, 10, 25]), [5, 10, 25][rnd(0, 2)]];
+    drawPond(this); makeFx(this);
+    this.warm = this.add.rectangle(W / 2, H / 2, W, H, 0xFFD54A, 0).setDepth(2);
+    this.buildHUD(); this.buildPrompt(); this.buildChoices(); this.buildMeter();
+
+    this.input.keyboard.on('keydown', e => {
+      Sfx.init();
+      if (e.key === ' ') { this.trySuper(); return; }
+      const v = parseInt(e.key, 10);
+      if (v >= 1 && v <= 4) { this.tweens.add({ targets: this.choiceBtns[v - 1], scale: 0.92, duration: 70, yoyo: true }); this.answer(v - 1); }
+    });
+    makeButton(this, 64, 618, 100, 36, 'Quit', { fill: P.navy, textColor: '#FFF8E7', size: 18, onClick: () => {
+      this.over = true; this.accepting = false;
+      this.cameras.main.fadeOut(300); this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Levels'));
+    } }).setDepth(40);
+    addMuteToggle(this, 800, 618);
+
+    const tutKey = 'tut_' + this.cfg.kind;
+    if (!Store.get(tutKey, false)) this.time.delayedCall(450, () => this.showTutorial(() => { Store.set(tutKey, true); this.countdown(); }));
+    else this.time.delayedCall(500, () => this.countdown());
+  }
+
+  // ---------- UI ----------
+  buildHUD() {
+    const g = this.add.graphics().setDepth(20);
+    const chip = txt(this, 0, 33, this.cfg.chip, 20, NAVY).setOrigin(0.5).setDepth(21);
+    const cw = chip.width + 36;
+    g.fillStyle(this.cfg.color, 1); g.fillRoundedRect(18, 14, cw, 38, 19);
+    chip.x = 18 + cw / 2;
+    this.dots = range(TOTAL).map(i => this.add.circle(432 - 152 + i * 16, 20, 5, P.navy, 0.18).setDepth(20));
+    this.qText = txt(this, 432, 31, 'Get ready', 15, NAVY, { fontStyle: '600' }).setOrigin(0.5, 0).setAlpha(0.75).setDepth(20);
+    this.scoreText = txt(this, 846, 8, '0', 36, NAVY, { stroke: '#FFFFFF', strokeThickness: 6 }).setOrigin(1, 0).setDepth(20);
+    this.streakText = txt(this, 846, 50, '', 16, '#2A4A5A', { fontStyle: '600', stroke: '#FFFFFF', strokeThickness: 4 }).setOrigin(1, 0).setDepth(20);
+    this.scoreObj = { v: 0 };
+  }
+  buildPrompt() {
+    this.ruleText = txt(this, 432, 88, '', 32, NAVY, { stroke: '#FFFFFF', strokeThickness: 7 }).setOrigin(0.5).setDepth(20);
+    this.askText = txt(this, 432, 128, '', 22, '#2A5566', { fontStyle: '600', stroke: '#FFFFFF', strokeThickness: 4 }).setOrigin(0.5).setDepth(20).setAlpha(0);
+  }
+  buildChoices() {
+    this.choiceBtns = range(4).map(i => {
+      const b = makeButton(this, 432 + (i - 1.5) * 188, 526, 172, 84, '', { fill: P.cream, size: 40, quiet: true, silent: true, onClick: () => this.answer(i) });
+      return b.setDepth(20).setAlpha(0);
+    });
+  }
+  showChoices(labels) {
+    this.choiceBtns.forEach((b, i) => {
+      this.tweens.killTweensOf(b);
+      b.label.setText(labels[i]); b.redraw(P.cream);
+      b.setScale(0.85).setAlpha(0.2);
+      this.tweens.add({ targets: b, alpha: 1, scale: 1, duration: 260, delay: i * 40, ease: 'Back.out' });
+    });
+  }
+  dimChoices() { this.choiceBtns.forEach(b => this.tweens.add({ targets: b, alpha: 0.3, duration: 250 })); }
+  buildMeter() {
+    this.meterG = this.add.graphics().setDepth(20);
+    this.flyImgs = range(5).map(i => this.add.image(432 + (i - 2) * 38, 598, 'fly').setDepth(21).setAlpha(0));
+    this.meterText = txt(this, 432, 626, 'Fast answers catch flies', 14, '#E6F7F1', { fontStyle: '600' }).setOrigin(0.5).setDepth(20);
+    this.superBtn = makeButton(this, 432, 610, 220, 48, 'Super Leap!', { fill: P.gold, size: 24, onClick: () => this.trySuper() }).setDepth(30).setVisible(false);
+    this.updateMeter();
+  }
+  updateMeter() {
+    const g = this.meterG, active = this.superLeft > 0, ready = !active && this.flies >= 5;
+    g.clear();
+    this.superBtn.setVisible(ready);
+    this.tweens.killTweensOf(this.superBtn);
+    if (ready) { this.superBtn.setScale(1); this.tweens.add({ targets: this.superBtn, scale: 1.08, duration: 450, yoyo: true, repeat: -1, ease: 'Sine.inOut' }); }
+    for (let i = 0; i < 5; i++) {
+      const x = 432 + (i - 2) * 38, y = 598;
+      if (ready) { this.flyImgs[i].setAlpha(0); continue; }
+      if (active) { g.fillStyle(i < this.superLeft ? P.gold : 0x0B3340, i < this.superLeft ? 1 : 0.35); g.fillPoints(starPts(14, 6.5).map(p => ({ x: p.x + x, y: p.y + y })), true); this.flyImgs[i].setAlpha(0); }
+      else { g.fillStyle(0x0B3340, 0.35); g.fillCircle(x, y, 15); g.lineStyle(2, 0xFFFFFF, 0.5); g.strokeCircle(x, y, 15); this.flyImgs[i].setAlpha(i < this.flies ? 1 : 0); }
+    }
+    this.meterText.setVisible(!ready).setText(active ? `Super Leap: double points for ${this.superLeft} more` : 'Fast answers catch flies');
+  }
+  updateStreak() {
+    const parts = [];
+    if (this.streak > 0) parts.push(`Streak ${this.streak}  x${this.streakMult()}`);
+    if (this.superLeft > 0) parts.push('Super x2');
+    this.streakText.setText(parts.join('   '));
+  }
+  animateScore() {
+    if (this.scoreTween) this.scoreTween.stop();
+    this.scoreTween = this.tweens.add({ targets: this.scoreObj, v: this.score, duration: 600, ease: 'Cubic.out', onUpdate: () => this.scoreText.setText(fmt(this.scoreObj.v)) });
+    this.time.delayedCall(250, () => this.tweens.add({ targets: this.scoreText, scale: 1.15, duration: 110, yoyo: true }));
+  }
+  floatText(x, y, str, color, size = 34, hold = 500) {
+    const t = txt(this, x, y, str, size, color, { stroke: '#FFFFFF', strokeThickness: 7, align: 'center' }).setOrigin(0.5).setDepth(60).setScale(0.4).setAlpha(0);
+    this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 220, ease: 'Back.out' });
+    this.tweens.add({ targets: t, y: y - 50, alpha: 0, duration: 650, delay: hold, ease: 'Quad.in', onComplete: () => t.destroy() });
+    return t;
+  }
+  setRule(str) {
+    this.ruleText.setText(str).setScale(0.7);
+    this.tweens.add({ targets: this.ruleText, scale: 1, duration: 320, ease: 'Back.out' });
+  }
+
+  showTutorial(done) {
+    const k = this.cfg.kind, step = this.cfg.step || 5;
+    const content = {
+      hop: { title: 'How to play', body: `The frog hops by ${step}s, the same jump every time. Where will it land next? Tap the number, or press keys 1 to 4.\n\nFast answers catch flies. Catch 5 flies for a Super Leap: double points!`,
+        build: o => miniRow(this, o, [step, step * 2, step * 3, '?'], '+' + step, -62) },
+      mixed: { title: "What's the jump?", body: 'The frog could be hopping by 2s, 5s, 10s, or 25s. Look at the numbers to find the jump, then keep counting!\n\nFast answers catch flies for a Super Leap.',
+        build: o => miniRow(this, o, [10, 20, 30], '+?', -62) },
+      back: { title: 'Count back', body: 'Now the frog hops backward. Each hop takes away the same amount. Where will it land next?\n\nFast answers catch flies for a Super Leap.',
+        build: o => miniRow(this, o, [50, 40, 30, '?'], '−10', -62) }
+    }[k];
+    showPanel(this, { ...content, color: this.cfg.color, onDone: done });
+  }
+
+  countdown() {
+    ['Ready', 'Set', 'Hop!'].forEach((s, i) => this.time.delayedCall(i * 700, () => {
+      const t = txt(this, 432, 330, s, 96, NAVY, { stroke: '#FFFFFF', strokeThickness: 12 }).setOrigin(0.5).setDepth(90).setScale(2).setAlpha(0);
+      this.tweens.add({ targets: t, scale: 1, alpha: 1, duration: 260, ease: 'Back.out' });
+      this.tweens.add({ targets: t, scale: 0.6, alpha: 0, duration: 240, delay: 430, ease: 'Quad.in', onComplete: () => t.destroy() });
+      i < 2 ? Sfx.tick() : Sfx.go();
+    }));
+    this.time.delayedCall(2100, () => { this.started = true; this.startRun(); });
+  }
+
+  // ---------- Runs ----------
+  hopStart(r) {
+    const s = this.cfg.step;
+    const table = {
+      1: [rnd(5, 8), 10 * rnd(2, 9) - rnd(2, 4), Math.random() < 0.5 ? 100 - rnd(2, 4) : 10 * rnd(11, 19) - rnd(2, 4), Math.random() < 0.5 ? 100 * rnd(2, 9) - rnd(2, 3) : 10 * rnd(21, 99) - rnd(2, 3)],
+      2: [0, 2 * rnd(1, 10), 2 * rnd(5, 30), 2 * rnd(10, 45)],
+      5: [0, 5 * rnd(1, 8), 5 * rnd(4, 20), 5 * rnd(10, 40)],
+      10: [0, 10 * rnd(1, 6), 10 * rnd(3, 15), 10 * rnd(7, 30) + (Math.random() < 0.5 ? rnd(1, 9) : 0)],
+      25: [0, 25 * rnd(1, 3), 25 * rnd(2, 6), 25 * rnd(4, 12)]
+    }[s];
+    return table[Math.min(r, 3)];
+  }
+  startRun() {
+    if (this.over) return;
+    this.runIdx++; this.qInRun = 0;
+    const k = this.cfg.kind;
+    let step, dir = 1, start;
+    if (k === 'hop') { step = this.cfg.step; start = this.hopStart(this.runIdx); this.runLen = 5; }
+    else if (k === 'back') {
+      dir = -1; step = [1, 10, 5, 2, 25][this.runIdx % 5];
+      start = step === 1 ? 10 * rnd(3, 19) + rnd(1, 2) : step === 25 ? 25 * rnd(8, 12) : step * rnd(9, step === 2 ? 30 : 20);
+      this.runLen = 4;
+    } else { step = this.mixedSteps[this.runIdx % 5]; start = this.runIdx < 2 ? 0 : step * rnd(1, 8); this.runLen = 4; }
+    this.step = step; this.dir = dir;
+
+    if (this.run) this.run.fadeOut();
+    let base, fi;
+    if (k === 'mixed') { base = start; fi = 0; }
+    else { const prev = start - step * dir; if (prev >= 0) { base = prev; fi = 1; } else { base = start; fi = 0; } }
+    const anchor = dir > 0 ? 232 : 632;
+    const run = new PondLine(this, { dir, step, base, anchor, padY: 372 });
+    for (let i = 0; i <= fi + 4; i++) { if (run.valueAt(i) < 0) break; run.pad(i, i <= fi); }
+    if (fi === 1) run.arc(0, this.arcLabel(), this.iconStep());
+    run.setFrog(fi); run.c.x = anchor - run.x(fi);
+    run.c.y = 30; run.c.alpha = 0;
+    this.tweens.add({ targets: run.c, y: 0, alpha: 1, duration: 420, delay: 150, ease: 'Cubic.out' });
+    if (this.superLeft > 0) run.frog.paint(true);
+    run.frog.body.setScale(0);
+    this.time.delayedCall(350, () => { this.tweens.add({ targets: run.frog.body, scale: 1, duration: 380, ease: 'Back.out' }); Sfx.plop(); });
+    this.run = run; this.fi = fi;
+
+    if (k === 'mixed') {
+      this.setRule("What's the jump?");
+      this.mixedArcs = [];
+      const hopIntro = (n) => {
+        const from = this.fi;
+        this.mixedArcs.push(run.arc(from, '+?', null));
+        run.hopTo(from + 1, 520, () => {
+          this.fi = from + 1; run.setLabel(this.fi, String(run.valueAt(this.fi)));
+          Sfx.note(this.fi); run.ensure(this.fi + 4); run.scrollTo(this.fi, 380);
+          if (n > 1) this.time.delayedCall(200, () => hopIntro(n - 1)); else this.time.delayedCall(350, () => this.askQuestion());
+        });
+      };
+      this.time.delayedCall(900, () => hopIntro(2));
+    } else {
+      this.setRule(`Counting ${dir < 0 ? 'back ' : ''}by ${step}s`);
+      this.time.delayedCall(800, () => this.askQuestion());
+    }
+  }
+  arcLabel() { return (this.dir > 0 ? '+' : '−') + this.step; }
+  iconStep() { return this.cfg.kind === 'back' ? null : this.step; }
+
+  // ---------- Questions ----------
+  askQuestion() {
+    if (this.over) return;
+    this.q++; this.qInRun++;
+    this.qText.setText(`Question ${this.q} of ${TOTAL}`);
+    const dot = this.dots[this.q - 1];
+    dot.setFillStyle(P.sun, 1);
+    this.tweens.add({ targets: dot, scale: 1.5, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+
+    const run = this.run, c = run.valueAt(this.fi);
+    let type = 'next';
+    if (this.cfg.kind === 'mixed' && this.qInRun === 1) type = 'by';
+    else if (this.cfg.kind === 'hop' && this.runIdx >= 3 && this.qInRun % 2 === 0) type = 'double';
+    this.qType = type;
+    let labels;
+    if (type === 'by') {
+      this.choices = [2, 5, 10, 25]; this.answerVal = this.step;
+      labels = this.choices.map(v => v + 's');
+      this.askText.setText('What are we counting by?');
+    } else {
+      const hops = type === 'double' ? 2 : 1;
+      this.targetIdx = this.fi + hops;
+      run.ensure(this.targetIdx + 3);
+      this.answerVal = run.valueAt(this.targetIdx);
+      run.setTarget(this.targetIdx, true);
+      this.choices = this.genChoices(this.answerVal, c, this.step, this.dir, type === 'double');
+      labels = this.choices.map(String);
+      this.askText.setText(type === 'double' ? 'Two hops! Where will the frog land?' : 'Where will the frog land next?');
+    }
+    this.askText.setAlpha(0); this.tweens.add({ targets: this.askText, alpha: 1, duration: 250 });
+    this.showChoices(labels);
+    this.time.delayedCall(260, () => { if (this.over) return; this.accepting = true; this.qStart = this.time.now; });
+  }
+  genChoices(A, c, s, d, isDouble) {
+    const pool = [];
+    const add = v => { if (v >= 0 && v !== A && v !== c && !pool.includes(v)) pool.push(v); };
+    if (isDouble) { add(c + s * d); add(c + 3 * s * d); add(A + 1); add(A - 1); add(A + 10); add(A - 10); add(A + 5); }
+    else if (s === 1) {
+      if (A % 10 === 0 && d > 0) { add(Number(String(Math.floor(c / 10)) + '10')); add(A - 10); }
+      else if (c % 10 === 0 && d < 0) { add(c - 10); add(A + 10); }
+      add(A + d); add(A + 10 * d); add(A - 10 * d); add(A + 2); add(A - 2); add(A + 11);
+    }
+    else { add(c + d); add(A + s * d); add(A + 1); add(A - 1); add(A + 10); add(A - 10); add(A + 5); add(A - 5); add(c + (s + 1) * d); add(A + 2); add(A - 2); }
+    const pri = pool.slice(0, 2), rest = shuffle(pool.slice(2)), picks = [];
+    pri.forEach(v => { if (Math.random() < 0.75) picks.push(v); });
+    for (const v of [...rest, ...pri]) { if (picks.length >= 3) break; if (!picks.includes(v)) picks.push(v); }
+    return [A, ...picks.slice(0, 3)].sort((a, b) => a - b);
+  }
+  windowSec() { return (this.qType === 'double' ? 9 : 7) - (this.q - 1) * 0.08; }
+  speedPoints(t) { const w = this.windowSec(); if (t <= 1.5) return 100; return Math.max(10, Math.round(100 - 90 * (t - 1.5) / (w - 1.5))); }
+  streakMult() { const s = this.streak; return s >= 10 ? 2.5 : s >= 6 ? 2 : s >= 3 ? 1.5 : 1; }
+  fastSec() { return this.qType === 'double' ? 5.5 : 4; }
+
+  answer(i) {
+    if (!this.accepting || this.over) return;
+    this.accepting = false;
+    const t = (this.time.now - this.qStart) / 1000, btn = this.choiceBtns[i];
+    const dot = this.dots[this.q - 1]; this.tweens.killTweensOf(dot); dot.setScale(1);
+    this.tweens.add({ targets: this.askText, alpha: 0, duration: 200 });
+    if (this.choices[i] === this.answerVal) this.onCorrect(t, btn); else this.onWrong(t, btn);
+  }
+  onCorrect(t, btn) {
+    this.correct++; this.streak++; this.bestStreak = Math.max(this.bestStreak, this.streak);
+    this.times.push(t); if (this.fastest === null || t < this.fastest) this.fastest = t;
+    this.dots[this.q - 1].setFillStyle(P.mint, 1);
+    const sMult = this.superLeft > 0 ? 2 : 1, mult = this.streakMult() * sMult;
+    const lightning = t < 2; if (lightning) this.lightnings++;
+    const pts = Math.round(this.speedPoints(t) * mult * (this.qType === 'double' ? 1.5 : 1)) + (lightning ? 25 * sMult : 0);
+    this.score += pts; this.animateScore();
+    Sfx.correct(this.streak); if (lightning) Sfx.fast();
+    btn.redraw(P.mint);
+    this.tweens.add({ targets: btn, scale: 1.14, duration: 120, yoyo: true, ease: 'Quad.out' });
+    this.burst.explode(18, btn.x, btn.y);
+    this.floatText(btn.x, 452, '+' + pts, NAVY, 36);
+    if (lightning) { this.floatText(432, 170, 'Lightning fast!', '#2E9E6A', 26); this.cameras.main.flash(130, 255, 250, 220); }
+    if ([3, 6, 10].includes(this.streak)) {
+      Sfx.streak(); this.cameras.main.shake(180, 0.005);
+      this.floatText(740, 150, `Streak ${this.streak}!\nx${this.streakMult()}`, '#E8553F', 28);
+    }
+    this.updateStreak();
+    const fast = t <= this.fastSec();
+    this.resolve(true, () => { if (fast && this.superLeft === 0) this.catchFly(); });
+  }
+  onWrong(t, btn) {
+    this.streak = 0; this.times.push(t);
+    this.dots[this.q - 1].setFillStyle(P.coral, 1);
+    this.updateStreak();
+    Sfx.wrong(); this.cameras.main.shake(220, 0.008);
+    btn.redraw(P.coral);
+    const bx = btn.x;
+    this.tweens.add({ targets: btn, x: bx + 8, duration: 50, yoyo: true, repeat: 3, onComplete: () => { btn.x = bx; } });
+    const cb = this.choiceBtns[this.choices.indexOf(this.answerVal)];
+    cb.redraw(P.mint);
+    this.tweens.add({ targets: cb, scale: 1.12, duration: 260, yoyo: true, repeat: 2, ease: 'Sine.inOut' });
+    if (this.superLeft === 0 && this.flies > 0) { this.flies--; this.updateMeter(); }
+    const sign = this.dir > 0 ? '+' : '−';
+    let msg;
+    if (this.qType === 'by') msg = `Each hop is ${sign}${this.step}`;
+    else {
+      const c = this.run.valueAt(this.fi);
+      msg = this.qType === 'double' ? `${c} ${sign} ${this.step} ${sign} ${this.step} = ${this.answerVal}` : `${c} ${sign} ${this.step} = ${this.answerVal}`;
+    }
+    this.floatText(432, 172, msg, '#E8553F', 34, 1500);
+    this.time.delayedCall(600, () => this.resolve(false));
+  }
+
+  resolve(ok, afterLand) {
+    const run = this.run;
+    if (this.qType === 'by') {
+      this.mixedArcs.forEach((a, k) => this.time.delayedCall(k * 220, () => {
+        a.lab.setText(this.arcLabel()).setScale(0.5);
+        this.tweens.add({ targets: a.lab, scale: 1, duration: 260, ease: 'Back.out' });
+        run.addIcon(a, this.step); Sfx.note(k + 2);
+      }));
+      this.time.delayedCall(450, () => this.setRule(`Counting by ${this.step}s`));
+      this.time.delayedCall(700, () => { afterLand && afterLand(); this.nextStep(ok ? 700 : 1300); });
+      return;
+    }
+    run.setTarget(this.targetIdx, false);
+    const dur = ok ? 560 : 720;
+    const doHop = (n) => {
+      const from = this.fi;
+      run.arc(from, this.arcLabel(), this.iconStep());
+      run.hopTo(from + 1, dur, () => {
+        this.hops++; this.fi = from + 1;
+        run.setLabel(this.fi, String(run.valueAt(this.fi)));
+        Sfx.note(this.noteIdx++);
+        run.ensure(this.fi + 4); run.scrollTo(this.fi, 420);
+        if (n > 1) this.time.delayedCall(80, () => doHop(n - 1));
+        else { afterLand && afterLand(); this.nextStep(ok ? 700 : 1300); }
+      }, { onStep: () => { if (this.superLeft > 0 && Math.random() < 0.6) { const w = run.frogWorld(); this.sparkle.explode(1, w.x, w.y - 30); } } });
+    };
+    doHop(this.targetIdx - this.fi);
+  }
+  nextStep(delay) {
+    if (this.superLeft > 0) {
+      this.superLeft--;
+      if (this.superLeft === 0) this.endSuper();
+      this.updateMeter(); this.updateStreak();
+    }
+    this.time.delayedCall(Math.max(150, delay - 300), () => this.dimChoices());
+    this.time.delayedCall(delay, () => {
+      if (this.over) return;
+      if (this.q >= TOTAL) { this.finishRound(); return; }
+      if (this.qInRun >= this.runLen) this.startRun(); else this.askQuestion();
+    });
+  }
+
+  // ---------- Flies and Super Leap ----------
+  catchFly() {
+    const run = this.run, mouth = () => { const w = run.frogWorld(); return { x: w.x + 10 * this.dir, y: w.y - 34 }; };
+    const fly = this.add.image(W + 30, rnd(130, 190), 'fly').setDepth(40).setScale(1.4);
+    Sfx.buzz();
+    const sx = fly.x, sy = fly.y, o = { t: 0 };
+    this.tweens.add({ targets: o, t: 1, duration: 700, ease: 'Sine.out',
+      onUpdate: () => { const m = mouth(), tx = m.x + 80 * this.dir, ty = m.y - 70; fly.x = sx + (tx - sx) * o.t; fly.y = sy + (ty - sy) * o.t + Math.sin(o.t * 22) * 9; },
+      onComplete: () => {
+        const tg = this.add.graphics().setDepth(39), L = { p: 0 };
+        const draw = () => { const m = mouth(); tg.clear(); tg.lineStyle(6, 0xFF6F91, 1); const ex = m.x + (fly.x - m.x) * L.p, ey = m.y + (fly.y - m.y) * L.p; tg.lineBetween(m.x, m.y, ex, ey); tg.fillStyle(0xFF6F91, 1); tg.fillCircle(ex, ey, 6); return { ex, ey }; };
+        Sfx.snap();
+        this.tweens.add({ targets: L, p: 1, duration: 110, ease: 'Quad.out', onUpdate: draw, onComplete: () => {
+          const m = mouth(), fx = fly.x, fy = fly.y;
+          this.tweens.add({ targets: L, p: 0, duration: 160, ease: 'Quad.in',
+            onUpdate: () => { draw(); fly.x = m.x + (fx - m.x) * L.p; fly.y = m.y + (fy - m.y) * L.p; },
+            onComplete: () => {
+              tg.destroy(); fly.destroy(); Sfx.gulp();
+              const b = run.frog.body; this.tweens.add({ targets: b, scaleX: 1.2, scaleY: 0.85, duration: 100, yoyo: true });
+              this.addFly(m.x, m.y);
+            } });
+        } });
+      } });
+  }
+  addFly(x, y) {
+    if (this.superLeft > 0 || this.flies >= 5) return;
+    this.flies++;
+    const lvl = this.flies, slot = this.flyImgs[lvl - 1];
+    const ghost = this.add.image(x, y, 'fly').setDepth(45).setScale(1.2);
+    this.tweens.add({ targets: ghost, x: slot.x, y: slot.y, scale: 1, duration: 420, ease: 'Cubic.in', onComplete: () => {
+      ghost.destroy(); this.burst.explode(6, slot.x, slot.y); Sfx.meterStep(lvl); this.updateMeter();
+      if (lvl >= 5) { this.time.delayedCall(200, () => Sfx.superReady()); this.floatText(432, 560, 'Super Leap ready!', '#B8860B', 22); }
+    } });
+  }
+  trySuper() {
+    if (this.flies < 5 || this.superLeft > 0 || this.over || !this.started) return;
+    this.flies = 0; this.superLeft = 5; this.superUses++;
+    Sfx.superLeap();
+    this.cameras.main.flash(350, 255, 235, 150); this.cameras.main.shake(300, 0.01);
+    this.tweens.add({ targets: this.warm, alpha: 0.12, duration: 500 });
+    if (this.run) { this.run.frog.paint(true); const w = this.run.frogWorld(); this.burst.explode(40, w.x, w.y - 30); }
+    const b = txt(this, 432, 300, 'Super Leap!\nDouble points', 56, NAVY, { stroke: '#FFD54A', strokeThickness: 12, align: 'center' })
+      .setOrigin(0.5).setDepth(95).setScale(0.3).setAlpha(0);
+    this.tweens.add({ targets: b, scale: 1, alpha: 1, duration: 350, ease: 'Back.out' });
+    this.tweens.add({ targets: b, alpha: 0, y: 260, duration: 400, delay: 1000, onComplete: () => b.destroy() });
+    this.updateMeter(); this.updateStreak();
+  }
+  endSuper() {
+    Sfx.superEnd();
+    this.tweens.add({ targets: this.warm, alpha: 0, duration: 800 });
+    if (this.run) this.run.frog.paint(false);
+  }
+
+  finishRound() {
+    this.over = true; this.accepting = false;
+    Sfx.whoosh();
+    this.tweens.add({ targets: [...this.choiceBtns, this.ruleText, this.askText], alpha: 0, duration: 500 });
+    if (this.run) this.run.fadeOut();
+    const t = this.times;
+    const stats = {
+      level: this.lv, score: this.score, correct: this.correct, total: TOTAL,
+      avg: t.length ? t.reduce((a, b) => a + b, 0) / t.length : 0,
+      bestStreak: this.bestStreak, fastest: this.fastest, superUses: this.superUses, hops: this.hops
+    };
+    this.time.delayedCall(700, () => {
+      this.cameras.main.fadeOut(450);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('End', stats));
+    });
+  }
+}
+
+// ================================================================
+class EndScene extends Phaser.Scene {
+  constructor() { super('End'); }
+  init(d) { this.s = d; }
+  create() {
+    const s = this.s, cam = this.cameras.main, cfg = LEVELS[s.level];
+    cam.fadeIn(500);
+    drawPond(this); makeFx(this);
+    const acc = s.correct / s.total, stars = acc >= 0.9 ? 3 : acc >= 0.7 ? 2 : 1;
+    const prevBest = Store.get('best_' + s.level, 0), isRecord = s.score > prevBest;
+    if (isRecord) Store.set('best_' + s.level, s.score);
+    if (stars > Store.get('stars_' + s.level, 0)) Store.set('stars_' + s.level, stars);
+
+    const conf = this.add.particles(0, 0, 'spark', {
+      x: { min: 0, max: W }, y: -10, speedY: { min: 80, max: 220 }, speedX: { min: -40, max: 40 }, rotate: { min: 0, max: 360 },
+      lifespan: 4000, scale: { start: 1.2, end: 0.6 }, tint: [P.sun, P.coral, P.mint, 0x6FC3FF, 0xC9A0FF], frequency: 35, quantity: 2
+    }).setDepth(3);
+    this.time.delayedCall(2600, () => conf.stop());
+
+    const head = txt(this, W / 2, 70, ['', 'Nice hopping!', 'Great job!', 'Amazing!'][stars], 62, NAVY, { stroke: '#FFFFFF', strokeThickness: 12 }).setOrigin(0.5).setScale(0).setDepth(20);
+    this.tweens.add({ targets: head, scale: 1, duration: 600, ease: 'Back.out', delay: 200,
+      onComplete: () => this.tweens.add({ targets: head, y: 64, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.inOut' }) });
+    const sub = txt(this, W / 2, 120, `${cfg.name} complete`, 20, '#2A4A5A', { fontStyle: '600', stroke: '#FFFFFF', strokeThickness: 4 }).setOrigin(0.5).setAlpha(0).setDepth(20);
+    this.tweens.add({ targets: sub, alpha: 1, duration: 500, delay: 500 });
+    this.time.delayedCall(450, () => { Sfx.fanfare(); cam.flash(250, 255, 245, 200); });
+
+    for (let i = 0; i < 3; i++) {
+      const x = W / 2 + (i - 1) * 96, y = 182;
+      const bg = this.add.graphics().setPosition(x, y).setDepth(20);
+      bg.fillStyle(0x0B3340, 0.25); bg.fillPoints(starPts(38, 17), true);
+      if (i < stars) {
+        const st = this.add.graphics().setPosition(x, y).setScale(0).setDepth(21);
+        st.fillStyle(P.sun, 1); st.fillPoints(starPts(38, 17), true);
+        st.fillStyle(0xFFFFFF, 0.4); st.fillPoints(starPts(20, 9).map(p => ({ x: p.x - 6, y: p.y - 6 })), true);
+        this.time.delayedCall(900 + i * 420, () => {
+          Sfx.star(i); this.burst.explode(26, x, y); cam.shake(120, 0.004);
+          this.tweens.add({ targets: st, scale: 1, angle: 360, duration: 500, ease: 'Back.out' });
+        });
+      }
+    }
+
+    const pg = this.add.graphics().setDepth(20);
+    pg.fillStyle(0x0B3340, 0.3); pg.fillRoundedRect(W / 2 - 250, 244, 500, 248, 24);
+    pg.fillStyle(P.cream, 0.97); pg.fillRoundedRect(W / 2 - 250, 238, 500, 248, 24);
+    pg.lineStyle(4, cfg.color, 1); pg.strokeRoundedRect(W / 2 - 250, 238, 500, 248, 24);
+    const rows = [
+      ['Score', fmt(s.score)],
+      ['Correct', `${s.correct} of ${s.total}`],
+      ['Average speed', s.avg.toFixed(1) + ' sec'],
+      ['Best streak', String(s.bestStreak)],
+      ['Total hops', String(s.hops)],
+      ['Super Leaps', String(s.superUses)]
+    ];
+    rows.forEach((r, i) => {
+      const y = 270 + i * 37;
+      const l = txt(this, W / 2 - 220, y, r[0], 21, '#2A4A5A', { fontStyle: '600' }).setOrigin(0, 0.5).setAlpha(0).setDepth(21);
+      const v = txt(this, W / 2 + 220, y, i === 0 ? '0' : r[1], i === 0 ? 28 : 21, NAVY).setOrigin(1, 0.5).setAlpha(0).setDepth(21);
+      [l, v].forEach(o => { o.x -= 20; this.tweens.add({ targets: o, alpha: 1, x: o.x + 20, duration: 350, delay: 600 + i * 90, ease: 'Cubic.out' }); });
+      if (i === 0) { const o = { v: 0 }; this.tweens.add({ targets: o, v: s.score, duration: 1300, delay: 700, ease: 'Cubic.out', onUpdate: () => v.setText(fmt(o.v)) }); }
+    });
+
+    if (isRecord && s.score > 0) {
+      this.time.delayedCall(1000 + stars * 420, () => {
+        const c = this.add.container(W / 2 + 232, 172).setDepth(60).setAngle(-12).setScale(3).setAlpha(0);
+        const g = this.add.graphics(); g.fillStyle(P.coral, 1); g.fillRoundedRect(-80, -26, 160, 52, 26);
+        c.add([g, txt(this, 0, -2, 'New best!', 26, '#FFFFFF').setOrigin(0.5)]);
+        this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 320, ease: 'Back.out', onComplete: () => {
+          Sfx.record(); cam.shake(250, 0.01); this.burst.explode(40, c.x, c.y);
+          this.tweens.add({ targets: c, scale: 1.08, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+        } });
+      });
+    }
+
+    const again = makeButton(this, W / 2 - 115, 556, 210, 62, 'Play again', { fill: P.sun, size: 28, onClick: () => this.leave('Game', { level: s.level }) });
+    const pick = makeButton(this, W / 2 + 115, 556, 210, 62, 'Pick level', { fill: P.cream, size: 28, onClick: () => this.leave('Levels') });
+    [again, pick].forEach((b, i) => { b.setAlpha(0).setDepth(30); b.y += 30; this.tweens.add({ targets: b, alpha: 1, y: 556, duration: 450, delay: 1500 + i * 100, ease: 'Back.out' }); });
+    addMuteToggle(this, 800, 618);
+  }
+  leave(scene, data) {
+    this.input.enabled = false;
+    this.cameras.main.fadeOut(350);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(scene, data));
+  }
+}
+
+// ================================================================
+//  CLASS CHANT — a rhythm chant-along for the whole class
+// ================================================================
+class ChantScene extends Phaser.Scene {
+  constructor() { super('Chant'); }
+  init(d) { this.presetStep = d && d.step ? d.step : null; }
+  create() {
+    this.cameras.main.fadeIn(400);
+    drawPond(this); makeFx(this);
+    this.paused = false; this.done = false;
+    this.quitBtn = makeButton(this, 70, 618, 116, 36, 'Levels', { fill: P.navy, textColor: '#FFF8E7', size: 18, onClick: () => this.leave('Levels') }).setDepth(40);
+    addMuteToggle(this, 800, 618);
+    if (this.presetStep) this.time.delayedCall(300, () => this.startChant(this.presetStep));
+    else this.buildSetup();
+  }
+  leave(scene, data) {
+    if (this.beatEvt) this.beatEvt.remove();
+    this.time.paused = false; this.tweens.resumeAll();
+    this.input.enabled = false;
+    this.cameras.main.fadeOut(300);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(scene, data));
+  }
+  buildSetup() {
+    const s = this.add.container(0, 0).setDepth(20); this.setup = s;
+    const title = txt(this, 432, 76, 'Class Chant', 56, NAVY, { stroke: '#FFFFFF', strokeThickness: 10 }).setOrigin(0.5);
+    const sub = txt(this, 432, 146, 'Chant each number as the frog lands.\nWhen you see a ?, shout the missing number!', 24, '#2A4A5A', { fontStyle: '600', align: 'center', stroke: '#FFFFFF', strokeThickness: 5, lineSpacing: 4 }).setOrigin(0.5);
+    s.add([title, sub]);
+    [1, 2, 5, 10, 25].forEach((step, i) => {
+      const b = makeButton(this, 432 + (i - 2) * 162, 330, 150, 172, `By ${step}s`, { fill: P.cream, size: 30, onClick: () => this.startChant(step) });
+      b.label.y = 36;
+      b.add(makeIcon(this, step).setPosition(0, -32).setScale(1.5));
+      const top = CHANT[step];
+      b.add(txt(this, 0, 68, step === 1 ? `${top.start} to ${top.top}` : `to ${top.top}`, 17, '#4A6B78', { fontStyle: '600' }).setOrigin(0.5));
+      s.add(b);
+      b.setAlpha(0); b.y += 40;
+      this.tweens.add({ targets: b, alpha: 1, y: 330, duration: 450, delay: 150 + i * 80, ease: 'Back.out' });
+    });
+    s.add(txt(this, 432, 476, 'Five rounds: chant along, fill the gaps, every other one, your turn, then count back down.', 18, '#E6F7F1', { fontStyle: '600', align: 'center', wordWrap: { width: 640 } }).setOrigin(0.5));
+  }
+  startChant(step) {
+    Sfx.init();
+    if (this.setup) { const s = this.setup; this.setup = null; this.tweens.add({ targets: s, alpha: 0, duration: 300, onComplete: () => s.destroy(true) }); }
+    this.step = step; this.startVal = CHANT[step].start; this.topVal = CHANT[step].top; this.len = (this.topVal - this.startVal) / step;
+    this.phases = [
+      { name: 'Chant along', bpm: 80, hide: () => false },
+      { name: 'Fill the gaps', bpm: 86, hide: b => b % 3 === 2 },
+      { name: 'Every other one', bpm: 92, hide: b => b % 2 === 1 },
+      { name: 'Your turn!', bpm: 96, hide: () => true },
+      { name: 'Count back down', bpm: 88, hide: b => b % 3 === 2, down: true }
+    ];
+    const L = new PondLine(this, { dir: 1, step, base: this.startVal, anchor: 250, padY: 392 });
+    for (let i = 0; i <= this.len; i++) L.pad(i, i === 0);
+    L.setFrog(0); L.c.x = 250; L.c.alpha = 0;
+    this.tweens.add({ targets: L.c, alpha: 1, duration: 500, delay: 200 });
+    this.line = L;
+
+    this.phaseText = txt(this, 432, 46, '', 28, NAVY, { stroke: '#FFFFFF', strokeThickness: 6 }).setOrigin(0.5).setDepth(30);
+    this.pips = this.phases.map((p, i) => this.add.circle(432 + (i - 2) * 22, 80, 6, P.navy, 0.2).setDepth(30));
+    this.big = txt(this, 432, 168, '', 130, NAVY, { stroke: '#FFFFFF', strokeThickness: 14 }).setOrigin(0.5).setDepth(30);
+    this.beatDots = range(4).map(i => this.add.circle(432 + (i - 1.5) * 28, 496, 8, 0xFFFFFF, 0.3).setDepth(30));
+    this.pauseBtn = makeButton(this, 432, 572, 160, 46, 'Pause', { fill: P.sun, size: 22, onClick: () => this.togglePause() }).setDepth(40);
+    this.time.delayedCall(700, () => this.startPhase(0));
+  }
+  togglePause() {
+    if (this.done) return;
+    this.paused = !this.paused;
+    this.time.paused = this.paused;
+    if (this.paused) this.tweens.pauseAll(); else this.tweens.resumeAll();
+    this.pauseBtn.label.setText(this.paused ? 'Resume' : 'Pause');
+    this.pauseBtn.setScale(1);
+  }
+  setBig(str, color = NAVY, size = 130) {
+    this.big.setText(str).setColor(color).setFontSize(size).setScale(1.3);
+    this.tweens.add({ targets: this.big, scale: 1, duration: 180, ease: 'Back.out' });
+  }
+  startPhase(pi) {
+    const ph = this.phases[pi], L = this.line;
+    this.pi = pi; this.ph = ph; this.beatMs = 60000 / ph.bpm;
+    this.pips.forEach((p, i) => p.setFillStyle(i < pi ? P.mint : i === pi ? P.sun : P.navy, i <= pi ? 1 : 0.2));
+    this.phaseText.setText(ph.name).setScale(0.6);
+    this.tweens.add({ targets: this.phaseText, scale: 1, duration: 350, ease: 'Back.out' });
+    this.setBig('Get ready', NAVY, 64);
+    if (ph.down) {
+      for (let i = 0; i < this.len; i++) L.pads[i].label.setText('');
+      L.setLabel(this.len, String(this.topVal));
+      L.frog.face(-1); L.anchor = 620; L.scrollTo(this.len, 600);
+      this.seq = range(this.len).map(k => this.len - 1 - k);
+    } else {
+      for (let i = 1; i <= this.len; i++) L.pads[i].label.setText('');
+      L.setLabel(0, String(this.startVal)); L.frog.face(1); L.anchor = 250;
+      if (L.fi !== 0) {
+        this.tweens.add({ targets: L.frog, alpha: 0, duration: 200, onComplete: () => {
+          L.scrollTo(0, 650); Sfx.whoosh();
+          this.time.delayedCall(650, () => { L.setFrog(0); L.frog.alpha = 1; L.frog.body.setScale(0); this.tweens.add({ targets: L.frog.body, scale: 1, duration: 300, ease: 'Back.out' }); L.splashAt(0); });
+        } });
+      }
+      this.seq = range(this.len).map(k => k + 1);
+    }
+    this.beat = -4;
+    if (this.beatEvt) this.beatEvt.remove();
+    this.time.delayedCall(1100, () => { this.beatEvt = this.time.addEvent({ delay: this.beatMs, loop: true, callback: () => this.onBeat() }); });
+  }
+  onBeat() {
+    const b = this.beat++, L = this.line;
+    Sfx.kick();
+    if (b % 2 !== 0) Sfx.clap(); else Sfx.hat();
+    const dotI = ((b % 4) + 4) % 4;
+    this.beatDots.forEach((d, i) => { d.setFillStyle(i === dotI ? P.sun : 0xFFFFFF, i === dotI ? 1 : 0.3); });
+    this.tweens.add({ targets: this.beatDots[dotI], scale: 1.5, duration: 90, yoyo: true });
+    if (b < 0) {
+      Sfx.tick();
+      this.setBig(['Ready', 'Ready', 'Set', 'Go!'][b + 4], NAVY, 72);
+      return;
+    }
+    if (b >= this.seq.length) { this.beatEvt.remove(); this.beatEvt = null; this.phaseDone(); return; }
+    const i = this.seq[b], val = this.startVal + i * this.step, hidden = this.ph.hide(b);
+    if (hidden) { this.setBig('?', '#E8553F'); Sfx.chantQ(); }
+    else { this.setBig(String(val)); Sfx.note(this.ph.down ? this.len - b : b); }
+    const bm = this.beatMs;
+    L.hopTo(i, bm * 0.55, () => {
+      L.scrollTo(i, bm * 0.35);
+      L.setLabel(i, hidden ? '?' : String(val), hidden ? '#E8553F' : '#1E4D22');
+    }, { quiet: true, h: 80 });
+    if (hidden) this.time.delayedCall(bm * 0.6, () => {
+      this.setBig(String(val), '#2E9E6A'); L.setLabel(i, String(val)); Sfx.ding(b);
+      const w = L.c.x + L.x(i); this.sparkle.explode(8, w, L.padY - 10);
+    });
+  }
+  phaseDone() {
+    Sfx.phaseWin();
+    this.setBig(['Great!', 'Nice!', 'Super!', 'Wow!', 'Yes!'][this.pi], '#2E9E6A', 96);
+    this.burst.explode(30, 432, 170);
+    if (this.pi < this.phases.length - 1) this.time.delayedCall(1500, () => this.startPhase(this.pi + 1));
+    else this.time.delayedCall(1200, () => this.finale());
+  }
+  finale() {
+    this.done = true;
+    const cam = this.cameras.main;
+    Sfx.fanfare(); cam.flash(300, 255, 245, 200); cam.shake(250, 0.008);
+    this.pips.forEach(p => p.setFillStyle(P.mint, 1));
+    const conf = this.add.particles(0, 0, 'spark', {
+      x: { min: 0, max: W }, y: -10, speedY: { min: 80, max: 220 }, speedX: { min: -40, max: 40 },
+      lifespan: 4000, scale: { start: 1.2, end: 0.6 }, tint: [P.sun, P.coral, P.mint, 0x6FC3FF, 0xC9A0FF], frequency: 30, quantity: 2
+    }).setDepth(80);
+    this.time.delayedCall(2500, () => conf.stop());
+    [this.big, this.phaseText, this.pauseBtn, ...this.beatDots].forEach(o => this.tweens.add({ targets: o, alpha: 0, duration: 300 }));
+    const o = this.add.container(432, 250).setDepth(90).setAlpha(0).setScale(0.8);
+    const g = this.add.graphics();
+    g.fillStyle(0x0B3340, 0.3); g.fillRoundedRect(-290, -116, 580, 230, 28);
+    g.fillStyle(P.cream, 1); g.fillRoundedRect(-290, -124, 580, 230, 28);
+    g.lineStyle(5, P.sun, 1); g.strokeRoundedRect(-290, -124, 580, 230, 28);
+    o.add([g,
+      txt(this, 0, -76, 'Great chanting!', 50, NAVY).setOrigin(0.5),
+      txt(this, 0, -22, `You counted by ${this.step}s up to ${this.topVal}\nand back down to ${this.startVal}!`, 24, '#2A4A5A', { fontStyle: '600', align: 'center' }).setOrigin(0.5)]);
+    const b1 = makeButton(this, -180, 56, 170, 54, 'Chant again', { fill: P.sun, size: 22, onClick: () => this.leave('Chant', { step: this.step }) });
+    const b2 = makeButton(this, 0, 56, 170, 54, 'New count', { fill: P.mint, size: 22, onClick: () => this.leave('Chant', {}) });
+    const b3 = makeButton(this, 180, 56, 170, 54, 'Levels', { fill: P.cream, size: 22, onClick: () => this.leave('Levels') });
+    o.add([b1, b2, b3]);
+    this.tweens.add({ targets: o, alpha: 1, scale: 1, duration: 450, ease: 'Back.out' });
+    for (let k = 0; k < 3; k++) this.time.delayedCall(300 + k * 300, () => this.burst.explode(30, rnd(150, 714), rnd(120, 300)));
+  }
+}
+
+// ================================================================
+const config = {
+  type: Phaser.AUTO, parent: 'game', width: W, height: H, backgroundColor: '#63C6D1',
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  scene: [BootScene, TitleScene, LevelsScene, GameScene, EndScene, ChantScene]
+};
+const fontsReady = document.fonts ? Promise.all([document.fonts.load('700 40px "Fredoka"'), document.fonts.load('500 20px "Fredoka"')]) : Promise.resolve();
+Promise.race([fontsReady, new Promise(r => setTimeout(r, 2500))]).then(() => new Phaser.Game(config));
+</script>
+</body>
+</html>
