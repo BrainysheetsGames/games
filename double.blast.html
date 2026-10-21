@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Double Blast!</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Lilita+One&display=swap" rel="stylesheet">
+<style>
+:root{
+  --page:#d9d4f2;
+  color-scheme: light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --page:#0b0820; color-scheme: dark; }
+}
+:root[data-theme="dark"]{ --page:#0b0820; color-scheme: dark; }
+html{ height:100%; scroll-padding-top:env(safe-area-inset-top,0px); }
+body{ height:100%; margin:0; background:var(--page); overflow:hidden; touch-action:none; -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+#game{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+canvas{ display:block; border-radius:12px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+</head>
+<body>
+<div id="game"></div>
+<script>
+/* =========================================================
+   DOUBLE BLAST!  —  doubles +1 and doubles +2 fact practice
+   ========================================================= */
+const W = 864, H = 646, GROUND = 452, PANEL_Y = 486;
+const FONT_D = '"Lilita One", "Arial Rounded MT Bold", "Trebuchet MS", sans-serif';
+const FONT_B = '"Baloo 2", "Trebuchet MS", Verdana, sans-serif';
+const C = {
+  cyan:0x44e0ff, cyanDark:0x1f8fb0, gold:0xffd23f, pink:0xff5fa2, pinkDark:0xb83a74,
+  orange:0xff8a3d, green:0x3ddc84, greenDark:0x239a5a, red:0xff4d6d, redDark:0xb02a46,
+  panel:0x1a1442, deep:0x0d0926, purple:0x3a2f7a, purpleDark:0x271f58, dim:0x2a2458, dimDark:0x1e1945
+};
+const MODE_LABEL = { plus1:'Doubles +1', plus2:'Doubles +2', mixed:'Doubles +1 and +2' };
+const UPGRADES = {
+  twin:   { name:'Twin Cannons', desc:'Two more cannons join your base. Every blast is worth 50% more points!' },
+  shield: { name:'Extra Shield', desc:'Your base can now hold 4 shields.' },
+  core:   { name:'Power Core',   desc:'Twin Power charges faster with every right answer.' },
+  tractor:{ name:'Tractor Beam', desc:'A tractor beam makes every meteor fall more slowly.' }
+};
+
+/* ---------- storage ---------- */
+const Store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+
+/* ---------- sound (Web Audio, all synthesized) ---------- */
+class SFX {
+  constructor(){ this.ctx = null; this.muted = Store.get('db_muted', false); }
+  ensure(){
+    try{
+      if(!this.ctx){
+        const AC = window.AudioContext || window.webkitAudioContext; if(!AC) return;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain(); this.master.gain.value = 0.45; this.master.connect(this.ctx.destination);
+        const len = this.ctx.sampleRate;
+        this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = this.noiseBuf.getChannelData(0); for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+      }
+      if(this.ctx.state === 'suspended') this.ctx.resume();
+    }catch(e){}
+  }
+  ok(){ return this.ctx && !this.muted; }
+  tone(f, dur, o={}){
+    if(!this.ok()) return;
+    const { type='sine', vol=0.25, to=null, delay=0, attack=0.01 } = o;
+    const c = this.ctx, t = c.currentTime + delay;
+    const osc = c.createOscillator(), g = c.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(f, t);
+    if(to) osc.frequency.exponentialRampToValueAtTime(to, t+dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t+attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    osc.connect(g); g.connect(this.master); osc.start(t); osc.stop(t+dur+0.05);
+  }
+  noise(dur, o={}){
+    if(!this.ok()) return;
+    const { vol=0.3, freq=1200, to=null, delay=0, type='lowpass', q=1 } = o;
+    const c = this.ctx, t = c.currentTime + delay;
+    const s = c.createBufferSource(); s.buffer = this.noiseBuf;
+    const f = c.createBiquadFilter(); f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(freq, t); if(to) f.frequency.exponentialRampToValueAtTime(to, t+dur);
+    const g = c.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    s.connect(f); f.connect(g); g.connect(this.master); s.start(t); s.stop(t+dur+0.05);
+  }
+  click(){ this.tone(660,0.08,{type:'triangle',vol:0.16,to:880}); }
+  select(){ this.tone(520,0.1,{type:'triangle',vol:0.2,to:780}); this.tone(1040,0.08,{vol:0.08,delay:0.04}); }
+  laser(){ this.tone(1400,0.18,{type:'sawtooth',vol:0.1,to:220}); this.tone(900,0.12,{type:'square',vol:0.04,to:300}); }
+  boom(){ this.noise(0.45,{vol:0.45,freq:2400,to:120}); this.tone(140,0.35,{vol:0.32,to:40}); }
+  correct(streak){
+    const b = 523.25*Math.pow(2, Math.min(streak,12)/12);
+    this.tone(b,0.12,{type:'triangle',vol:0.22}); this.tone(b*1.5,0.2,{type:'triangle',vol:0.18,delay:0.07});
+  }
+  wrong(){ this.tone(220,0.22,{type:'square',vol:0.1,to:150}); this.tone(233,0.22,{type:'square',vol:0.08,to:140,delay:0.02}); }
+  hit(){ this.noise(0.7,{vol:0.6,freq:900,to:60}); this.tone(90,0.6,{vol:0.5,to:30}); this.tone(300,0.3,{type:'sawtooth',vol:0.08,to:60}); }
+  powerReady(){ [523,659,784,1047].forEach((f,i)=>this.tone(f,0.18,{type:'triangle',vol:0.18,delay:i*0.07})); }
+  powerBlast(){ this.tone(200,1.0,{type:'sawtooth',vol:0.16,to:1600}); this.noise(1.2,{vol:0.45,freq:400,to:6000,type:'bandpass',q:0.8}); this.tone(60,1.2,{vol:0.5,to:30,delay:0.3}); }
+  streak(){ [784,988,1175,1568].forEach((f,i)=>this.tone(f,0.14,{type:'square',vol:0.07,delay:i*0.06})); }
+  waveStart(){ this.tone(330,0.25,{type:'triangle',vol:0.2,to:660}); this.tone(495,0.3,{type:'triangle',vol:0.12,to:990,delay:0.1}); }
+  waveClear(){ [523,659,784,659,784,1047].forEach((f,i)=>this.tone(f,0.2,{type:'triangle',vol:0.2,delay:i*0.09})); }
+  upgrade(){ [392,523,659,784,1047,1319].forEach((f,i)=>this.tone(f,0.25,{vol:0.18,delay:i*0.06})); this.noise(0.6,{vol:0.08,freq:3000,to:8000,type:'highpass'}); }
+  shieldUp(){ this.tone(440,0.3,{vol:0.2,to:880}); this.tone(660,0.3,{vol:0.1,to:1320,delay:0.08}); }
+  lose(){ [392,349,311,262].forEach((f,i)=>this.tone(f,0.4,{type:'triangle',vol:0.2,delay:i*0.22})); this.tone(65,1.2,{vol:0.3,delay:0.9}); }
+  win(){ const n=[523,659,784,1047,784,1047,1319]; n.forEach((f,i)=>{ this.tone(f,0.3,{type:'triangle',vol:0.2,delay:i*0.12}); this.tone(f/2,0.3,{vol:0.1,delay:i*0.12}); }); }
+  tick(){ this.tone(1200,0.04,{type:'square',vol:0.05}); }
+  whoosh(){ this.noise(0.35,{vol:0.1,freq:300,to:3000,type:'bandpass',q:2}); }
+  stamp(){ this.noise(0.25,{vol:0.35,freq:1500,to:200}); this.tone(180,0.25,{vol:0.3,to:70}); }
+  star(i){ this.tone(784*Math.pow(1.26,i),0.25,{type:'triangle',vol:0.2}); this.tone(1568*Math.pow(1.26,i),0.2,{vol:0.07,delay:0.05}); }
+}
+const sfx = new SFX();
+['pointerdown','touchend','keydown'].forEach(ev => window.addEventListener(ev, () => sfx.ensure(), { passive:true }));
+
+/* ---------- shared helpers ---------- */
+function T(scene, x, y, str, size, color='#ffffff', extra={}){
+  const style = Object.assign({ fontFamily:FONT_B, fontSize:size+'px', fontStyle:'800', color, resolution:2 }, extra);
+  return scene.add.text(x, y, str, style);
+}
+function shieldPts(s){ return [{x:-s,y:-s},{x:s,y:-s},{x:s,y:s*0.1},{x:0,y:s*1.1},{x:-s,y:s*0.1}]; }
+function fmtTime(sec){ sec = Math.max(0, Math.floor(sec)); return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`; }
+function starPts(r1, r2){ const p=[]; for(let i=0;i<10;i++){ const r=i%2?r2:r1, a=-Math.PI/2+i*Math.PI/5; p.push({x:Math.cos(a)*r, y:Math.sin(a)*r}); } return p; }
+
+function makeButton(scene, x, y, w, h, label, opts={}){
+  const { fill=C.pink, shade=C.pinkDark, text='#ffffff', size=26, font=FONT_B, radius=16, onDown=null } = opts;
+  const c = scene.add.container(x, y);
+  const g = scene.add.graphics();
+  const t = scene.add.text(0, -2, label, { fontFamily:font, fontSize:size+'px', fontStyle: font===FONT_B ? '800' : 'normal', color:text, align:'center', resolution:2 }).setOrigin(0.5);
+  c.add([g, t]); c.g = g; c.t = t; c.baseX = x; c.enabled = true;
+  const r = Math.min(radius, h/2);
+  c.paint = (f=fill, s=shade, border=null) => {
+    g.clear();
+    if(border){ g.fillStyle(border,1); g.fillRoundedRect(-w/2-5,-h/2-5,w+10,h+16,r+4); }
+    g.fillStyle(s,1); g.fillRoundedRect(-w/2,-h/2+6,w,h,r);
+    g.fillStyle(f,1); g.fillRoundedRect(-w/2,-h/2,w,h,r);
+    g.fillStyle(0xffffff,0.18); g.fillRoundedRect(-w/2+8,-h/2+5,w-16,h*0.32,Math.min(10,h*0.16));
+  };
+  c.paint();
+  c.setSize(w, h+8).setInteractive({ useHandCursor:true });
+  c.on('pointerdown', () => {
+    if(!c.enabled) return;
+    sfx.ensure();
+    scene.tweens.add({ targets:c, scale:0.92, duration:70, yoyo:true, ease:'Quad.easeOut' });
+    if(onDown) onDown(c);
+  });
+  return c;
+}
+
+function makeIcon(scene, x, y, draw, onDown){
+  const c = scene.add.container(x, y);
+  const bg = scene.add.graphics(); bg.fillStyle(C.purple,0.9); bg.fillCircle(0,0,17);
+  const ig = scene.add.graphics();
+  c.add([bg, ig]);
+  c.redraw = () => { ig.clear(); draw(ig); };
+  c.redraw();
+  c.setSize(40,40).setInteractive({ useHandCursor:true });
+  c.on('pointerdown', () => { sfx.ensure(); sfx.click(); scene.tweens.add({targets:c, scale:0.85, duration:70, yoyo:true}); onDown(); });
+  return c;
+}
+function drawSpeaker(g){
+  g.fillStyle(0xffffff,1);
+  g.fillRect(-9,-4,5,8);
+  g.fillPoints([{x:-4,y:-4},{x:3,y:-10},{x:3,y:10},{x:-4,y:4}], true);
+  if(sfx.muted){ g.lineStyle(3,C.pink,1); g.lineBetween(6,-5,12,5); g.lineBetween(12,-5,6,5); }
+  else { g.lineStyle(2,0xffffff,1); g.beginPath(); g.arc(4,0,6,-0.9,0.9); g.strokePath(); g.beginPath(); g.arc(4,0,10,-0.9,0.9); g.strokePath(); }
+}
+
+function drawRock(g, r){
+  const pts=[]; const n=11;
+  for(let i=0;i<n;i++){ const a=i/n*Math.PI*2, rr=r*(0.88+Math.random()*0.14); pts.push({x:Math.cos(a)*rr, y:Math.sin(a)*rr}); }
+  g.fillStyle(0x5a3d63,1); g.fillPoints(pts,true);
+  g.fillStyle(0x76527f,1); g.fillCircle(-r*0.12,-r*0.15,r*0.64);
+  g.fillStyle(0x4a3052,1); g.fillCircle(r*0.38,r*0.22,r*0.17); g.fillCircle(-r*0.42,r*0.36,r*0.12); g.fillCircle(r*0.12,-r*0.52,r*0.1);
+  g.lineStyle(3,C.orange,0.65); g.strokePoints(pts,true);
+}
+
+function drawSpaceBackground(scene, starLimit=H){
+  const g = scene.add.graphics().setDepth(0);
+  g.fillGradientStyle(0x120c33,0x120c33,0x3a1d5e,0x2b1a55,1); g.fillRect(0,0,W,H);
+  [[170,170,C.pink],[690,280,C.cyan],[420,80,0x8a5cff]].forEach(([x,y,c]) =>
+    scene.add.image(x,y,'soft').setTint(c).setScale(9).setAlpha(0.11).setBlendMode(Phaser.BlendModes.ADD).setDepth(0));
+  const p = scene.add.graphics().setDepth(1);
+  p.fillStyle(0x4b2f7a,1); p.fillCircle(742,118,44); p.fillStyle(0x5d3c92,1); p.fillCircle(730,106,32);
+  p.lineStyle(4,C.gold,0.45); p.strokeEllipse(742,122,136,28);
+  for(let i=0;i<90;i++){
+    const s = scene.add.image(Phaser.Math.Between(0,W), Phaser.Math.Between(0,starLimit), 'star')
+      .setDepth(1).setAlpha(Phaser.Math.FloatBetween(0.3,1)).setScale(Phaser.Math.FloatBetween(0.5,1.6));
+    scene.tweens.add({ targets:s, alpha:0.12, duration:Phaser.Math.Between(800,2400), yoyo:true, repeat:-1, delay:Phaser.Math.Between(0,2000), ease:'Sine.easeInOut' });
+  }
+}
+
+/* Cube-tower model: matching cubes (the double) in cyan, the extra cubes in gold */
+function buildTowers(scene, a, b, size, animate=true){
+  const c = scene.add.container(0,0);
+  const gap = Math.max(2, Math.round(size*0.22));
+  const small = Math.min(a,b), maxN = Math.max(a,b);
+  const width = maxN*(size+gap)-gap;
+  const sx = -width/2 + size/2;
+  [a,b].forEach((n, r) => {
+    const y = (r===0 ? -1 : 1) * (size+gap)/2;
+    c.add(T(scene, -width/2-10, y, String(n), Math.round(size*1.1), '#cfc8ff').setOrigin(1,0.5));
+    for(let j=0;j<n;j++){
+      const cube = scene.add.rectangle(sx + j*(size+gap), y, size, size, j<small ? C.cyan : C.gold).setStrokeStyle(2,0xffffff,0.35);
+      c.add(cube);
+      if(animate){ cube.setScale(0); scene.tweens.add({ targets:cube, scale:1, duration:260, delay:120+(r*maxN+j)*35, ease:'Back.easeOut' }); }
+    }
+  });
+  return c;
+}
+/* "6 + 7 = 6 + 6 + 1" with the double in cyan and the extra in gold */
+function splitEquation(scene, a, b, size){
+  const s = Math.min(a,b), e = Math.abs(a-b);
+  const parts = [[`${a} + ${b} = `,'#ffffff'],[`${s} + ${s}`,'#44e0ff'],[` + ${e}`,'#ffd23f']];
+  const c = scene.add.container(0,0); let x = 0;
+  const ts = parts.map(([str,col]) => { const t = T(scene,0,0,str,size,col).setOrigin(0,0.5); t.x = x; x += t.width; c.add(t); return t; });
+  ts.forEach(t => t.x -= x/2);
+  return c;
+}
+
+function drawUpgradeIcon(scene, key, x, y){
+  const g = scene.add.graphics({ x, y });
+  g.fillStyle(C.deep,1); g.fillCircle(0,0,40); g.lineStyle(4,C.gold,1); g.strokeCircle(0,0,40);
+  if(key==='twin'){
+    [-14,14].forEach(dx => { g.fillStyle(0x7b6bd0,1); g.fillCircle(dx,14,10); g.fillStyle(0xd8d0ff,1); g.fillRoundedRect(dx-4,-18,8,30,3); g.fillStyle(C.cyan,1); g.fillRect(dx-5,-24,10,7); });
+  } else if(key==='shield'){
+    g.fillStyle(C.cyan,1); g.fillPoints(shieldPts(20).map(p=>({x:p.x,y:p.y-2})),true);
+    g.fillStyle(0xffffff,0.4); g.fillCircle(-7,-10,5);
+  } else if(key==='core'){
+    g.lineStyle(6,C.gold,1); g.strokeCircle(0,0,20); g.fillStyle(C.cyan,1); g.fillCircle(0,0,10);
+  } else {
+    g.fillStyle(C.cyan,1); g.fillRect(-5,-24,10,20); g.fillTriangle(-15,-6,15,-6,0,16);
+    g.lineStyle(3,C.gold,1); g.lineBetween(-22,24,22,24);
+  }
+  return g;
+}
+
+/* =========================================================
+   BOOT — generate textures
+   ========================================================= */
+class BootScene extends Phaser.Scene {
+  constructor(){ super('Boot'); }
+  create(){
+    const g = this.make.graphics({ x:0, y:0, add:false });
+    g.fillStyle(0xffffff,1); g.fillCircle(8,8,8); g.generateTexture('dot',16,16); g.clear();
+    for(let r=32;r>0;r-=2){ g.fillStyle(0xffffff,0.05); g.fillCircle(32,32,r); } g.generateTexture('soft',64,64); g.clear();
+    g.fillStyle(0xffffff,1); g.fillCircle(2,2,2); g.generateTexture('star',4,4); g.clear();
+    g.fillStyle(0xffffff,1); g.fillRoundedRect(0,0,8,8,2); g.generateTexture('chunk',8,8); g.clear();
+    g.fillStyle(0xffffff,1); g.fillRect(0,0,8,14); g.generateTexture('confetti',8,14);
+    g.destroy();
+    this.scene.start('Title');
+  }
+}
+
+/* =========================================================
+   TITLE
+   ========================================================= */
+class TitleScene extends Phaser.Scene {
+  constructor(){ super('Title'); }
+  create(){
+    this.mode = Store.get('db_mode','plus1');
+    this.length = Store.get('db_length','quick');
+    drawSpaceBackground(this, 590);
+    this.cameras.main.fadeIn(400, 13, 9, 38);
+
+    // ground strip with domes
+    const d = this.add.graphics().setDepth(3);
+    [[90,26],[150,18],[720,22],[780,30]].forEach(([x,r]) => { d.fillStyle(0x3d3275,1); d.fillCircle(x,604,r); d.fillStyle(C.cyan,0.25); d.fillCircle(x-r*0.3,604-r*0.45,r*0.25); });
+    const g = this.add.graphics().setDepth(4);
+    g.fillStyle(0x2b2152,1); g.fillRect(0,604,W,H-604); g.lineStyle(3,0x6d5bb5,1); g.lineBetween(0,604,W,604);
+
+    this.time.addEvent({ delay:1500, loop:true, callback:() => this.decorMeteor() });
+    this.decorMeteor();
+
+    // bouncing title letters
+    const word = 'Double Blast!';
+    const style = { fontFamily:FONT_D, fontSize:'88px', color:'#ffd23f', stroke:'#ff5fa2', strokeThickness:10, resolution:2,
+      shadow:{ offsetX:0, offsetY:8, color:'#120c33', blur:0, fill:true, stroke:true } };
+    const letters = [...word].map(ch => this.add.text(0,0,ch,style).setOrigin(0.5).setDepth(10));
+    const total = letters.reduce((s,t) => s + t.width - 8, 0);
+    let x = W/2 - total/2;
+    letters.forEach((t,i) => {
+      const w = t.width - 8; t.x = x + w/2; x += w;
+      const ty = 108; t.y = -90; t.setAngle(Phaser.Math.Between(-25,25));
+      this.tweens.add({ targets:t, y:ty, angle:0, duration:750, delay:150+i*60, ease:'Bounce.easeOut',
+        onComplete:() => this.tweens.add({ targets:t, y:ty-7, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut', delay:i*70 }) });
+    });
+
+    const fadeIns = [];
+    const sub = T(this, W/2, 186, 'Meteors are falling toward your moon base!\nSolve doubles +1 and doubles +2 facts to blast them.', 21, '#d9d2ff', { align:'center', fontStyle:'600', lineSpacing:-2 }).setOrigin(0.5).setDepth(10);
+    fadeIns.push(sub);
+
+    fadeIns.push(T(this, W/2, 250, 'What should we practice?', 19, '#9d94d6').setOrigin(0.5).setDepth(10));
+    this.modeBtns = {};
+    [['plus1','Doubles +1',212],['plus2','Doubles +2',432],['mixed','Mix of both',652]].forEach(([k,label,bx]) => {
+      const b = makeButton(this, bx, 292, 200, 58, label, { size:25, onDown:() => { this.mode = k; Store.set('db_mode',k); sfx.select(); this.refresh(); } }).setDepth(10);
+      this.modeBtns[k] = b; fadeIns.push(b);
+    });
+
+    fadeIns.push(T(this, W/2, 352, 'How long?', 19, '#9d94d6').setOrigin(0.5).setDepth(10));
+    this.lenBtns = {};
+    [['quick','Quick: 3 waves',212],['full','Full: 10 waves',432],['survival','Survival',652]].forEach(([k,label,bx]) => {
+      const b = makeButton(this, bx, 392, 200, 52, label, { size:22, onDown:() => { this.length = k; Store.set('db_length',k); sfx.select(); this.refresh(); } }).setDepth(10);
+      this.lenBtns[k] = b; fadeIns.push(b);
+    });
+
+    this.bestText = T(this, W/2, 442, '', 20, '#ffd23f').setOrigin(0.5).setDepth(10);
+    fadeIns.push(this.bestText);
+
+    this.startBtn = makeButton(this, W/2, 506, 290, 74, 'Start mission', { fill:C.pink, shade:C.pinkDark, size:34, font:FONT_D, onDown:() => this.start() }).setDepth(10);
+    fadeIns.push(this.startBtn);
+    this.tweens.add({ targets:this.startBtn.g, scaleX:1.04, scaleY:1.04, duration:700, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+
+    const how = makeButton(this, W/2, 568, 170, 40, 'How to play', { fill:C.purple, shade:C.purpleDark, size:19, onDown:() => {
+      sfx.select(); this.cameras.main.fadeOut(300,13,9,38);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Tutorial', { next:'Title', mode:this.mode, length:this.length }));
+    } }).setDepth(10);
+    fadeIns.push(how);
+
+    const mute = makeIcon(this, W-28, 28, g => drawSpeaker(g), () => { sfx.muted = !sfx.muted; Store.set('db_muted', sfx.muted); mute.redraw(); }).setDepth(20);
+
+    fadeIns.forEach((o,i) => { const oy = o.y; o.setAlpha(0); o.y = oy + 24;
+      this.tweens.add({ targets:o, alpha:1, y:oy, duration:450, delay:700+i*55, ease:'Cubic.easeOut' }); });
+
+    this.input.keyboard?.on('keydown-ENTER', () => this.start());
+    this.refresh();
+  }
+  refresh(){
+    Object.entries(this.modeBtns).forEach(([k,b]) => {
+      const on = k === this.mode;
+      b.paint(on ? C.cyan : C.purple, on ? C.cyanDark : C.purpleDark, on ? 0xffffff : null);
+      b.t.setColor(on ? '#10183a' : '#ffffff');
+    });
+    Object.entries(this.lenBtns).forEach(([k,b]) => {
+      const on = k === this.length, sv = k === 'survival';
+      b.paint(on ? (sv ? C.red : C.gold) : C.purple, on ? (sv ? C.redDark : 0xb8901c) : C.purpleDark, on ? 0xffffff : null);
+      b.t.setColor(on ? (sv ? '#ffffff' : '#3a2600') : '#ffffff');
+    });
+    const best = Store.get(`db_best_${this.mode}_${this.length}`, 0);
+    if(this.length === 'survival'){
+      const bt = Store.get(`db_bestTime_${this.mode}`, 0);
+      this.bestText.setText(bt > 0 ? `Longest survival: ${fmtTime(bt)}     Best score: ${best.toLocaleString()}` : 'No survival record yet. Can you last 3 minutes?');
+    } else {
+      this.bestText.setText(best > 0 ? `Best score for this mission: ${best.toLocaleString()}` : 'No best score yet for this mission');
+    }
+  }
+  start(){
+    if(this.starting) return; this.starting = true;
+    sfx.ensure(); sfx.select(); sfx.whoosh();
+    const seen = Store.get('db_tutorialSeen', false);
+    this.cameras.main.fadeOut(400,13,9,38);
+    this.cameras.main.once('camerafadeoutcomplete', () =>
+      this.scene.start(seen ? 'Game' : 'Tutorial', { next:'Game', mode:this.mode, length:this.length }));
+  }
+  decorMeteor(){
+    const y0 = Phaser.Math.Between(-40,220), r = Phaser.Math.Between(9,20);
+    const c = this.add.container(-60, y0).setDepth(2);
+    const g = this.add.graphics(); drawRock(g, r); c.add(g);
+    const tr = this.add.particles(0,0,'dot',{ speed:{min:5,max:20}, lifespan:700, scale:{start:r/18,end:0}, alpha:{start:0.6,end:0},
+      tint:[C.gold,C.orange,C.pink], blendMode:'ADD', frequency:40 }).setDepth(1);
+    tr.startFollow(c);
+    const dur = Phaser.Math.Between(5000,8500);
+    this.tweens.add({ targets:c, x:W+80, y:y0+Phaser.Math.Between(120,300), duration:dur, ease:'Linear',
+      onComplete:() => { c.destroy(); tr.stop(); this.time.delayedCall(800, () => tr.destroy()); } });
+    this.tweens.add({ targets:g, rotation:Phaser.Math.FloatBetween(-4,4), duration:dur });
+  }
+}
+
+/* =========================================================
+   TUTORIAL — 3 short, dismissible pages
+   ========================================================= */
+class TutorialScene extends Phaser.Scene {
+  constructor(){ super('Tutorial'); }
+  init(d){ this.cfg = d || { next:'Title', mode:'plus1', length:'quick' }; }
+  create(){
+    drawSpaceBackground(this);
+    this.cameras.main.fadeIn(350,13,9,38);
+    const card = this.add.graphics().setDepth(5);
+    card.fillStyle(C.panel,0.95); card.fillRoundedRect(72,36,720,488,26);
+    card.lineStyle(3,C.cyan,0.7); card.strokeRoundedRect(72,36,720,488,26);
+    this.page = 0; this.content = null;
+    this.dots = [0,1,2].map(i => this.add.circle(W/2 + (i-1)*26, 578, 7, 0x6d5bb5).setDepth(6));
+    this.skipBtn = makeButton(this, 180, 578, 150, 50, 'Skip', { fill:C.purple, shade:C.purpleDark, size:22, onDown:() => this.finish() }).setDepth(6);
+    this.nextBtn = makeButton(this, 684, 578, 200, 58, 'Next', { size:26, onDown:() => this.next() }).setDepth(6);
+    this.input.keyboard?.on('keydown-ENTER', () => this.next());
+    this.input.keyboard?.on('keydown-SPACE', () => this.next());
+    this.showPage(0);
+  }
+  next(){ sfx.select(); if(this.page < 2) this.showPage(this.page+1); else this.finish(); }
+  finish(){
+    if(this.leaving) return; this.leaving = true;
+    Store.set('db_tutorialSeen', true); sfx.whoosh();
+    this.cameras.main.fadeOut(350,13,9,38);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(this.cfg.next, { mode:this.cfg.mode, length:this.cfg.length }));
+  }
+  showPage(i){
+    this.page = i;
+    if(this.content){ const old = this.content; this.tweens.add({ targets:old, alpha:0, x:old.x-50, duration:220, ease:'Cubic.easeIn', onComplete:() => old.destroy() }); }
+    const c = this.add.container(W/2+50, 280).setDepth(7).setAlpha(0);
+    this.content = c;
+    const title = (s) => c.add(T(this, 0, -200, s, 40, '#ffd23f', { fontFamily:FONT_D, fontStyle:'normal' }).setOrigin(0.5));
+    const body = (s, y, size=22) => c.add(T(this, 0, y, s, size, '#e9e4ff', { fontStyle:'600', align:'center', wordWrap:{ width:620 } }).setOrigin(0.5));
+    const mode = this.cfg.mode;
+
+    if(i === 0){
+      title('Blast the meteors');
+      const m = this.add.container(0,-110); const g = this.add.graphics(); drawRock(g, 40);
+      const glow = this.add.image(0,0,'soft').setTint(C.orange).setScale(2.4).setAlpha(0.5).setBlendMode(Phaser.BlendModes.ADD);
+      const ex = mode === 'plus2' ? [5,7] : [6,7];
+      m.add([glow, g, T(this,0,0,`${ex[0]} + ${ex[1]}`,26,'#ffffff',{stroke:'#2a1638',strokeThickness:6}).setOrigin(0.5)]);
+      c.add(m);
+      this.tweens.add({ targets:m, y:-88, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+      const ans = ex[0]+ex[1];
+      [ans-2, ans-1, ans, ans+1].forEach((v,k) => {
+        const right = v === ans;
+        const b = this.add.container((k-1.5)*104, 22);
+        const bg = this.add.graphics(); bg.fillStyle(right ? C.greenDark : C.cyanDark,1); bg.fillRoundedRect(-44,-26,88,58,14);
+        bg.fillStyle(right ? C.green : C.cyan,1); bg.fillRoundedRect(-44,-30,88,56,14);
+        b.add([bg, T(this,0,-3,String(v),30,'#10183a').setOrigin(0.5)]); c.add(b);
+        if(right) this.tweens.add({ targets:b, scale:1.12, duration:500, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+      });
+      body('Meteors fall toward your base. Tap the right answer to blast the lowest meteor before it lands.', 120);
+    } else if(i === 1){
+      title('Find the double hiding inside');
+      const examples = mode === 'plus1' ? [[6,7]] : mode === 'plus2' ? [[5,7]] : [[6,7],[5,7]];
+      if(examples.length === 1){
+        const [a,b] = examples[0]; const t = buildTowers(this,a,b,24); t.y = -110; c.add(t);
+        const eq = splitEquation(this,a,b,34); eq.y = -38; c.add(eq);
+        const s = Math.min(a,b), e = Math.abs(a-b);
+        body(`${a} + ${b} is ${s} + ${s} with ${e} more. You know ${s} + ${s} = ${2*s}, so ${a} + ${b} = ${a+b}.`, 40, 23);
+      } else {
+        examples.forEach(([a,b],k) => {
+          const t = buildTowers(this,a,b,18); t.y = -128 + k*102; c.add(t);
+          const eq = splitEquation(this,a,b,26); eq.y = -82 + k*102; c.add(eq);
+        });
+        body('Spot the double, then add 1 or 2 more.', 88, 23);
+      }
+      body('Miss one? That meteor slows down and shows you the double.', 158, 20);
+    } else {
+      title('Charge up Twin Power');
+      const ring = this.add.graphics(); const bgc = this.add.graphics();
+      bgc.fillStyle(C.deep,1); bgc.fillCircle(0,0,50); bgc.fillStyle(C.purple,1); bgc.fillCircle(0,0,44);
+      const lbl = T(this,0,0,'Twin\nPower',17,'#cfc8ff',{align:'center',lineSpacing:-6}).setOrigin(0.5);
+      const pc = this.add.container(0,-92); pc.add([bgc, ring, lbl]); c.add(pc);
+      const counter = { v:0 };
+      this.tweens.add({ targets:counter, v:1, duration:2200, repeat:-1, repeatDelay:900, ease:'Sine.easeInOut',
+        onUpdate:() => {
+          ring.clear(); ring.lineStyle(9,C.dim,1); ring.beginPath(); ring.arc(0,0,54,0,Math.PI*2); ring.strokePath();
+          ring.lineStyle(9, counter.v > 0.98 ? C.gold : C.cyan, 1); ring.beginPath(); ring.arc(0,0,54,-Math.PI/2,-Math.PI/2+Math.PI*2*counter.v); ring.strokePath();
+          if(counter.v > 0.98){ lbl.setText('Blast!').setColor('#ffd23f').setFontSize(24); } else { lbl.setText('Twin\nPower').setColor('#cfc8ff').setFontSize(17); }
+        } });
+      body('Get answers right in a row to charge Twin Power and score bigger points. When it glows, tap it to blast every meteor at once!', 40, 22);
+      body('Clear waves to unlock upgrades for your base.', 132, 20);
+    }
+    this.tweens.add({ targets:c, alpha:1, x:W/2, duration:320, ease:'Cubic.easeOut' });
+    this.dots.forEach((d,k) => { d.setFillStyle(k===i ? C.cyan : 0x6d5bb5); this.tweens.add({ targets:d, scale:k===i?1.3:1, duration:200 }); });
+    this.nextBtn.t.setText(i < 2 ? 'Next' : (this.cfg.next === 'Game' ? "Let's go!" : 'Got it!'));
+    this.skipBtn.setVisible(i < 2);
+  }
+}
+
+/* =========================================================
+   GAME
+   ========================================================= */
+class GameScene extends Phaser.Scene {
+  constructor(){ super('Game'); }
+  init(d){ this.mode = (d && d.mode) || 'plus1'; this.length = (d && d.length) || 'quick'; }
+
+  create(){
+    this.survival = this.length === 'survival';
+    this.survTime = 0; this.nextMilestone = 30; this.lastSec = -1;
+    this.levels = this.survival ? [1] : this.length === 'quick' ? [2,4,6] : [1,2,3,4,5,6,7,8,9,10];
+    this.upgradeAt = this.length === 'quick' ? { 1:'twin', 2:'core' } : { 2:'twin', 4:'shield', 6:'core', 8:'tractor' };
+    this.waveIdx = 0; this.score = 0; this.scoreShown = 0; this.streak = 0; this.mult = 1;
+    this.maxShields = 3; this.shields = 3; this.power = 0; this.powerShown = 0;
+    this.upg = { twin:false, shield:false, core:false, tractor:false };
+    this.meteors = []; this.queue = []; this.target = null; this.waveActive = false;
+    this.spawnTimer = 0; this.retargetHold = 0; this.recent = []; this.isPaused = false; this.over = false;
+    this.params = null; this.waveDone = 0; this.waveHits = 0; this.hint = null;
+    this.stats = { firstTry:0, resolved:0, wrong:0, bestStreak:0, meteors:0, wavesCleared:0, powers:0, missed:{} };
+    this.startMs = Date.now();
+
+    drawSpaceBackground(this, GROUND);
+    this.makeEmitters();
+    this.drawBase();
+    this.buildPanel();
+    this.buildHUD();
+
+    this.reticle = this.add.graphics().setDepth(16).setVisible(false);
+    this.reticle.lineStyle(3,C.cyan,0.9); this.reticle.strokeCircle(0,0,54);
+    for(let k=0;k<4;k++){ const a = k*Math.PI/2 + Math.PI/4; this.reticle.lineBetween(Math.cos(a)*46,Math.sin(a)*46,Math.cos(a)*64,Math.sin(a)*64); }
+
+    this.input.keyboard?.on('keydown', e => {
+      if(e.key >= '1' && e.key <= '4') this.answer(+e.key - 1);
+      else if(e.code === 'Space') this.activatePower();
+      else if(e.key === 'p' || e.key === 'P' || e.key === 'Escape') this.togglePause();
+    });
+
+    this.cameras.main.fadeIn(450,13,9,38);
+    this.setTarget(null);
+    this.time.delayedCall(450, () => this.startWave());
+  }
+
+  /* ----- setup ----- */
+  makeEmitters(){
+    const P = (cfg, depth) => this.add.particles(0,0,cfg.tex||'dot', Object.assign({ emitting:false }, cfg)).setDepth(depth);
+    this.fx = {
+      fire:  P({ speed:{min:60,max:320}, lifespan:{min:350,max:800}, scale:{start:1.3,end:0}, alpha:{start:1,end:0}, tint:[C.gold,C.orange,C.pink,0xffffff], blendMode:'ADD', gravityY:120 }, 30),
+      spark: P({ speed:{min:200,max:520}, lifespan:{min:200,max:450}, scale:{start:0.5,end:0}, tint:[0xffffff,C.cyan], blendMode:'ADD' }, 31),
+      cyan:  P({ speed:{min:40,max:220}, lifespan:{min:300,max:700}, scale:{start:0.9,end:0}, alpha:{start:1,end:0}, tint:[C.cyan,0xffffff,C.gold], blendMode:'ADD' }, 40),
+      rocks: P({ tex:'chunk', speed:{min:80,max:260}, angle:{min:200,max:340}, lifespan:{min:500,max:900}, scale:{start:1.1,end:0.3}, rotate:{min:0,max:360}, gravityY:500, tint:[0x6b4a6e,0x8f6a8c,0x4a3350] }, 29)
+    };
+    this.hudFx = P({ speed:{min:40,max:160}, lifespan:{min:300,max:600}, scale:{start:0.7,end:0}, tint:[C.cyan,0xffffff,C.red], blendMode:'ADD' }, 60);
+  }
+
+  drawBase(){
+    const d = this.add.graphics().setDepth(4);
+    [[100,26],[160,18],[704,22],[764,30]].forEach(([x,r]) => { d.fillStyle(0x3d3275,1); d.fillCircle(x,GROUND,r); d.fillStyle(C.cyan,0.25); d.fillCircle(x-r*0.3,GROUND-r*0.45,r*0.25); });
+    const g = this.add.graphics().setDepth(5);
+    g.fillStyle(0x2b2152,1); g.fillRect(0,GROUND,W,PANEL_Y-GROUND);
+    g.fillStyle(0x221a45,1); [[60,468,40,8],[250,474,26,6],[620,468,34,7],[820,476,30,6]].forEach(([x,y,w,h]) => g.fillEllipse(x,y,w,h));
+    g.lineStyle(3,0x6d5bb5,1); g.lineBetween(0,GROUND,W,GROUND);
+    this.shieldBand = this.add.rectangle(W/2, GROUND-3, W, 6, C.cyan, 0.5).setDepth(6).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets:this.shieldBand, alpha:{ from:0.4, to:0.9 }, duration:900, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
+    this.cannons = [ this.makeCannon(W/2) ];
+  }
+
+  makeCannon(x){
+    const c = this.add.container(x, GROUND).setDepth(4.5);
+    const base = this.add.graphics();
+    base.fillStyle(0x4b3d8f,1); base.fillRoundedRect(-26,-14,52,22,6);
+    base.fillStyle(0x7b6bd0,1); base.fillCircle(0,-14,17);
+    const barrel = this.add.container(0,-14);
+    const bg = this.add.graphics();
+    bg.fillStyle(0xd8d0ff,1); bg.fillRoundedRect(-6,-40,12,40,4);
+    bg.fillStyle(C.cyan,1); bg.fillRect(-7,-46,14,8);
+    barrel.add(bg);
+    c.add([barrel, base]); c.barrel = barrel; c.barrelG = bg;
+    return c;
+  }
+
+  buildPanel(){
+    const p = this.add.graphics().setDepth(20);
+    p.fillStyle(C.panel,1); p.fillRect(0,PANEL_Y,W,H-PANEL_Y);
+    p.lineStyle(2,C.cyan,0.35); p.lineBetween(0,PANEL_Y,W,PANEL_Y);
+    this.qText = T(this, 380, 526, '', 46).setOrigin(0.5).setDepth(21);
+    this.answerBtns = [];
+    for(let i=0;i<4;i++){
+      const b = makeButton(this, 380 + (i-1.5)*136, 598, 120, 62, '', { fill:C.cyan, shade:C.cyanDark, text:'#10183a', size:34, onDown:() => this.answer(i) }).setDepth(21);
+      this.answerBtns.push(b);
+    }
+    // Twin Power button
+    const pb = this.add.container(778, 566).setDepth(22);
+    const bgc = this.add.graphics(); bgc.fillStyle(C.deep,1); bgc.fillCircle(0,0,50); bgc.fillStyle(C.purple,1); bgc.fillCircle(0,0,44);
+    this.powerRing = this.add.graphics();
+    this.powerGlow = this.add.image(0,0,'soft').setScale(3.6).setTint(C.gold).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD);
+    this.powerLabel = T(this,0,0,'Twin\nPower',17,'#cfc8ff',{ align:'center', lineSpacing:-6 }).setOrigin(0.5);
+    pb.add([this.powerGlow, bgc, this.powerRing, this.powerLabel]);
+    pb.setSize(116,116).setInteractive({ useHandCursor:true });
+    pb.on('pointerdown', () => { sfx.ensure(); this.activatePower(); });
+    this.powerBtn = pb;
+    this.drawPowerRing();
+  }
+
+  buildHUD(){
+    const bar = this.add.graphics().setDepth(50);
+    bar.fillStyle(C.deep,0.6); bar.fillRect(0,0,W,44); bar.lineStyle(1,0x6d5bb5,0.5); bar.lineBetween(0,44,W,44);
+    this.scoreText = T(this,16,22,'Score 0',24).setOrigin(0,0.5).setDepth(51);
+    this.streakText = T(this,140,22,'',20,'#ffd23f').setOrigin(0,0.5).setDepth(51);
+    this.waveText = T(this,W/2,16,'',19).setOrigin(0.5).setDepth(51);
+    this.add.rectangle(W/2,34,170,6,C.dim).setDepth(51);
+    this.progFill = this.add.rectangle(W/2-85,34,170,6,C.cyan).setOrigin(0,0.5).setDepth(52).setScale(0,1);
+    this.shieldG = this.add.graphics().setDepth(51);
+    this.pauseBtn = makeIcon(this, W-70, 22, g => { g.fillStyle(0xffffff,1); g.fillRoundedRect(-7,-8,5,16,1); g.fillRoundedRect(2,-8,5,16,1); }, () => this.togglePause()).setDepth(52);
+    this.muteBtn = makeIcon(this, W-28, 22, g => drawSpeaker(g), () => { sfx.muted = !sfx.muted; Store.set('db_muted', sfx.muted); this.muteBtn.redraw(); }).setDepth(52);
+    this.drawShields(); this.updateHUD();
+  }
+
+  shieldX(i){ return W - 118 - i*28; }
+  drawShields(){
+    const g = this.shieldG; g.clear();
+    for(let i=0;i<this.maxShields;i++){
+      const x = this.shieldX(i), y = 22;
+      const pts = shieldPts(9).map(p => ({ x:p.x+x, y:p.y+y }));
+      if(i < this.shields){ g.fillStyle(C.cyan,1); g.fillPoints(pts,true); g.fillStyle(0xffffff,0.45); g.fillCircle(x-3,y-3,2.5); }
+      else { g.lineStyle(2,0x6d5bb5,1); g.strokePoints(pts,true); }
+    }
+  }
+
+  updateHUD(){
+    this.streakText.setText(this.streak >= 2 ? `Streak ${this.streak}${this.mult > 1 ? '   x' + this.mult : ''}` : '');
+    if(this.survival){ this.waveText.setText(`Survived ${fmtTime(this.survTime)}`); return; }
+    this.waveText.setText(`Wave ${this.waveIdx+1} of ${this.levels.length}`);
+    const total = this.waveDone + this.queue.length + this.meteors.length;
+    const p = total ? this.waveDone / total : 0;
+    this.tweens.add({ targets:this.progFill, scaleX:p, duration:300, ease:'Cubic.easeOut' });
+  }
+
+  drawPowerRing(){
+    const g = this.powerRing; g.clear();
+    g.lineStyle(9,C.dim,1); g.beginPath(); g.arc(0,0,54,0,Math.PI*2); g.strokePath();
+    if(this.powerShown > 0.01){
+      g.lineStyle(9, this.powerShown >= 0.99 ? C.gold : C.cyan, 1);
+      g.beginPath(); g.arc(0,0,54,-Math.PI/2,-Math.PI/2 + Math.PI*2*Math.min(1,this.powerShown)); g.strokePath();
+    }
+  }
+
+  /* ----- waves ----- */
+  waveParams(L){
+    const quickCounts = [6,7,8];
+    return {
+      count: this.length === 'quick' ? quickCounts[this.waveIdx] : 6 + Math.floor(L*0.8),
+      fall: Math.max(8, 15 - L*0.8),
+      maxC: L <= 2 ? 1 : (L <= 7 ? 2 : 3),
+      gap: Math.max(2.2, 4.6 - L*0.25)
+    };
+  }
+
+  /* Survival: one endless wave that ramps up every second */
+  survivalParams(){
+    const t = this.survTime;
+    return {
+      fall: Math.max(3.2, 9 - t*0.042),          // 9s to fall at the start, ~4s by 2 minutes
+      maxC: Math.min(6, 1 + Math.floor(t/22)),  // up to 6 meteors on screen
+      gap:  Math.max(0.45, 2.8 - t*0.017)       // spawns get closer together
+    };
+  }
+  survivalTick(dt){
+    this.survTime += dt;
+    const t = this.survTime;
+    this.level = Math.min(10, 2 + Math.floor(t/15));
+    this.params = this.survivalParams();
+    if(this.queue.length < 2) this.queue.push(this.makeFact(this.level));
+    const sec = Math.floor(t);
+    if(sec !== this.lastSec){
+      this.lastSec = sec;
+      this.waveText.setText(`Survived ${fmtTime(sec)}`);
+      this.progFill.setScale(Math.min(1, t/180), 1);
+      this.progFill.setFillStyle(t > 120 ? C.red : (t > 60 ? C.gold : C.cyan));
+    }
+    if(t >= this.nextMilestone){ const m = this.nextMilestone; this.nextMilestone += 30; this.survivalMilestone(m); }
+  }
+  survivalMilestone(m){
+    let msg = 'Faster!';
+    if(m === 60){ this.applyUpgrade('twin'); msg = 'Twin Cannons online!'; }
+    else if(m === 120){ this.applyUpgrade('core'); msg = 'Power Core online!'; }
+    else if(m === 180){ msg = '3 minutes! Legendary!'; }
+    else if(m > 180){ msg = `${fmtTime(m)}! Unstoppable!`; }
+    if(m >= 180) sfx.win(); else sfx.waveStart();
+    this.cameras.main.flash(160, 255, 77, 109);
+    this.cameras.main.shake(200, 0.006);
+    const txt = T(this, W/2, 110, msg, 44, '#ffd23f', { fontFamily:FONT_D, fontStyle:'normal', stroke:'#ff5fa2', strokeThickness:8 }).setOrigin(0.5).setDepth(85).setScale(0);
+    this.tweens.add({ targets:txt, scale:1, duration:350, ease:'Back.easeOut' });
+    this.tweens.add({ targets:txt, alpha:0, y:80, delay:1100, duration:400, onComplete:() => txt.destroy() });
+    this.fx.cyan.explode(30, W/2, 110);
+  }
+
+  makeFact(level){
+    let f;
+    for(let tries=0; tries<8; tries++){
+      const kind = this.mode === 'mixed' ? (Math.random() < 0.5 ? 1 : 2) : (this.mode === 'plus1' ? 1 : 2);
+      const maxN = kind === 1 ? Math.min(9, 3+level) : Math.min(8, 2+level);
+      const n = Phaser.Math.Between(1, maxN);
+      let a = n, b = n + kind;
+      if(Math.random() < 0.5) [a,b] = [b,a];
+      f = { a, b, kind, small:n, sum:a+b, key:`${a} + ${b}` };
+      if(!this.recent.includes(f.key)) break;
+    }
+    this.recent.push(f.key); if(this.recent.length > 3) this.recent.shift();
+    return f;
+  }
+
+  makeOptions(f){
+    const s = f.sum, d = f.small*2, big = Math.max(f.a,f.b)*2;
+    const pool = Phaser.Utils.Array.Shuffle([...new Set([s+1, s-1, s+2, s-2, big].filter(v => v !== s && v >= 0 && v !== d))]);
+    const pick = [d];
+    for(const v of pool){ if(pick.length >= 3) break; pick.push(v); }
+    let extra = s + 3; while(pick.length < 3){ if(!pick.includes(extra) && extra !== s) pick.push(extra); extra++; }
+    return [s, ...pick].sort((x,y) => x - y);
+  }
+
+  startWave(){
+    if(this.over) return;
+    if(this.survival){
+      this.level = 2; this.params = this.survivalParams();
+      this.queue = [this.makeFact(2)]; this.waveDone = 0; this.waveHits = 0;
+      this.updateHUD(); sfx.waveStart();
+      this.showBanner('Survival!', 'How long can you last?', () => { this.waveActive = true; this.spawnTimer = 0.3; });
+      return;
+    }
+    this.level = this.levels[this.waveIdx];
+    this.params = this.waveParams(this.level);
+    this.queue = []; for(let i=0;i<this.params.count;i++) this.queue.push(this.makeFact(this.level));
+    this.waveDone = 0; this.waveHits = 0;
+    this.updateHUD();
+    const last = this.waveIdx === this.levels.length - 1;
+    sfx.waveStart();
+    this.showBanner(last ? 'Final wave!' : `Wave ${this.waveIdx+1}`, MODE_LABEL[this.mode], () => { this.waveActive = true; this.spawnTimer = 0.3; });
+  }
+
+  showBanner(title, sub, done){
+    const c = this.add.container(-440, 230).setDepth(90);
+    c.add([
+      T(this,0,0,title,72,'#ffd23f',{ fontFamily:FONT_D, fontStyle:'normal', stroke:'#ff5fa2', strokeThickness:10 }).setOrigin(0.5),
+      T(this,0,58,sub,26,'#e9e4ff',{ stroke:'#0d0926', strokeThickness:6 }).setOrigin(0.5)
+    ]);
+    this.tweens.add({ targets:c, x:W/2, duration:550, ease:'Back.easeOut', onComplete:() => {
+      this.fx.cyan.explode(26, W/2, 230);
+      this.tweens.add({ targets:c, x:W+440, duration:420, delay:850, ease:'Back.easeIn', onComplete:() => { c.destroy(); if(done) done(); } });
+    }});
+  }
+
+  spawnMeteor(){
+    const fact = this.queue.shift();
+    let x = W/2;
+    for(let t=0;t<14;t++){ x = Phaser.Math.Between(80, W-80); if(this.meteors.every(m => Math.abs(m.x - x) > 140)) break; }
+    const m = this.add.container(x, -50).setDepth(15);
+    const glow = this.add.image(0,0,'soft').setTint(C.orange).setScale(2.4).setAlpha(0.55).setBlendMode(Phaser.BlendModes.ADD);
+    const rock = this.add.graphics(); drawRock(rock, 40);
+    const label = T(this,0,0,fact.key,27,'#ffffff',{ stroke:'#2a1638', strokeThickness:6 }).setOrigin(0.5);
+    m.add([glow, rock, label]);
+    Object.assign(m, { fact, rock, glow, label, spin:Phaser.Math.FloatBetween(-0.8,0.8), wrongTried:new Set(), missed:false, slowed:false, alive:true });
+    m.options = this.makeOptions(fact);
+    m.trail = this.add.particles(0,0,'dot',{ speed:{min:10,max:40}, angle:{min:250,max:290}, lifespan:600, scale:{start:1.6,end:0},
+      alpha:{start:0.7,end:0}, tint:[C.gold,C.orange,C.pink], blendMode:'ADD', frequency:28 }).setDepth(14);
+    m.trail.startFollow(m);
+    m.setScale(0.3);
+    this.tweens.add({ targets:m, scale:1, duration:420, ease:'Back.easeOut' });
+    this.meteors.push(m);
+    sfx.whoosh();
+    this.updateHUD();
+  }
+
+  /* ----- targeting & answers ----- */
+  setTarget(m){
+    this.target = m;
+    this.answerBtns.forEach((b,i) => {
+      this.tweens.killTweensOf(b); b.x = b.baseX; b.setScale(1);
+      if(!m){ b.enabled = false; b.t.setText(''); b.paint(C.dim, C.dimDark); return; }
+      const v = m.options[i]; const tried = m.wrongTried.has(v);
+      b.value = v; b.enabled = !tried; b.t.setText(String(v));
+      b.paint(tried ? C.dim : C.cyan, tried ? C.dimDark : C.cyanDark);
+      b.t.setColor(tried ? '#5d5596' : '#10183a');
+      b.setScale(0.7);
+      this.tweens.add({ targets:b, scale:1, duration:260, delay:i*40, ease:'Back.easeOut' });
+    });
+    if(!m){ this.qText.setText(''); this.reticle.setVisible(false); this.hideHint(); return; }
+    this.qText.setText(`${m.fact.a} + ${m.fact.b} = ?`).setColor('#ffffff');
+    this.tweens.killTweensOf(this.qText);
+    this.qText.setScale(0.6);
+    this.tweens.add({ targets:this.qText, scale:1, duration:300, ease:'Back.easeOut' });
+    if(!this.reticle.visible){ this.reticle.setPosition(m.x, m.y).setVisible(true).setScale(1.6); this.tweens.add({ targets:this.reticle, scale:1, duration:250, ease:'Cubic.easeOut' }); }
+    this.updateHint();
+  }
+
+  answer(i){
+    if(this.isPaused || this.over || this.retargetHold > 0) return;
+    const m = this.target, b = this.answerBtns[i];
+    if(!m || !m.alive || !b || !b.enabled) return;
+    if(b.value === m.fact.sum) this.correctAnswer(m, b); else this.wrongAnswer(m, b);
+  }
+
+  correctAnswer(m, b){
+    m.alive = false;
+    Phaser.Utils.Array.Remove(this.meteors, m);
+    this.answerBtns.forEach(x => x.enabled = false);
+    b.paint(C.green, C.greenDark); b.t.setColor('#0d2a18');
+    this.fx.cyan.explode(14, b.x, b.y - 10);
+    const firstTry = !m.missed;
+    this.stats.resolved++;
+    if(firstTry){ this.stats.firstTry++; this.streak++; }
+    this.stats.bestStreak = Math.max(this.stats.bestStreak, this.streak);
+    const oldMult = this.mult;
+    this.mult = 1 + Math.min(3, Math.floor(this.streak/5));
+    const speedBonus = Math.round(50 * Phaser.Math.Clamp(1 - m.y/GROUND, 0, 1));
+    const pts = firstTry ? Math.round((100 + speedBonus) * this.mult * (this.upg.twin ? 1.5 : 1)) : 25;
+    this.addScore(pts, m.x, m.y - 30);
+    if(firstTry) this.addPower((this.upg.core ? 16 : 11) + Math.min(this.streak, 6));
+    sfx.correct(this.streak); sfx.laser();
+    this.fireAt(m.x, m.y);
+    this.time.delayedCall(90, () => this.explodeMeteor(m, false));
+    if(firstTry && this.mult > oldMult) this.streakBanner();
+    this.target = undefined; this.retargetHold = 0.3;
+    this.waveDone++; this.stats.meteors++;
+    this.updateHUD();
+  }
+
+  wrongAnswer(m, b){
+    sfx.wrong();
+    m.wrongTried.add(b.value); b.enabled = false;
+    b.paint(C.red, C.redDark); b.t.setColor('#ffffff');
+    this.tweens.killTweensOf(b); b.setScale(1);
+    this.tweens.add({ targets:b, x:b.baseX + 9, duration:45, yoyo:true, repeat:3, ease:'Sine.easeInOut',
+      onComplete:() => { b.x = b.baseX; if(this.target === m){ b.paint(C.dim, C.dimDark); b.t.setColor('#5d5596'); } } });
+    if(!m.missed){ m.missed = true; this.recordMiss(m.fact); }
+    if(!m.slowed){
+      m.slowed = true;
+      this.tweens.add({ targets:m.glow, alpha:0.8, duration:300 }); m.glow.setTint(C.cyan);
+      this.fx.cyan.explode(18, m.x, m.y);
+    }
+    this.streak = 0; this.mult = 1; this.stats.wrong++;
+    this.cameras.main.shake(110, 0.003);
+    this.updateHint(); this.updateHUD();
+  }
+
+  recordMiss(f){ this.stats.missed[f.key] = (this.stats.missed[f.key] || 0) + 1; }
+
+  buildHintCard(f){
+    const c = this.add.container(0,0).setDepth(25);
+    const w = 300, h = 156;
+    const bg = this.add.graphics();
+    bg.fillStyle(C.deep,0.92); bg.fillRoundedRect(-w/2,-h/2,w,h,16);
+    bg.lineStyle(3,C.cyan,0.9); bg.strokeRoundedRect(-w/2,-h/2,w,h,16);
+    c.add(bg);
+    c.add(T(this,0,-h/2+20,'Find the double!',20,'#44e0ff').setOrigin(0.5));
+    const t = buildTowers(this, f.a, f.b, 14); t.y = -10; c.add(t);
+    const eq = splitEquation(this, f.a, f.b, 24); eq.y = 46; c.add(eq);
+    return c;
+  }
+  updateHint(){
+    const m = this.target;
+    if(m && m.missed){
+      if(this.hint && this.hint.meteor === m) return;
+      this.hideHint();
+      const c = this.buildHintCard(m.fact);
+      c.meteor = m; this.hint = c;
+      c.setPosition(m.x > W/2 ? 190 : W-190, 166).setAlpha(0).setScale(0.85);
+      this.tweens.add({ targets:c, alpha:1, scale:1, y:150, duration:320, ease:'Back.easeOut' });
+    } else this.hideHint();
+  }
+  hideHint(){
+    if(!this.hint) return;
+    const h = this.hint; this.hint = null;
+    this.tweens.add({ targets:h, alpha:0, scale:0.9, duration:200, ease:'Cubic.easeIn', onComplete:() => h.destroy() });
+  }
+
+  /* ----- effects ----- */
+  fireAt(x, y){
+    this.cannons.forEach(cn => {
+      const ang = Math.atan2(x - cn.x, -(y - (cn.y - 14)));
+      cn.barrel.rotation = ang;
+      const tx = cn.x + Math.sin(ang)*46, ty = cn.y - 14 - Math.cos(ang)*46;
+      const g = this.add.graphics().setDepth(17).setBlendMode(Phaser.BlendModes.ADD);
+      g.lineStyle(12,C.cyan,0.55); g.lineBetween(tx,ty,x,y);
+      g.lineStyle(4,0xffffff,1); g.lineBetween(tx,ty,x,y);
+      this.tweens.add({ targets:g, alpha:0, duration:220, ease:'Cubic.easeOut', onComplete:() => g.destroy() });
+      this.fx.cyan.explode(8, tx, ty);
+      this.tweens.add({ targets:cn.barrelG, y:5, duration:60, yoyo:true, ease:'Quad.easeOut' });
+    });
+  }
+
+  explodeMeteor(m, big){
+    this.fx.fire.explode(big ? 40 : 28, m.x, m.y);
+    this.fx.spark.explode(16, m.x, m.y);
+    this.fx.rocks.explode(big ? 12 : 8, m.x, m.y);
+    const ring = this.add.circle(m.x, m.y, 20).setStrokeStyle(5, C.gold, 1).setDepth(28);
+    this.tweens.add({ targets:ring, scale:big ? 4.5 : 3.4, alpha:0, duration:340, ease:'Cubic.easeOut', onComplete:() => ring.destroy() });
+    this.cameras.main.shake(130, big ? 0.008 : 0.005);
+    sfx.boom();
+    m.trail.stop(); this.time.delayedCall(700, () => m.trail.destroy());
+    this.tweens.add({ targets:m, scale:1.4, alpha:0, duration:130, ease:'Quad.easeOut', onComplete:() => m.destroy() });
+  }
+
+  addScore(pts, x=W/2, y=240){
+    this.score += pts;
+    const t = T(this, x, y, `+${pts}`, 26, '#ffd23f', { stroke:'#2a1638', strokeThickness:6 }).setOrigin(0.5).setDepth(80).setScale(0.5);
+    this.tweens.add({ targets:t, scale:1, duration:200, ease:'Back.easeOut' });
+    this.tweens.add({ targets:t, y:y-60, alpha:0, duration:800, delay:150, ease:'Cubic.easeOut', onComplete:() => t.destroy() });
+    this.tweens.killTweensOf(this.scoreText); this.scoreText.setScale(1);
+    this.tweens.add({ targets:this.scoreText, scale:1.15, duration:90, yoyo:true, ease:'Quad.easeOut' });
+  }
+
+  addPower(v){
+    if(this.over) return;
+    const was = this.power;
+    this.power = Math.min(100, this.power + v);
+    if(was < 100 && this.power >= 100){ this.setPowerReady(true); sfx.powerReady(); this.fx.cyan.explode(30, this.powerBtn.x, this.powerBtn.y); }
+  }
+  setPowerReady(on){
+    if(this.powerTweens) this.powerTweens.forEach(t => t.stop());
+    this.powerTweens = null;
+    if(on){
+      this.powerLabel.setText('Blast!').setColor('#ffd23f').setFontSize(24);
+      this.powerTweens = [
+        this.tweens.add({ targets:this.powerGlow, alpha:{ from:0.35, to:0.9 }, duration:500, yoyo:true, repeat:-1, ease:'Sine.easeInOut' }),
+        this.tweens.add({ targets:this.powerBtn, scale:1.08, duration:500, yoyo:true, repeat:-1, ease:'Sine.easeInOut' })
+      ];
+    } else {
+      this.powerLabel.setText('Twin\nPower').setColor('#cfc8ff').setFontSize(17);
+      this.powerBtn.setScale(1); this.powerGlow.setAlpha(0);
+    }
+  }
+
+  streakBanner(){
+    sfx.streak();
+    const t = T(this, W/2, 300, `Streak ${this.streak}!  Points x${this.mult}`, 40, '#ffd23f', { fontFamily:FONT_D, fontStyle:'normal', stroke:'#ff5fa2', strokeThickness:8 }).setOrigin(0.5).setDepth(85).setScale(0);
+    this.tweens.add({ targets:t, scale:1, duration:350, ease:'Back.easeOut' });
+    this.tweens.add({ targets:t, y:260, alpha:0, delay:900, duration:400, ease:'Cubic.easeIn', onComplete:() => t.destroy() });
+    this.fx.cyan.explode(30, W/2, 300);
+    this.cameras.main.flash(120, 255, 210, 63);
+  }
+
+  activatePower(){
+    if(this.isPaused || this.over) return;
+    if(this.power < 100 || this.meteors.length === 0){
+      this.tweens.add({ targets:this.powerBtn, angle:{ from:-8, to:8 }, duration:60, yoyo:true, repeat:2, onComplete:() => this.powerBtn.setAngle(0) });
+      sfx.tick(); return;
+    }
+    this.power = 0; this.setPowerReady(false); this.stats.powers++;
+    const list = [...this.meteors]; this.meteors = []; list.forEach(m => m.alive = false);
+    this.target = undefined; this.retargetHold = 0.5 + list.length*0.13;
+    this.answerBtns.forEach(b => b.enabled = false);
+    this.hideHint();
+    sfx.powerBlast();
+    this.cameras.main.flash(350,255,240,200); this.cameras.main.shake(600,0.014);
+    const ring = this.add.circle(W/2, GROUND, 30).setStrokeStyle(8, C.cyan, 1).setDepth(35);
+    this.tweens.add({ targets:ring, scale:18, alpha:0, duration:900, ease:'Cubic.easeOut', onComplete:() => ring.destroy() });
+    const txt = T(this, W/2, 210, 'Double Blast!', 66, '#ffd23f', { fontFamily:FONT_D, fontStyle:'normal', stroke:'#ff5fa2', strokeThickness:10 }).setOrigin(0.5).setDepth(95).setScale(0.2);
+    this.tweens.add({ targets:txt, scale:1, duration:400, ease:'Back.easeOut' });
+    this.tweens.add({ targets:txt, alpha:0, y:180, delay:950, duration:400, onComplete:() => txt.destroy() });
+    list.forEach((m,i) => this.time.delayedCall(160 + i*130, () => {
+      this.fireAt(m.x, m.y); this.explodeMeteor(m, true);
+      this.addScore(Math.round(150 * this.mult * (this.upg.twin ? 1.5 : 1)), m.x, m.y - 30);
+    }));
+    this.stats.meteors += list.length; this.waveDone += list.length;
+    this.updateHUD();
+  }
+
+  meteorHitsGround(m){
+    m.alive = false; Phaser.Utils.Array.Remove(this.meteors, m);
+    if(this.target === m) this.target = undefined;
+    m.y = GROUND - 10;
+    this.explodeMeteor(m, true);
+    this.fx.fire.explode(30, m.x, GROUND);
+    this.cameras.main.shake(380, 0.016);
+    this.cameras.main.flash(240, 255, 77, 109);
+    sfx.hit();
+    this.shields--; this.waveHits++; this.stats.resolved++;
+    if(!m.missed) this.recordMiss(m.fact);
+    this.streak = 0; this.mult = 1;
+    this.hudFx.explode(18, this.shieldX(this.shields), 22);
+    this.drawShields();
+    this.shieldBand.setFillStyle(C.red, 0.9);
+    this.time.delayedCall(350, () => this.shieldBand.setFillStyle(this.upg.tractor ? C.gold : C.cyan, 0.5));
+    if(this.shields <= 0){ this.gameOver(false); return; }
+    this.queue.splice(Math.min(1, this.queue.length), 0, m.fact); // try that fact again soon
+    this.updateHUD();
+  }
+
+  waveComplete(){
+    this.waveActive = false; this.stats.wavesCleared++;
+    sfx.waveClear();
+    const perfect = this.waveHits === 0;
+    const bonus = 100*this.level + (perfect ? 150*this.level : 0);
+    this.score += bonus;
+    let restored = false;
+    if(perfect && this.shields < this.maxShields){ this.shields++; restored = true; this.drawShields(); this.hudFx.explode(16, this.shieldX(this.shields-1), 22); }
+    this.fx.cyan.explode(40, W/2, 240);
+    const last = this.waveIdx === this.levels.length - 1;
+    if(last){ this.gameOver(true); return; }
+    this.showWaveSummary(perfect, restored, bonus, this.upgradeAt[this.waveIdx+1]);
+  }
+
+  showWaveSummary(perfect, restored, bonus, upKey){
+    const o = this.add.container(0,0).setDepth(120);
+    const dim = this.add.rectangle(W/2, H/2, W, H, C.deep, 0.6).setInteractive().setAlpha(0);
+    const h = upKey ? 330 : 240;
+    const card = this.add.container(W/2, 250);
+    const bg = this.add.graphics();
+    bg.fillStyle(C.panel,0.98); bg.fillRoundedRect(-250,-h/2,500,h,22);
+    bg.lineStyle(4,C.gold,1); bg.strokeRoundedRect(-250,-h/2,500,h,22);
+    card.add(bg);
+    card.add(T(this,0,-h/2+44,`Wave ${this.waveIdx+1} clear!`,46,'#ffd23f',{ fontFamily:FONT_D, fontStyle:'normal' }).setOrigin(0.5));
+    const lines = [`Wave bonus +${bonus.toLocaleString()}`];
+    if(perfect) lines.push(restored ? 'Perfect wave! A shield was restored.' : 'Perfect wave! No meteors landed.');
+    card.add(T(this,0,-h/2+86,lines.join('\n'),22,'#e9e4ff',{ align:'center', fontStyle:'600' }).setOrigin(0.5,0));
+    if(upKey){
+      const U = UPGRADES[upKey];
+      const icon = drawUpgradeIcon(this, upKey, -170, 40); card.add(icon);
+      icon.setScale(0); this.tweens.add({ targets:icon, scale:1, duration:500, delay:350, ease:'Back.easeOut' });
+      card.add(T(this,-114,16,`New: ${U.name}`,26,'#44e0ff').setOrigin(0,0.5));
+      card.add(T(this,-114,58,U.desc,18,'#cfc8ff',{ fontStyle:'600', wordWrap:{ width:330 } }).setOrigin(0,0.5));
+      this.time.delayedCall(400, () => { sfx.upgrade(); this.fx.cyan.explode(36, W/2-170, 290); });
+    }
+    let closing = false;
+    const close = () => {
+      if(closing) return; closing = true;
+      this.tweens.add({ targets:card, scale:0.8, alpha:0, duration:240, ease:'Cubic.easeIn' });
+      this.tweens.add({ targets:dim, alpha:0, duration:260, onComplete:() => {
+        o.destroy();
+        if(upKey) this.applyUpgrade(upKey);
+        this.waveIdx++;
+        this.time.delayedCall(upKey ? 900 : 250, () => this.startWave());
+      }});
+    };
+    const btn = makeButton(this, 0, h/2-44, 230, 58, 'Next wave', { size:26, onDown:() => { sfx.select(); close(); } });
+    card.add(btn);
+    o.add([dim, card]);
+    card.setScale(0.6).setAlpha(0);
+    this.tweens.add({ targets:dim, alpha:1, duration:250 });
+    this.tweens.add({ targets:card, scale:1, alpha:1, duration:450, ease:'Back.easeOut' });
+  }
+
+  applyUpgrade(k){
+    this.upg[k] = true; sfx.shieldUp();
+    if(k === 'twin'){
+      [W/2-150, W/2+150].forEach((x,i) => {
+        const cn = this.makeCannon(x); cn.y = GROUND + 50; this.cannons.push(cn);
+        this.tweens.add({ targets:cn, y:GROUND, duration:650, delay:i*160, ease:'Back.easeOut', onStart:() => this.fx.cyan.explode(18, x, GROUND) });
+      });
+    } else if(k === 'shield'){
+      this.maxShields = 4; this.shields = Math.min(4, this.shields + 1); this.drawShields();
+      this.hudFx.explode(20, this.shieldX(3), 22);
+    } else if(k === 'core'){
+      this.tweens.add({ targets:this.powerBtn, scale:1.2, duration:220, yoyo:true, ease:'Sine.easeOut' });
+      this.fx.cyan.explode(30, this.powerBtn.x, this.powerBtn.y);
+    } else if(k === 'tractor'){
+      this.shieldBand.setFillStyle(C.gold, 0.5);
+      this.tweens.add({ targets:this.shieldBand, scaleY:3, duration:300, yoyo:true, ease:'Sine.easeInOut' });
+      this.fx.cyan.explode(40, W/2, GROUND-10);
+    }
+  }
+
+  /* ----- pause ----- */
+  togglePause(){
+    if(this.over) return;
+    if(this.isPaused){
+      this.isPaused = false; this.tweens.resumeAll(); this.time.paused = false;
+      if(this.pauseLayer){ this.pauseLayer.destroy(); this.pauseLayer = null; }
+      return;
+    }
+    this.isPaused = true; this.tweens.pauseAll(); this.time.paused = true;
+    const o = this.add.container(0,0).setDepth(200);
+    o.add(this.add.rectangle(W/2,H/2,W,H,C.deep,0.75).setInteractive());
+    o.add(T(this,W/2,220,'Paused',64,'#ffd23f',{ fontFamily:FONT_D, fontStyle:'normal' }).setOrigin(0.5));
+    o.add(makeButton(this, W/2, 320, 240, 62, 'Keep playing', { size:26, onDown:() => { sfx.select(); this.togglePause(); } }));
+    o.add(makeButton(this, W/2, 400, 240, 52, 'Quit to menu', { fill:C.purple, shade:C.purpleDark, size:22, onDown:() => {
+      this.tweens.resumeAll(); this.time.paused = false; this.scene.start('Title'); } }));
+    this.pauseLayer = o;
+  }
+
+  /* ----- end ----- */
+  gameOver(win){
+    if(this.over) return;
+    this.over = true; this.waveActive = false;
+    this.hideHint(); this.reticle.setVisible(false);
+    this.answerBtns.forEach(b => b.enabled = false);
+    if(win){
+      sfx.win();
+      for(let i=0;i<7;i++) this.time.delayedCall(i*230, () => {
+        const x = Phaser.Math.Between(120, W-120), y = Phaser.Math.Between(90, 320);
+        this.fx.fire.explode(40, x, y); this.fx.cyan.explode(30, x, y); this.cameras.main.flash(90, 255, 230, 160);
+      });
+    } else {
+      sfx.lose();
+      this.meteors.forEach((m,i) => { m.alive = false; this.time.delayedCall(i*160, () => this.explodeMeteor(m, true)); });
+      this.meteors = [];
+      for(let i=0;i<5;i++) this.time.delayedCall(250 + i*190, () => { const x = Phaser.Math.Between(60, W-60); this.fx.fire.explode(36, x, GROUND); this.fx.rocks.explode(10, x, GROUND); });
+      this.cameras.main.shake(900, 0.02);
+      this.cameras.main.flash(500, 255, 77, 109);
+    }
+    const data = {
+      win, mode:this.mode, length:this.length, score:this.score,
+      survival:this.survival, survTime:Math.floor(this.survTime),
+      stats:Object.assign({}, this.stats, { missed:Object.assign({}, this.stats.missed) }),
+      waveReached:this.waveIdx + 1, totalWaves:this.levels.length,
+      timeSec:Math.round((Date.now() - this.startMs)/1000)
+    };
+    this.time.delayedCall(2100, () => {
+      this.cameras.main.fadeOut(600, 13, 9, 38);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('End', data));
+    });
+  }
+
+  /* ----- loop ----- */
+  update(time, delta){
+    if(this.isPaused) return;
+    const dt = Math.min(delta, 50)/1000;
+    if(this.scoreShown < this.score){
+      this.scoreShown = Math.min(this.score, this.scoreShown + Math.max(1, Math.ceil((this.score - this.scoreShown)*0.15)));
+      this.scoreText.setText('Score ' + this.scoreShown.toLocaleString());
+    }
+    this.streakText.x = this.scoreText.x + this.scoreText.width + 18;
+    const pT = this.power/100;
+    if(Math.abs(this.powerShown - pT) > 0.002){ this.powerShown += (pT - this.powerShown)*Math.min(1, dt*8); this.drawPowerRing(); }
+    if(this.over) return;
+
+    if(this.retargetHold > 0) this.retargetHold -= dt;
+
+    if(this.waveActive && this.survival) this.survivalTick(dt);
+    if(this.waveActive && this.params){
+      this.spawnTimer -= dt;
+      if(this.meteors.length === 0 && this.spawnTimer > 0.5) this.spawnTimer = 0.5;
+      if(this.queue.length && this.spawnTimer <= 0 && this.meteors.length < this.params.maxC){ this.spawnMeteor(); this.spawnTimer = this.params.gap; }
+      if(!this.survival && !this.queue.length && !this.meteors.length && this.retargetHold <= 0){ this.waveComplete(); return; }
+    }
+
+    if(this.params){
+      const base = (GROUND + 24) / this.params.fall * (this.upg.tractor ? 0.85 : 1);
+      for(const m of this.meteors.slice()){
+        m.y += base * (m.slowed ? (this.survival ? 0.6 : 0.35) : 1) * dt;
+        m.rock.rotation += m.spin * dt;
+        if(m.y >= GROUND - 26){ this.meteorHitsGround(m); if(this.over) return; }
+      }
+    }
+
+    if(this.retargetHold <= 0){
+      let low = null; for(const m of this.meteors) if(!low || m.y > low.y) low = m;
+      if(low !== this.target) this.setTarget(low);
+    }
+
+    const t = this.target;
+    if(t){
+      const k = Math.min(1, dt*14);
+      this.reticle.x += (t.x - this.reticle.x)*k; this.reticle.y += (t.y - this.reticle.y)*k;
+      const danger = t.y > GROUND - 130;
+      this.qText.setColor(danger ? '#ff8fa3' : '#ffffff');
+    }
+    this.reticle.rotation += dt*1.5;
+    this.cannons.forEach(cn => {
+      const want = t ? Math.atan2(t.x - cn.x, -(t.y - (cn.y - 14))) : 0;
+      cn.barrel.rotation += (want - cn.barrel.rotation)*Math.min(1, dt*8);
+    });
+  }
+}
+
+/* =========================================================
+   END
+   ========================================================= */
+class EndScene extends Phaser.Scene {
+  constructor(){ super('End'); }
+  init(d){ this.d = d; }
+  create(){
+    const d = this.d, s = d.stats;
+    drawSpaceBackground(this);
+    this.cameras.main.fadeIn(500,13,9,38);
+    const key = `db_best_${d.mode}_${d.length}`;
+    const prev = Store.get(key, 0);
+    const isBest = d.score > prev && d.score > 0;
+    if(isBest) Store.set(key, d.score);
+    const timeKey = `db_bestTime_${d.mode}`;
+    const prevT = Store.get(timeKey, 0);
+    const isBestTime = !!d.survival && d.survTime > prevT;
+    if(isBestTime) Store.set(timeKey, d.survTime);
+    const acc = s.resolved ? Math.round(s.firstTry / s.resolved * 100) : 0;
+
+    if(d.win){
+      this.add.particles(0,-20,'confetti',{ x:{min:0,max:W}, speedY:{min:80,max:200}, speedX:{min:-40,max:40}, rotate:{min:0,max:360},
+        lifespan:5200, tint:[C.gold,C.pink,C.cyan,C.green,0xffffff], frequency:70, quantity:2, scale:{min:0.6,max:1.1} }).setDepth(2);
+    } else {
+      this.add.particles(0,H+10,'dot',{ x:{min:0,max:W}, speedY:{min:-90,max:-30}, speedX:{min:-15,max:15}, lifespan:4000,
+        scale:{start:0.5,end:0}, alpha:{start:0.7,end:0}, tint:[C.orange,C.pink], blendMode:'ADD', frequency:90 }).setDepth(2);
+    }
+
+    const title = T(this, W/2, 66, d.survival ? 'Survival over!' : (d.win ? 'Mission complete!' : 'Shields down!'), 64, (d.win || isBestTime) ? '#ffd23f' : '#ff8fa3',
+      { fontFamily:FONT_D, fontStyle:'normal', stroke: d.win ? '#ff5fa2' : '#2a1638', strokeThickness:10 }).setOrigin(0.5).setDepth(10);
+    title.setScale(2.6).setAlpha(0);
+    this.tweens.add({ targets:title, scale:1, alpha:1, duration:520, ease:'Back.easeOut', onComplete:() => { sfx.stamp(); this.cameras.main.shake(180, 0.008); } });
+
+    const subTxt = d.survival
+      ? (isBestTime ? `You survived ${fmtTime(d.survTime)}. That's a new record!` : `You survived ${fmtTime(d.survTime)}. Your record is ${fmtTime(prevT)}.`)
+      : d.win ? `${MODE_LABEL[d.mode]} mastered! Your moon base is safe.`
+              : `You reached wave ${d.waveReached} of ${d.totalWaves}. Try again to beat your score!`;
+    const sub = T(this, W/2, 122, subTxt, 22, '#e9e4ff', { fontStyle:'600' }).setOrigin(0.5).setDepth(10).setAlpha(0);
+    this.tweens.add({ targets:sub, alpha:1, duration:400, delay:450 });
+
+    // accuracy stars
+    const earned = acc >= 90 ? 3 : acc >= 70 ? 2 : acc >= 40 ? 1 : 0;
+    [0,1,2].forEach(i => {
+      const x = W/2 + (i-1)*72, y = 182;
+      const g = this.add.graphics({ x, y }).setDepth(10);
+      g.fillStyle(0x2a2458,1); g.fillPoints(starPts(30,13),true);
+      if(i < earned){
+        const s2 = this.add.graphics({ x, y }).setDepth(11);
+        s2.fillStyle(C.gold,1); s2.fillPoints(starPts(30,13),true); s2.lineStyle(3,0xffffff,0.6); s2.strokePoints(starPts(30,13),true);
+        s2.setScale(0).setAngle(-90);
+        this.tweens.add({ targets:s2, scale:1, angle:0, duration:450, delay:900 + i*300, ease:'Back.easeOut',
+          onStart:() => this.time.delayedCall(200, () => { sfx.star(i); this.fx(x, y); }) });
+      }
+    });
+
+    // stats card
+    const card = this.add.graphics().setDepth(5);
+    card.fillStyle(C.panel,0.95); card.fillRoundedRect(W/2-250,232,500,226,20);
+    card.lineStyle(3,C.cyan,0.6); card.strokeRoundedRect(W/2-250,232,500,226,20);
+    const mmss = `${Math.floor(d.timeSec/60)}:${String(d.timeSec%60).padStart(2,'0')}`;
+    const rows = d.survival ? [
+      ['Score', d.score, v => v.toLocaleString(), isBest],
+      ['Right on first try', acc, v => `${v}%`],
+      ['Best streak', s.bestStreak, v => String(v)],
+      ['Meteors blasted', s.meteors, v => String(v)],
+      ['Time survived', d.survTime, v => fmtTime(v), isBestTime],
+      ['Longest survival', null, () => fmtTime(Math.max(prevT, d.survTime))]
+    ] : [
+      ['Score', d.score, v => v.toLocaleString(), isBest],
+      ['Right on first try', acc, v => `${v}%`],
+      ['Best streak', s.bestStreak, v => String(v)],
+      ['Meteors blasted', s.meteors, v => String(v)],
+      ['Waves cleared', s.wavesCleared, v => `${v} of ${d.totalWaves}`],
+      ['Time', null, () => mmss]
+    ];
+    rows.forEach(([label, val, fmt, badgeOn], i) => {
+      const y = 262 + i*34;
+      const l = T(this, W/2-222, y, label, 21, '#cfc8ff', { fontStyle:'600' }).setOrigin(0,0.5).setDepth(10).setAlpha(0);
+      const v = T(this, W/2+222, y, val === null ? fmt() : fmt(0), 24, '#ffffff').setOrigin(1,0.5).setDepth(10).setAlpha(0);
+      this.tweens.add({ targets:[l,v], alpha:1, duration:300, delay:600 + i*120 });
+      if(val !== null){
+        this.tweens.addCounter({ from:0, to:val, duration:900, delay:600 + i*120, ease:'Cubic.easeOut',
+          onUpdate:tw => v.setText(fmt(Math.round(tw.getValue()))),
+          onComplete:() => { v.setText(fmt(val)); if(i < 3) sfx.tick(); } });
+      }
+      if(badgeOn){
+        const badge = this.add.container(W/2+300, y).setDepth(12).setAlpha(0).setScale(3).setAngle(-12);
+        const bg = this.add.graphics(); bg.fillStyle(C.pink,1); bg.fillRoundedRect(-58,-18,116,36,10);
+        badge.add([bg, T(this,0,-1,'New best!',20,'#ffffff').setOrigin(0.5)]);
+        this.tweens.add({ targets:badge, alpha:1, scale:1, duration:350, delay:1700 + i*150, ease:'Back.easeOut',
+          onStart:() => this.time.delayedCall(300, () => { sfx.stamp(); this.cameras.main.shake(140, 0.006); this.fx(W/2+300, y); }) });
+      }
+    });
+
+    // facts to practice
+    const missed = Object.entries(s.missed).sort((a,b) => b[1]-a[1]).slice(0,6).map(e => e[0]);
+    const practice = missed.length ? `Practice these: ${missed.join(',   ')}` : 'No misses. Every fact on the first try!';
+    const pt = T(this, W/2, 492, practice, 22, missed.length ? '#ffd23f' : '#3ddc84', { align:'center', wordWrap:{ width:760 } }).setOrigin(0.5).setDepth(10).setAlpha(0);
+    this.tweens.add({ targets:pt, alpha:1, duration:400, delay:1500 });
+
+    const again = makeButton(this, W/2-125, 570, 220, 64, 'Play again', { size:28, onDown:() => this.go('Game') }).setDepth(10);
+    const menu = makeButton(this, W/2+125, 570, 200, 58, 'Menu', { fill:C.purple, shade:C.purpleDark, size:24, onDown:() => this.go('Title') }).setDepth(10);
+    [again, menu].forEach((b,i) => { b.setAlpha(0); b.y += 30; this.tweens.add({ targets:b, alpha:1, y:b.y-30, duration:400, delay:1700 + i*100, ease:'Back.easeOut' }); });
+    this.input.keyboard?.on('keydown-ENTER', () => this.go('Game'));
+  }
+  fx(x, y){
+    const e = this.add.particles(x, y, 'dot', { emitting:false, speed:{min:60,max:220}, lifespan:{min:300,max:700}, scale:{start:0.8,end:0},
+      tint:[C.gold,0xffffff,C.cyan], blendMode:'ADD' }).setDepth(13);
+    e.explode(26); this.time.delayedCall(900, () => e.destroy());
+  }
+  go(scene){
+    if(this.leaving) return; this.leaving = true;
+    sfx.select();
+    this.cameras.main.fadeOut(350,13,9,38);
+    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(scene, { mode:this.d.mode, length:this.d.length }));
+  }
+}
+
+/* =========================================================
+   LAUNCH (after fonts are ready so Phaser text measures correctly)
+   ========================================================= */
+const config = {
+  type: Phaser.AUTO, parent:'game', width:W, height:H, backgroundColor:'#120c33',
+  scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH },
+  audio:{ noAudio:true },
+  input:{ activePointers:3 },
+  scene:[BootScene, TitleScene, TutorialScene, GameScene, EndScene]
+};
+let launched = false;
+function launch(){ if(launched) return; launched = true; new Phaser.Game(config); }
+try{
+  if(document.fonts && document.fonts.load){
+    Promise.all([ document.fonts.load('40px "Lilita One"'), document.fonts.load('800 40px "Baloo 2"'), document.fonts.load('600 20px "Baloo 2"') ])
+      .then(launch, launch);
+    setTimeout(launch, 2500);
+  } else launch();
+}catch(e){ launch(); }
+</script>
+</body>
+</html>
