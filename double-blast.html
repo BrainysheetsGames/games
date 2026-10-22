@@ -67,7 +67,7 @@ class SFX {
         this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
         const d = this.noiseBuf.getChannelData(0); for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
       }
-      if(this.ctx.state === 'suspended') this.ctx.resume();
+      if(this.ctx.state !== 'running') this.ctx.resume();
     }catch(e){}
   }
   ok(){ return this.ctx && !this.muted; }
@@ -127,6 +127,19 @@ function T(scene, x, y, str, size, color='#ffffff', extra={}){
 }
 function shieldPts(s){ return [{x:-s,y:-s},{x:s,y:-s},{x:s,y:s*0.1},{x:0,y:s*1.1},{x:-s,y:s*0.1}]; }
 function fmtTime(sec){ sec = Math.max(0, Math.floor(sec)); return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`; }
+/* Safe scene change: forces the fade even if another fade is running, and has a
+   timer fallback so a missed fade event can never leave the game stuck. */
+function goScene(scene, key, data={}, dur=350){
+  if(scene._leaving) return;
+  scene._leaving = true;
+  let done = false;
+  const fin = () => { if(done) return; done = true; try{ scene.scene.start(key, data); }catch(e){} };
+  try{
+    scene.cameras.main.once('camerafadeoutcomplete', fin);
+    scene.cameras.main.fade(dur, 13, 9, 38, true);
+  }catch(e){ fin(); }
+  setTimeout(fin, dur + 300);
+}
 function starPts(r1, r2){ const p=[]; for(let i=0;i<10;i++){ const r=i%2?r2:r1, a=-Math.PI/2+i*Math.PI/5; p.push({x:Math.cos(a)*r, y:Math.sin(a)*r}); } return p; }
 
 function makeButton(scene, x, y, w, h, label, opts={}){
@@ -265,6 +278,7 @@ class BootScene extends Phaser.Scene {
 class TitleScene extends Phaser.Scene {
   constructor(){ super('Title'); }
   create(){
+    this._leaving = false;
     this.mode = Store.get('db_mode','plus1');
     this.length = Store.get('db_length','quick');
     drawSpaceBackground(this, 590);
@@ -319,8 +333,7 @@ class TitleScene extends Phaser.Scene {
     this.tweens.add({ targets:this.startBtn.g, scaleX:1.04, scaleY:1.04, duration:700, yoyo:true, repeat:-1, ease:'Sine.easeInOut' });
 
     const how = makeButton(this, W/2, 568, 170, 40, 'How to play', { fill:C.purple, shade:C.purpleDark, size:19, onDown:() => {
-      sfx.select(); this.cameras.main.fadeOut(300,13,9,38);
-      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Tutorial', { next:'Title', mode:this.mode, length:this.length }));
+      sfx.select(); goScene(this, 'Tutorial', { next:'Title', mode:this.mode, length:this.length }, 300);
     } }).setDepth(10);
     fadeIns.push(how);
 
@@ -352,12 +365,10 @@ class TitleScene extends Phaser.Scene {
     }
   }
   start(){
-    if(this.starting) return; this.starting = true;
+    if(this._leaving) return;
     sfx.ensure(); sfx.select(); sfx.whoosh();
     const seen = Store.get('db_tutorialSeen', false);
-    this.cameras.main.fadeOut(400,13,9,38);
-    this.cameras.main.once('camerafadeoutcomplete', () =>
-      this.scene.start(seen ? 'Game' : 'Tutorial', { next:'Game', mode:this.mode, length:this.length }));
+    goScene(this, seen ? 'Game' : 'Tutorial', { next:'Game', mode:this.mode, length:this.length }, 400);
   }
   decorMeteor(){
     const y0 = Phaser.Math.Between(-40,220), r = Phaser.Math.Between(9,20);
@@ -380,6 +391,7 @@ class TutorialScene extends Phaser.Scene {
   constructor(){ super('Tutorial'); }
   init(d){ this.cfg = d || { next:'Title', mode:'plus1', length:'quick' }; }
   create(){
+    this._leaving = false;
     drawSpaceBackground(this);
     this.cameras.main.fadeIn(350,13,9,38);
     const card = this.add.graphics().setDepth(5);
@@ -395,10 +407,9 @@ class TutorialScene extends Phaser.Scene {
   }
   next(){ sfx.select(); if(this.page < 2) this.showPage(this.page+1); else this.finish(); }
   finish(){
-    if(this.leaving) return; this.leaving = true;
+    if(this._leaving) return;
     Store.set('db_tutorialSeen', true); sfx.whoosh();
-    this.cameras.main.fadeOut(350,13,9,38);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(this.cfg.next, { mode:this.cfg.mode, length:this.cfg.length }));
+    goScene(this, this.cfg.next, { mode:this.cfg.mode, length:this.cfg.length });
   }
   showPage(i){
     this.page = i;
@@ -486,6 +497,8 @@ class GameScene extends Phaser.Scene {
     this.params = null; this.waveDone = 0; this.waveHits = 0; this.hint = null;
     this.stats = { firstTry:0, resolved:0, wrong:0, bestStreak:0, meteors:0, wavesCleared:0, powers:0, missed:{} };
     this.startMs = Date.now();
+    this._leaving = false; this.pauseLayer = null; this.powerTweens = null;
+    this.time.paused = false; this.tweens.resumeAll();
 
     drawSpaceBackground(this, GROUND);
     this.makeEmitters();
@@ -692,7 +705,7 @@ class GameScene extends Phaser.Scene {
       this.level = 2; this.params = this.survivalParams();
       this.queue = [this.makeFact(2)]; this.waveDone = 0; this.waveHits = 0;
       this.updateHUD(); sfx.waveStart();
-      this.showBanner('Survival!', 'How long can you last?', () => { this.waveActive = true; this.spawnTimer = 0.3; });
+      this.showBanner('Survival!', 'Careful: wrong answers cost a shield!', () => { this.waveActive = true; this.spawnTimer = 0.3; });
       return;
     }
     this.level = this.levels[this.waveIdx];
@@ -806,7 +819,13 @@ class GameScene extends Phaser.Scene {
       this.fx.cyan.explode(18, m.x, m.y);
     }
     this.streak = 0; this.mult = 1; this.stats.wrong++;
-    this.cameras.main.shake(110, 0.003);
+    if(this.survival){
+      // In survival, a wrong answer costs a shield, so guessing doesn't pay
+      sfx.hit(); this.cameras.main.shake(260, 0.012); this.cameras.main.flash(200, 255, 77, 109);
+      const lt = T(this, b.baseX, b.y - 60, '-1 shield', 24, '#ff8fa3', { stroke:'#2a1638', strokeThickness:6 }).setOrigin(0.5).setDepth(80);
+      this.tweens.add({ targets:lt, y:lt.y - 40, alpha:0, duration:900, ease:'Cubic.easeOut', onComplete:() => lt.destroy() });
+      if(this.loseShield()){ this.updateHUD(); this.gameOver(false); return; }
+    } else this.cameras.main.shake(110, 0.003);
     this.updateHint(); this.updateHUD();
   }
 
@@ -942,16 +961,22 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.shake(380, 0.016);
     this.cameras.main.flash(240, 255, 77, 109);
     sfx.hit();
-    this.shields--; this.waveHits++; this.stats.resolved++;
+    this.waveHits++; this.stats.resolved++;
     if(!m.missed) this.recordMiss(m.fact);
     this.streak = 0; this.mult = 1;
+    if(this.loseShield()){ this.gameOver(false); return; }
+    this.queue.splice(Math.min(1, this.queue.length), 0, m.fact); // try that fact again soon
+    this.updateHUD();
+  }
+
+  /* Removes one shield with effects. Returns true when the base is out of shields. */
+  loseShield(){
+    this.shields = Math.max(0, this.shields - 1);
     this.hudFx.explode(18, this.shieldX(this.shields), 22);
     this.drawShields();
     this.shieldBand.setFillStyle(C.red, 0.9);
     this.time.delayedCall(350, () => this.shieldBand.setFillStyle(this.upg.tractor ? C.gold : C.cyan, 0.5));
-    if(this.shields <= 0){ this.gameOver(false); return; }
-    this.queue.splice(Math.min(1, this.queue.length), 0, m.fact); // try that fact again soon
-    this.updateHUD();
+    return this.shields <= 0;
   }
 
   waveComplete(){
@@ -1042,7 +1067,7 @@ class GameScene extends Phaser.Scene {
     o.add(T(this,W/2,220,'Paused',64,'#ffd23f',{ fontFamily:FONT_D, fontStyle:'normal' }).setOrigin(0.5));
     o.add(makeButton(this, W/2, 320, 240, 62, 'Keep playing', { size:26, onDown:() => { sfx.select(); this.togglePause(); } }));
     o.add(makeButton(this, W/2, 400, 240, 52, 'Quit to menu', { fill:C.purple, shade:C.purpleDark, size:22, onDown:() => {
-      this.tweens.resumeAll(); this.time.paused = false; this.scene.start('Title'); } }));
+      this.tweens.resumeAll(); this.time.paused = false; this.isPaused = false; goScene(this, 'Title', {}, 250); } }));
     this.pauseLayer = o;
   }
 
@@ -1073,10 +1098,7 @@ class GameScene extends Phaser.Scene {
       waveReached:this.waveIdx + 1, totalWaves:this.levels.length,
       timeSec:Math.round((Date.now() - this.startMs)/1000)
     };
-    this.time.delayedCall(2100, () => {
-      this.cameras.main.fadeOut(600, 13, 9, 38);
-      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('End', data));
-    });
+    this.time.delayedCall(2100, () => goScene(this, 'End', data, 600));
   }
 
   /* ----- loop ----- */
@@ -1138,6 +1160,7 @@ class EndScene extends Phaser.Scene {
   constructor(){ super('End'); }
   init(d){ this.d = d; }
   create(){
+    this._leaving = false;
     const d = this.d, s = d.stats;
     drawSpaceBackground(this);
     this.cameras.main.fadeIn(500,13,9,38);
@@ -1242,10 +1265,9 @@ class EndScene extends Phaser.Scene {
     e.explode(26); this.time.delayedCall(900, () => e.destroy());
   }
   go(scene){
-    if(this.leaving) return; this.leaving = true;
+    if(this._leaving) return;
     sfx.select();
-    this.cameras.main.fadeOut(350,13,9,38);
-    this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start(scene, { mode:this.d.mode, length:this.d.length }));
+    goScene(this, scene, { mode:this.d.mode, length:this.d.length });
   }
 }
 
