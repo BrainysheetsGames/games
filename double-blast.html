@@ -690,13 +690,20 @@ class GameScene extends Phaser.Scene {
     return f;
   }
 
+  /* Answers stay in number order, but the correct answer lands in a random slot (1-4).
+     We pick a slot first, then fill the right number of distractors below and above it.
+     The double (e.g. 14 for 7 + 8) is the favorite "below" trap, and double-the-bigger
+     (16 for 7 + 8) is the favorite "above" trap. */
   makeOptions(f){
     const s = f.sum, d = f.small*2, big = Math.max(f.a,f.b)*2;
-    const pool = Phaser.Utils.Array.Shuffle([...new Set([s+1, s-1, s+2, s-2, big].filter(v => v !== s && v >= 0 && v !== d))]);
-    const pick = [d];
-    for(const v of pool){ if(pick.length >= 3) break; pick.push(v); }
-    let extra = s + 3; while(pick.length < 3){ if(!pick.includes(extra) && extra !== s) pick.push(extra); extra++; }
-    return [s, ...pick].sort((x,y) => x - y);
+    const nearFirst = arr => { if(arr.length > 1 && Math.random() < 0.5) [arr[0], arr[1]] = [arr[1], arr[0]]; return arr; };
+    const belowPool = nearFirst([s-1, s-2, s-3, s-4].filter(v => v >= 0 && v !== d));
+    const abovePool = nearFirst([s+1, s+2, s+3, s+4].filter(v => v !== big));
+    const slot = Math.min(Phaser.Math.Between(0, 3), belowPool.length + 1);
+    const take = (trap, pool, n) => { const out = n > 0 ? [trap] : []; for(const v of pool){ if(out.length >= n) break; out.push(v); } return out; };
+    const below = take(d, belowPool, slot);
+    const above = take(big, abovePool, 3 - slot);
+    return [...below, s, ...above].sort((x,y) => x - y);
   }
 
   startWave(){
